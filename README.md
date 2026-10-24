@@ -1,21 +1,26 @@
-# Win11 Debloat Tool
+# WinDebloat Tool (Windows 10 / 11)
 
-Turn an **official Windows 11 ISO** into a **debloated ISO** – on Windows, with a GUI, using only
+Turn an **official Windows 10 or Windows 11 ISO** into a **debloated ISO** – on Windows, with a GUI, using only
 Microsoft tools (DISM, reg.exe, oscdimg from the Windows ADK). No third-party downloads.
 
 > Vietnamese guide: [README_VI.md](README_VI.md)
+>
+> Formerly *Win11 Debloat Tool*. Since 0.2.0 the main script is `WinDebloatTool.ps1`;
+> `Win11DebloatTool.ps1` remains as a wrapper and `run.bat` accepts the same parameters as before.
 
 > **Status: not yet tested on real Windows.** The code was written and statically checked on Linux
 > (PowerShell 7 parser, PSScriptAnalyzer, a custom PowerShell 2.0 compatibility scan, offline unit
 > tests with mocked dism/reg). The same removals and tweaks were applied to a real
 > Windows 11 ISO on Linux (wimlib + hivex); that ISO booted into Windows Setup in a QEMU VM
-(UEFI + Secure Boot), but a full installation was not tested. This Windows
-> tool reproduces that process with Microsoft tools. Please report problems from a first real run.
+> (UEFI + Secure Boot), but a full installation was not tested. This Windows
+> tool reproduces that process with Microsoft tools. **The Windows 10 profile has not been applied to a
+> real Windows 10 image at all yet** (only unit-tested). Please report problems from a first real run.
 
 ## Quick start
 1. Download/extract the zip, double-click **`run.bat`** (accept the UAC prompt).
-2. **Source**: *Browse…* to an ISO you already have, **or** *Load list* → choose version /
-   arch / language → *Download* (straight from Microsoft, SHA256 checked).
+2. **Source**: *Browse…* to an ISO you already have, **or** *Load list* → choose version
+   (Windows 11 or Windows 10 22H2) / arch / language → *Download* (straight from Microsoft, SHA256 checked).
+   **Target OS** is detected automatically (see below); you can force Windows 10 / Windows 11.
 3. Choose apps, tweaks, editions (All / Home+Pro / index list) and the output path.
 4. **START**. Takes 20–60 min and needs about **25 GB** free. The output folder gets
    `*.iso`, `*.iso.sha256`, a log file and `kept_indexN.txt` (apps left in each edition).
@@ -24,13 +29,23 @@ Microsoft tools (DISM, reg.exe, oscdimg from the Windows ADK). No third-party do
 Console mode:
 ```
 run.bat -NoGui -IsoPath D:\Win11.iso -OutputIso D:\Win11_lite.iso -Edition HomePro
+run.bat -NoGui -IsoPath D:\Win10_22H2_English_x64v1.iso -OutputIso D:\Win10_lite.iso
 run.bat -IsoPath D:\Win11.iso -OutputIso D:\out.iso -WhatIf      # dry run
 run.bat -Check                                                  # system report
 ```
-Parameters: `-Edition All|HomePro|Custom -Indexes 1,6`, `-NoAutounattend`, `-ComponentCleanup`,
+Parameters: `-TargetOs Auto|Win10|Win11`, `-Edition All|HomePro|Custom -Indexes 1,6`, `-NoAutounattend`, `-ComponentCleanup`,
 `-DryRun`/`-WhatIf`, `-WorkDir`, `-KeepWorkDir`, `-MinFreeGB`, `-OscdimgPath`.
 
-## What it changes
+## Windows 10 or Windows 11? (target OS detection)
+The engine reads the build of each image with DISM: **10240–21999 = Windows 10** (22H2 is 19045),
+**22000+ = Windows 11**, and picks the matching profile from `config\DebloatConfig.psd1`.
+The GUI shows the guess immediately (file name, then the WIM header read from the mounted ISO on
+Windows 8+, or the version you downloaded) and fills the app/tweak lists for that OS. On Windows 7
+(no ISO mounting) it uses the file name; if that says nothing, the engine still detects the OS from
+the image and uses that profile's defaults. The *Target OS* box (`-TargetOs`) overrides detection;
+a mismatch is logged as a warning.
+
+## What it changes – Windows 11
 **Removed (provisioned apps, default):** Clipchamp, Teams (new), Outlook (new), News, Bing Search,
 Weather, Xbox app, Game Bar, Xbox TCUI, Xbox Identity Provider, Xbox Speech-to-text overlay,
 Solitaire, Get Help, Microsoft 365 hub, Power Automate, To Do, Dev Home, Feedback Hub,
@@ -59,10 +74,42 @@ create a **local account**, sets BypassNRO again during setup. Disk, edition, pr
 and account name stay interactive. The tool rewrites the setup UI language and architecture to match
 the ISO.
 
-Edit `config\DebloatConfig.psd1` to change app/tweak lists (wildcards allowed).
+## What it changes – Windows 10 (22H2)
+**Removed (default):** 3D Builder, 3D Viewer, Print 3D, Mixed Reality Portal, People, Skype, Mobile Plans
+(OneConnect), Wallet, Messaging, Weather, News, Get Help, Tips (Getstarted), Office hub, OneNote (Store
+app), Solitaire, Xbox app / Game Bar / Xbox TCUI / Identity Provider / Speech-to-text overlay,
+Your Phone, Feedback Hub, **Cortana**, and – if present in newer refreshes – Clipchamp, Teams,
+To Do, Power Automate, Outlook (new), Copilot, Family.
+Optional (unchecked): Groove Music, Movies & TV, Maps, Paint 3D, Mail & Calendar, Camera, Alarms & Clock,
+Voice Recorder, Sticky Notes.
+
+**Always kept:** Store (+ purchase app), Defender/Security, Edge, Calculator, Photos, Snip & Sketch,
+Notepad/Terminal if present, classic Paint, image/video codecs (HEIF, WebP, VP9, …), VCLibs/.NET Native/UI.Xaml
+runtimes, App Installer. Everything removed can be reinstalled from the Store.
+
+**Registry:**
+| Tweak | Keys |
+|---|---|
+| Consumer features off | `Policies\Microsoft\Windows\CloudContent` DisableWindowsConsumerFeatures / DisableSoftLanding / DisableCloudOptimizedContent = 1 |
+| New-user suggestions / silent app installs off | default user `ContentDeliveryManager` (SilentInstalledAppsEnabled, PreInstalledAppsEnabled, SubscribedContent-*, …) = 0 |
+| Cortana & web search off | `Policies\Microsoft\Windows\Windows Search` AllowCortana = 0, DisableWebSearch = 1, ConnectedSearchUseWeb = 0; default user BingSearchEnabled = 0, CortanaConsent = 0, DisableSearchBoxSuggestions = 1 |
+| Telemetry minimum | `Policies\Microsoft\Windows\DataCollection` AllowTelemetry = 0, DoNotShowFeedbackNotifications = 1; AdvertisingInfo DisabledByGroupPolicy = 1. *Home/Pro treat 0 as "Required (Basic)"; only Enterprise/Education honour "Security".* |
+| News and Interests off | `Policies\Microsoft\Windows\Windows Feeds` EnableFeeds = 0; default user `Feeds` ShellFeedsTaskbarViewMode = 2 |
+| Meet Now off | `Policies\Explorer` HideSCAMeetNow = 1 (machine + default user); People band off |
+| Copilot off | as Windows 11 (only matters on late 22H2 builds) |
+| OOBE install tasks removed | `UScheduler_Oobe\{OutlookUpdate,DevHomeUpdate}` if present |
+| OneDrive setup off (optional, unchecked) | deletes default user `Run\OneDriveSetup`, so new accounts do not get OneDrive installed |
+
+No TPM/Secure Boot changes (not needed for Windows 10). **autounattend.xml** is the same file, but the
+tool removes the Windows 11-only BypassNRO command for Windows 10 images (Windows 10 Setup already offers
+"Offline account" / "Limited experience" without a network).
+
+Edit `config\DebloatConfig.psd1` to change app/tweak lists (wildcards allowed): `Apps` / `Tweaks` are
+the Windows 11 profile, `Win10Apps` / `Win10Tweaks` the Windows 10 profile; `Protected` applies to both.
 
 ## Caveats
-- **TPM 2.0 / Secure Boot / CPU checks are NOT bypassed.** Unsupported PCs still get blocked.
+- **TPM 2.0 / Secure Boot / CPU checks are NOT bypassed** (Windows 11). Unsupported PCs still get blocked.
+- Windows 10 support from Microsoft ended on 2025-10-14 (security updates only via ESU). The ISO is still offered.
 - Removing the Xbox components breaks **Xbox / Game Pass sign-in** and Game Bar until you reinstall
   them from the Store.
 - Copilot/Outlook/Teams may come back with feature updates; the policies reduce but do not
@@ -99,9 +146,11 @@ DISM versions, oscdimg, ISO access method and free space, with what to do in Eng
 pwsh -File tests/Test-Parse.ps1       # parser check of every file + config + XML
 pwsh -File tests/Test-PS2Compat.ps1   # PowerShell 2.0 compatibility scan
 pwsh -File tests/Test-Offline.ps1     # unit tests with mocked dism/reg/web
+                                      # (set W11D_REAL_WIM=path\install.wim to also parse a real WIM header)
 pwsh -c "Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1"
 ```
-Layout: `run.bat` (elevating launcher) · `Win11DebloatTool.ps1` (entry, CLI) · `lib/Core.ps1`
+Layout: `run.bat` (elevating launcher) · `WinDebloatTool.ps1` (entry, CLI; `Win11DebloatTool.ps1` =
+compatibility wrapper) · `lib/Core.ps1`
 (engine) · `lib/MsDownload.ps1` (Microsoft download) · `lib/Gui.ps1` (WinForms) ·
 `config/DebloatConfig.psd1` · `autounattend.xml`.
 

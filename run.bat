@@ -1,7 +1,11 @@
 @echo off
 setlocal
-title Win11 Debloat Tool
+title WinDebloat Tool (Windows 10 / 11)
 cd /d "%~dp0"
+
+rem Entry script (WinDebloatTool.ps1; older copies only have Win11DebloatTool.ps1)
+set "W11D_PS1=%~dp0WinDebloatTool.ps1"
+if not exist "%W11D_PS1%" set "W11D_PS1=%~dp0Win11DebloatTool.ps1"
 
 rem Prefer 64-bit PowerShell when launched from a 32-bit process
 set "PSEXE=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
@@ -17,7 +21,7 @@ rem Self-elevate: "net session" only succeeds for administrators
 "%SystemRoot%\System32\net.exe" session >nul 2>&1
 if errorlevel 1 goto :elevate
 
-"%PSEXE%" -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Win11DebloatTool.ps1" %*
+"%PSEXE%" -NoProfile -ExecutionPolicy Bypass -STA -File "%W11D_PS1%" %*
 if errorlevel 1 pause
 endlocal
 exit /b

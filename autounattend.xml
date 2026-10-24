@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Debloated Win11 26H2 answer file.
-     - Setup UI language/keyboard: en-US. EULA auto-accepted.
+<!-- WinDebloat Tool answer file (Windows 10 / 11).
+     - Setup UI language: replaced by the tool with the image's default language (keyboard stays en-US). EULA auto-accepted.
      - Disk/partition selection, edition (Home/Pro), product key, region, keyboard,
        privacy settings and the local account name/password stay INTERACTIVE.
      - Hides the online Microsoft-account screens so a local account can be created.
+     - The BypassNRO command is Windows 11 only; the tool removes it for Windows 10 images.
      - TPM / Secure Boot / RAM / CPU requirement checks are NOT bypassed. -->
 <unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
   <settings pass="windowsPE">

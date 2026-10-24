@@ -1,5 +1,7 @@
 ﻿# Win11 Debloat Tool - configuration / cấu hình
 # Edit this file to change what is removed. / Sửa file này để đổi danh sách gỡ bỏ.
+#  Profiles: Apps/Tweaks = Windows 11 profile, Win10Apps/Win10Tweaks = Windows 10 profile.
+#            The profile is picked from the image build (>= 22000 = Win11) or chosen in the GUI.
 #  Apps    : Id is matched against the provisioned package DisplayName (wildcards * allowed).
 #            Default = $true -> pre-checked in the GUI and used by the CLI.
 #  Protected: never removed, even if listed above (Store, Defender UI, runtimes...).
@@ -57,7 +59,7 @@
         'Microsoft.WindowsCalculator', 'Microsoft.Windows.Photos', 'Microsoft.WindowsNotepad',
         'Microsoft.WindowsTerminal', 'Microsoft.ScreenSketch', 'Microsoft.Paint',
         'Microsoft.*VideoExtension*', 'Microsoft.*ImageExtension*', 'Microsoft.WebMediaExtensions',
-        'Microsoft.ApplicationCompatibilityEnhancements'
+        'Microsoft.ApplicationCompatibilityEnhancements', 'Microsoft.Services.Store.Engagement', 'Microsoft.Advertising.Xaml'
     )
 
     Tweaks = @(
@@ -138,6 +140,152 @@
                 @{ Hive = 'SOFTWARE'; Key = 'Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate' }
                 @{ Hive = 'SOFTWARE'; Key = 'Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\DevHomeUpdate' }
                 @{ Hive = 'SOFTWARE'; Key = 'Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\CrossDeviceUpdate' }
+            )
+        }
+    )
+
+    # ======================= Windows 10 profile =======================
+    Win10Apps = @(
+        # ---- default removals ----
+        @{ Id = 'Microsoft.3DBuilder';                    Name = '3D Builder (older builds)';       Default = $true }
+        @{ Id = 'Microsoft.Microsoft3DViewer';            Name = '3D Viewer';                       Default = $true }
+        @{ Id = 'Microsoft.Print3D';                      Name = 'Print 3D (older builds)';         Default = $true }
+        @{ Id = 'Microsoft.MixedReality.Portal';          Name = 'Mixed Reality Portal';            Default = $true }
+        @{ Id = 'Microsoft.People';                       Name = 'People';                          Default = $true }
+        @{ Id = 'Microsoft.SkypeApp';                     Name = 'Skype';                           Default = $true }
+        @{ Id = 'Microsoft.OneConnect';                   Name = 'Mobile Plans (OneConnect)';       Default = $true }
+        @{ Id = 'Microsoft.Wallet';                       Name = 'Wallet';                          Default = $true }
+        @{ Id = 'Microsoft.Messaging';                    Name = 'Messaging (older builds)';        Default = $true }
+        @{ Id = 'Microsoft.BingWeather';                  Name = 'Weather';                         Default = $true }
+        @{ Id = 'Microsoft.BingNews';                     Name = 'News';                            Default = $true }
+        @{ Id = 'Microsoft.GetHelp';                      Name = 'Get Help';                        Default = $true }
+        @{ Id = 'Microsoft.Getstarted';                   Name = 'Tips / Get Started';              Default = $true }
+        @{ Id = 'Microsoft.MicrosoftOfficeHub';           Name = 'Office hub';                      Default = $true }
+        @{ Id = 'Microsoft.Office.OneNote';               Name = 'OneNote for Windows 10';          Default = $true }
+        @{ Id = 'Microsoft.MicrosoftSolitaireCollection'; Name = 'Solitaire Collection';            Default = $true }
+        @{ Id = 'Microsoft.XboxApp';                      Name = 'Xbox Console Companion';          Default = $true }
+        @{ Id = 'Microsoft.GamingApp';                    Name = 'Xbox app (if present)';           Default = $true }
+        @{ Id = 'Microsoft.XboxGameOverlay';              Name = 'Xbox Game Overlay';               Default = $true }
+        @{ Id = 'Microsoft.XboxGamingOverlay';            Name = 'Xbox Game Bar';                   Default = $true }
+        @{ Id = 'Microsoft.Xbox.TCUI';                    Name = 'Xbox TCUI';                       Default = $true }
+        @{ Id = 'Microsoft.XboxIdentityProvider';         Name = 'Xbox Identity Provider';          Default = $true }
+        @{ Id = 'Microsoft.XboxSpeechToTextOverlay';      Name = 'Xbox Speech-to-text overlay';     Default = $true }
+        @{ Id = 'Microsoft.YourPhone';                    Name = 'Your Phone / Phone Link';         Default = $true }
+        @{ Id = 'Microsoft.WindowsFeedbackHub';           Name = 'Feedback Hub';                    Default = $true }
+        @{ Id = 'Microsoft.549981C3F5F10';                Name = 'Cortana';                         Default = $true }
+        @{ Id = 'Clipchamp.Clipchamp';                    Name = 'Clipchamp (if present)';          Default = $true }
+        @{ Id = 'MicrosoftTeams';                         Name = 'Teams (if present)';              Default = $true }
+        @{ Id = 'MSTeams';                                Name = 'Teams new (if present)';          Default = $true }
+        @{ Id = 'Microsoft.Todos';                        Name = 'To Do (if present)';              Default = $true }
+        @{ Id = 'Microsoft.PowerAutomateDesktop';         Name = 'Power Automate (if present)';     Default = $true }
+        @{ Id = 'Microsoft.OutlookForWindows';            Name = 'Outlook new (if present)';        Default = $true }
+        @{ Id = 'Microsoft.Copilot';                      Name = 'Copilot (if present)';            Default = $true }
+        @{ Id = 'MicrosoftCorporationII.MicrosoftFamily'; Name = 'Microsoft Family (if present)';   Default = $true }
+        # ---- optional, NOT removed by default ----
+        @{ Id = 'Microsoft.ZuneMusic';                    Name = 'Groove Music (optional)';         Default = $false }
+        @{ Id = 'Microsoft.ZuneVideo';                    Name = 'Movies & TV (optional)';          Default = $false }
+        @{ Id = 'Microsoft.WindowsMaps';                  Name = 'Maps (optional)';                 Default = $false }
+        @{ Id = 'Microsoft.MSPaint';                      Name = 'Paint 3D (optional; classic Paint stays)'; Default = $false }
+        @{ Id = 'microsoft.windowscommunicationsapps';    Name = 'Mail & Calendar (optional)';      Default = $false }
+        @{ Id = 'Microsoft.WindowsCamera';                Name = 'Camera (optional)';               Default = $false }
+        @{ Id = 'Microsoft.WindowsAlarms';                Name = 'Alarms & Clock (optional)';       Default = $false }
+        @{ Id = 'Microsoft.WindowsSoundRecorder';         Name = 'Voice Recorder (optional)';       Default = $false }
+        @{ Id = 'Microsoft.MicrosoftStickyNotes';         Name = 'Sticky Notes (optional)';         Default = $false }
+    )
+
+    Win10Tweaks = @(
+        @{
+            Id = 'ConsumerFeatures'; Default = $true
+            Name = 'Disable consumer features / suggested apps'; NameVi = 'Tắt cài app gợi ý (consumer features)'
+            Set = @(
+                @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\CloudContent'; Value = 'DisableWindowsConsumerFeatures'; Type = 'REG_DWORD'; Data = '1' }
+                @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\CloudContent'; Value = 'DisableSoftLanding'; Type = 'REG_DWORD'; Data = '1' }
+                @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\CloudContent'; Value = 'DisableCloudOptimizedContent'; Type = 'REG_DWORD'; Data = '1' }
+            )
+        }
+        @{
+            Id = 'NewUserSuggestionsOff'; Default = $true
+            Name = 'New users: no silent app installs / suggestions / lock-screen ads'; NameVi = 'User mới: tắt tự cài app, gợi ý, quảng cáo màn hình khoá'
+            Set = @(
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'ContentDeliveryAllowed'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'FeatureManagementEnabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'OemPreInstalledAppsEnabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'PreInstalledAppsEnabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'PreInstalledAppsEverEnabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'SilentInstalledAppsEnabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'SoftLandingEnabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'SystemPaneSuggestionsEnabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'SubscribedContentEnabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'SubscribedContent-310093Enabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'SubscribedContent-338387Enabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'SubscribedContent-338388Enabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'SubscribedContent-338389Enabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'SubscribedContent-338393Enabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'SubscribedContent-353694Enabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'SubscribedContent-353696Enabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'RotatingLockScreenEnabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'RotatingLockScreenOverlayEnabled'; Type = 'REG_DWORD'; Data = '0' }
+            )
+        }
+        @{
+            Id = 'CortanaWebSearchOff'; Default = $true
+            Name = 'Cortana and web/Bing results in Start search off'; NameVi = 'Tắt Cortana và kết quả web/Bing khi tìm trong Start'
+            Set = @(
+                @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\Windows Search'; Value = 'AllowCortana'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\Windows Search'; Value = 'DisableWebSearch'; Type = 'REG_DWORD'; Data = '1' }
+                @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\Windows Search'; Value = 'ConnectedSearchUseWeb'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\Search'; Value = 'BingSearchEnabled'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\Search'; Value = 'CortanaConsent'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Policies\Microsoft\Windows\Explorer'; Value = 'DisableSearchBoxSuggestions'; Type = 'REG_DWORD'; Data = '1' }
+            )
+        }
+        @{
+            Id = 'TelemetryMinimum'; Default = $true
+            Name = 'Telemetry to minimum allowed by the edition (Home/Pro = Required, Ent/Edu = Security)'; NameVi = 'Telemetry mức thấp nhất mà phiên bản cho phép'
+            Set = @(
+                @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\DataCollection'; Value = 'AllowTelemetry'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\DataCollection'; Value = 'DoNotShowFeedbackNotifications'; Type = 'REG_DWORD'; Data = '1' }
+                @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\AdvertisingInfo'; Value = 'DisabledByGroupPolicy'; Type = 'REG_DWORD'; Data = '1' }
+            )
+        }
+        @{
+            Id = 'NewsInterestsOff'; Default = $true
+            Name = 'News and Interests (taskbar weather/news) off'; NameVi = 'Tắt Tin tức và sở thích trên taskbar'
+            Set = @(
+                @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\Windows Feeds'; Value = 'EnableFeeds'; Type = 'REG_DWORD'; Data = '0' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\Feeds'; Value = 'ShellFeedsTaskbarViewMode'; Type = 'REG_DWORD'; Data = '2' }
+            )
+        }
+        @{
+            Id = 'MeetNowOff'; Default = $true
+            Name = 'Hide Meet Now and People on the taskbar'; NameVi = 'Ẩn Meet Now và People trên taskbar'
+            Set = @(
+                @{ Hive = 'SOFTWARE'; Key = 'Microsoft\Windows\CurrentVersion\Policies\Explorer'; Value = 'HideSCAMeetNow'; Type = 'REG_DWORD'; Data = '1' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\Policies\Explorer'; Value = 'HideSCAMeetNow'; Type = 'REG_DWORD'; Data = '1' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\People'; Value = 'PeopleBand'; Type = 'REG_DWORD'; Data = '0' }
+            )
+        }
+        @{
+            Id = 'CopilotOff'; Default = $true
+            Name = 'Turn off Windows Copilot (policy, if it arrives via updates)'; NameVi = 'Tắt Copilot (policy, nếu được cài qua update)'
+            Set = @(
+                @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\WindowsCopilot'; Value = 'TurnOffWindowsCopilot'; Type = 'REG_DWORD'; Data = '1' }
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Policies\Microsoft\Windows\WindowsCopilot'; Value = 'TurnOffWindowsCopilot'; Type = 'REG_DWORD'; Data = '1' }
+            )
+        }
+        @{
+            Id = 'RemoveOobeSetupTasks'; Default = $true
+            Name = 'Remove OOBE auto-install tasks (Outlook, Dev Home) if present'; NameVi = 'Xoá tác vụ tự cài Outlook/DevHome khi setup (nếu có)'
+            Delete = @(
+                @{ Hive = 'SOFTWARE'; Key = 'Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate' }
+                @{ Hive = 'SOFTWARE'; Key = 'Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\DevHomeUpdate' }
+            )
+        }
+        @{
+            Id = 'OneDriveSetupOff'; Default = $false
+            Name = 'Do not auto-install OneDrive for new users (optional)'; NameVi = 'Không tự cài OneDrive cho user mới (tuỳ chọn)'
+            DeleteValue = @(
+                @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\Run'; Value = 'OneDriveSetup' }
             )
         }
     )

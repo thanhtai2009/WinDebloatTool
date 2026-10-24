@@ -1,5 +1,5 @@
 ﻿<#
-    Win11 Debloat Tool - core engine (no GUI).
+    WinDebloat Tool (Windows 10 / 11) - core engine (no GUI).
     Compatible with Windows PowerShell 2.0+ (Windows 7 SP1) up to 5.1 / 7.x.
     All image servicing goes through dism.exe (ADK, system or the ISO's own copy),
     registry through reg.exe, ISO creation through oscdimg.exe (Windows ADK).
@@ -55,7 +55,7 @@ function Set-W11Progress {
         if ($Percent -ge 0) { $s.Percent = $Percent }
         if ($Status) { $s.Status = $Status }
     } elseif ($Status -and $Percent -ge 0) {
-        Write-Progress -Activity 'Win11 Debloat Tool' -Status $Status -PercentComplete ([int]$Percent)
+        Write-Progress -Activity 'WinDebloat Tool' -Status $Status -PercentComplete ([int]$Percent)
     }
 }
 
@@ -438,12 +438,13 @@ function Get-W11ImageInfo {
     $out = @()
     foreach ($i in $idx) {
         $d = Invoke-W11Dism ('/Get-ImageInfo /ImageFile:{0} /Index:{1}' -f (ConvertTo-W11Arg $ImageFile), $i) -Quiet
-        $o = @{ Index = $i; Name = ''; EditionId = ''; Architecture = 'x64'; Languages = @(); DefaultLanguage = 'en-US' }
+        $o = @{ Index = $i; Name = ''; EditionId = ''; Architecture = 'x64'; Languages = @(); DefaultLanguage = 'en-US'; Build = 0 }
         $inLang = $false
         foreach ($l in $d.Lines) {
             if ($l -match '^Name\s*:\s*(.+)$') { $o.Name = $Matches[1].Trim(); $inLang = $false; continue }
             if ($l -match '^Edition\s*:\s*(.+)$') { $o.EditionId = $Matches[1].Trim(); $inLang = $false; continue }
             if ($l -match '^Architecture\s*:\s*(.+)$') { $o.Architecture = $Matches[1].Trim(); $inLang = $false; continue }
+            if ($l -match '^Version\s*:\s*\d+\.\d+\.(\d+)') { $o.Build = [int]$Matches[1]; $inLang = $false; continue }
             if ($l -match '^Languages\s*:') { $inLang = $true; continue }
             if ($inLang -and $l -match '^([a-z]{2,3}-[A-Za-z-]+)(\s*\(Default\))?') {
                 $o.Languages += $Matches[1]
@@ -456,6 +457,105 @@ function Get-W11ImageInfo {
     }
     return $out
 }
+
+#region ---------- target OS detection / profiles ----------
+function Resolve-W11OsFromBuild {
+    # 22000+ = Windows 11, 10240..21999 = Windows 10 (19041-19045 = 2004..22H2)
+    param([int]$Build)
+    if ($Build -ge 22000) { return 'Win11' }
+    if ($Build -ge 10240) { return 'Win10' }
+    return $null
+}
+
+function Get-W11OsFromName {
+    # Best-effort guess from a file name such as Win10_22H2_English_x64v1.iso / Win11_25H2_English_x64.iso
+    param([string]$Name)
+    if (-not $Name) { return $null }
+    $n = [IO.Path]::GetFileName($Name)
+    if ($n -match '(?i)win(dows)?[ _.-]?11') { return 'Win11' }
+    if ($n -match '(?i)win(dows)?[ _.-]?10') { return 'Win10' }
+    if ($n -match '(?<!\d)1904[1-5](?!\d)') { return 'Win10' }
+    if ($n -match '(?<!\d)2[2-9]\d{3}(?!\d)') { return 'Win11' }
+    return $null
+}
+
+function Get-W11WimXmlInfo {
+    <# Reads the XML metadata straight from a WIM/ESD header (no DISM needed, works on PS 2.0).
+       Header: "MSWIM\0\0\0" ... rhXmlData at byte 72 (7-byte size + flags, 8-byte offset). XML is UTF-16LE. #>
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $fs = [IO.File]::OpenRead($Path)
+    try {
+        $hdr = New-Object byte[] 208
+        if ($fs.Read($hdr, 0, 208) -ne 208) { throw 'file too small' }
+        if ([Text.Encoding]::ASCII.GetString($hdr, 0, 5) -ne 'MSWIM') { throw "not a WIM/ESD file: $Path" }
+        $size = [long]0
+        for ($i = 6; $i -ge 0; $i--) { $size = $size * 256 + $hdr[72 + $i] }
+        $off = [BitConverter]::ToInt64($hdr, 80)
+        if ($size -le 0 -or $size -gt 64MB -or $off -le 0) { throw 'invalid XML resource in WIM header' }
+        $buf = New-Object byte[] $size
+        [void]$fs.Seek($off, [IO.SeekOrigin]::Begin)
+        $got = 0
+        while ($got -lt $size) { $n = $fs.Read($buf, $got, $size - $got); if ($n -le 0) { break }; $got += $n }
+    } finally { $fs.Close() }
+    $text = [Text.Encoding]::Unicode.GetString($buf).TrimStart([char]0xFEFF).TrimEnd([char]0)
+    $x = New-Object Xml.XmlDocument
+    $x.LoadXml($text)
+    $out = @()
+    foreach ($img in @($x.SelectNodes('/WIM/IMAGE'))) {
+        $w = $img.SelectSingleNode('WINDOWS')
+        $build = 0; $ed = ''; $arch = 'x64'; $lang = ''
+        if ($w) {
+            $b = $w.SelectSingleNode('VERSION/BUILD'); if ($b) { $build = [int]$b.InnerText }
+            $e = $w.SelectSingleNode('EDITIONID'); if ($e) { $ed = $e.InnerText }
+            $a = $w.SelectSingleNode('ARCH'); if ($a) { switch ($a.InnerText) { '0' { $arch = 'x86' } '12' { $arch = 'arm64' } default { $arch = 'x64' } } }
+            $l = $w.SelectSingleNode('LANGUAGES/DEFAULT'); if ($l) { $lang = $l.InnerText }
+        }
+        $nm = $img.SelectSingleNode('NAME'); $name = ''; if ($nm) { $name = $nm.InnerText }
+        $out += (New-W11Obj @{ Index = [int]$img.GetAttribute('INDEX'); Name = $name; EditionId = $ed; Build = $build; Architecture = $arch; DefaultLanguage = $lang })
+    }
+    return $out
+}
+
+function Get-W11IsoOsInfo {
+    <# Detects Windows 10 vs 11 for an ISO. Win8+ hosts: mount + read install.wim/esd XML (fast).
+       Otherwise (Win7) falls back to the file name. Returns Os, Build, Source, Editions. #>
+    param([Parameter(Mandatory = $true)][string]$IsoPath)
+    $guess = Get-W11OsFromName $IsoPath
+    if (Get-Command Mount-DiskImage -ErrorAction SilentlyContinue) {
+        $iso = $null
+        try {
+            $iso = Open-W11Iso -IsoPath $IsoPath
+            foreach ($f in @('install.wim', 'install.esd')) {
+                $p = Join-Path $iso.Root "sources\$f"
+                if (Test-Path -LiteralPath $p) {
+                    $eds = @(Get-W11WimXmlInfo -Path $p)
+                    $build = 0; foreach ($e in $eds) { if ($e.Build -gt $build) { $build = $e.Build } }
+                    $os = Resolve-W11OsFromBuild $build
+                    if ($os) { return (New-W11Obj @{ Os = $os; Build = $build; Source = 'image'; Editions = $eds }) }
+                }
+            }
+        } catch {
+            Write-W11Log -Level WARN -En "Could not read the image inside the ISO: $($_.Exception.Message)" -Vi 'Không đọc được image trong ISO'
+        } finally { if ($iso) { Close-W11Iso -Iso $iso -IsoPath $IsoPath } }
+    }
+    if ($guess) { return (New-W11Obj @{ Os = $guess; Build = 0; Source = 'filename'; Editions = @() }) }
+    return (New-W11Obj @{ Os = $null; Build = 0; Source = 'unknown'; Editions = @() })
+}
+
+function Get-W11Profile {
+    <# App/tweak lists for the target OS. Config keys: Apps/Tweaks (Windows 11), Win10Apps/Win10Tweaks. #>
+    param([Parameter(Mandatory = $true)]$Config, [ValidateSet('Win10', 'Win11')][string]$Os = 'Win11')
+    if ($Os -eq 'Win10') { $apps = $Config.Win10Apps; $tweaks = $Config.Win10Tweaks }
+    else { $apps = $Config.Apps; $tweaks = $Config.Tweaks }
+    return (New-W11Obj @{ Os = $Os; Apps = @($apps); Tweaks = @($tweaks); Protected = @($Config.Protected) })
+}
+
+function Get-W11OsLabel([string]$Os) {
+    if ($Os -eq 'Win10') { return 'Windows 10' }
+    if ($Os -eq 'Win11') { return 'Windows 11' }
+    return 'unknown'
+}
+#endregion
 
 function Get-W11ProvisionedApps {
     param([Parameter(Mandatory = $true)][string]$MountDir)
@@ -516,6 +616,16 @@ function Invoke-W11Tweaks {
                 $code = Invoke-W11Reg ('add {0} /v {1} /t {2} /d {3} /f' -f (ConvertTo-W11Arg $key), (ConvertTo-W11Arg $v.Value), $v.Type, $v.Data)
                 if ($code -ne 0) { Write-W11Log -Level WARN -En "    FAILED to set $($v.Key)\$($v.Value) (exit $code)" -Vi 'Không ghi được (có thể do quyền của key)' }
                 else { Write-W11Log -En "    set $($v.Key)\$($v.Value) = $($v.Data)" }
+            }
+        }
+        if ($t.ContainsKey('DeleteValue')) {
+            foreach ($d in $t.DeleteValue) {
+                $key = '{0}\{1}' -f $map[$d.Hive], $d.Key
+                if ($DryRun) { Write-W11Log -Level DRY -En "    would delete value (if present) $($d.Hive)\$($d.Key)\$($d.Value)"; continue }
+                if ((Invoke-W11Reg ('query {0} /v {1}' -f (ConvertTo-W11Arg $key), (ConvertTo-W11Arg $d.Value))) -ne 0) { Write-W11Log -En "    (not present) $($d.Key)\$($d.Value)"; continue }
+                $code = Invoke-W11Reg ('delete {0} /v {1} /f' -f (ConvertTo-W11Arg $key), (ConvertTo-W11Arg $d.Value))
+                if ($code -ne 0) { Write-W11Log -Level WARN -En "    FAILED to delete value $($d.Key)\$($d.Value) (exit $code)" -Vi 'Không xoá được giá trị' }
+                else { Write-W11Log -En "    deleted value $($d.Key)\$($d.Value)" }
             }
         }
         if ($t.ContainsKey('Delete')) {
@@ -585,11 +695,26 @@ function Get-W11ArchName([string]$Arch) {
 }
 
 function Write-W11Autounattend {
-    param([string]$Template, [string]$Destination, [string]$Language = 'en-US', [string]$Arch = 'amd64')
+    param([string]$Template, [string]$Destination, [string]$Language = 'en-US', [string]$Arch = 'amd64', [string]$Os = 'Win11')
     $xml = [IO.File]::ReadAllText($Template)
     $xml = $xml -replace 'processorArchitecture="[a-z0-9]+"', ('processorArchitecture="{0}"' -f $Arch)
     # Setup UI language must exist on the media -> use the image's default language
     $xml = $xml -replace '<UILanguage>[^<]+</UILanguage>', ('<UILanguage>{0}</UILanguage>' -f $Language)
+    if ($Os -eq 'Win10') {
+        # Windows 10 already offers "Offline account / Limited experience"; BypassNRO is a Windows 11 thing.
+        $doc = New-Object Xml.XmlDocument
+        $doc.PreserveWhitespace = $true
+        $doc.LoadXml($xml)
+        foreach ($c in @($doc.GetElementsByTagName('RunSynchronousCommand'))) {
+            if ($c.InnerXml -match 'BypassNRO') { [void]$c.ParentNode.RemoveChild($c) }
+        }
+        $n = 1
+        foreach ($c in @($doc.GetElementsByTagName('RunSynchronousCommand'))) {
+            foreach ($o in @($c.GetElementsByTagName('Order'))) { $o.InnerText = [string]$n }
+            $n++
+        }
+        $xml = $doc.OuterXml
+    }
     [IO.File]::WriteAllText($Destination, $xml, (New-Object Text.UTF8Encoding $false))
 }
 
@@ -607,7 +732,7 @@ function Get-W11IsoEditions {
         if (-not $src) { throw 'sources\install.wim/esd not found' }
         $null = Select-W11Dism -IsoSourcesDir (Join-Path $iso.Root 'sources')
         $eds = @(Get-W11ImageInfo -ImageFile $src)
-        foreach ($e in $eds) { Write-W11Log -En ('  [{0}] {1}  ({2}, {3}, {4})' -f $e.Index, $e.Name, $e.EditionId, $e.Architecture, $e.DefaultLanguage) }
+        foreach ($e in $eds) { Write-W11Log -En ('  [{0}] {1}  ({2}, {3}, {4}, build {5} = {6})' -f $e.Index, $e.Name, $e.EditionId, $e.Architecture, $e.DefaultLanguage, $e.Build, (Get-W11OsLabel (Resolve-W11OsFromBuild $e.Build))) }
         return $eds
     } finally { Close-W11Iso -Iso $iso -IsoPath $IsoPath }
 }
@@ -621,6 +746,7 @@ function Invoke-Win11Debloat {
         [Parameter(Mandatory = $true)][string]$OutputIso,
         [string]$WorkDir,
         [ValidateSet('All', 'HomePro', 'Custom')][string]$EditionMode = 'All',
+        [ValidateSet('Auto', 'Win10', 'Win11')][string]$TargetOs = 'Auto',   # Auto = from image build
         [int[]]$Indexes,
         [string[]]$RemoveApps,          # $null = config defaults
         [string[]]$Tweaks,              # $null = config defaults
@@ -640,26 +766,37 @@ function Invoke-Win11Debloat {
     $OutputIso = [IO.Path]::GetFullPath($OutputIso)
     $IsoPath = [IO.Path]::GetFullPath($IsoPath)
     $outDir = Split-Path -Parent $OutputIso
-    if (-not $WorkDir) { $WorkDir = Join-Path $outDir 'W11Debloat_work' }
+    if (-not $WorkDir) { $WorkDir = Join-Path $outDir 'WinDebloat_work' }
     $WorkDir = [IO.Path]::GetFullPath($WorkDir).TrimEnd('\')
     $null = New-Item -ItemType Directory -Force -Path $outDir
-    if (-not $LogPath) { $LogPath = Join-Path $outDir ('W11Debloat_{0}.log' -f (Get-Date -Format 'yyyyMMdd_HHmmss')) }
+    if (-not $LogPath) { $LogPath = Join-Path $outDir ('WinDebloat_{0}.log' -f (Get-Date -Format 'yyyyMMdd_HHmmss')) }
     $script:W11D.LogPath = $LogPath
     if (-not $AutounattendPath) { $AutounattendPath = Join-Path $script:W11Root 'autounattend.xml' }
 
     $cfg = Get-W11Config -Path $ConfigPath
-    if ($null -eq $RemoveApps) { $RemoveApps = @($cfg.Apps | Where-Object { $_.Default } | ForEach-Object { $_.Id }) }
-    if ($null -eq $Tweaks) { $Tweaks = @($cfg.Tweaks | Where-Object { $_.Default } | ForEach-Object { $_.Id }) }
-    $tweakDefs = @($cfg.Tweaks | Where-Object { $Tweaks -contains $_.Id })
+    $userApps = $RemoveApps; $userTweaks = $Tweaks
+    # provisional profile (final one is chosen once the image build is known)
+    $os = $TargetOs
+    if ($os -eq 'Auto') { $os = Get-W11OsFromName $IsoPath; if (-not $os) { $os = 'Win11' } }
+    $planFor = {
+        param($o)
+        $script:__prof = Get-W11Profile -Config $cfg -Os $o
+        $a = $userApps; if ($null -eq $a) { $a = @($script:__prof.Apps | Where-Object { $_.Default } | ForEach-Object { $_.Id }) }
+        $t = $userTweaks; if ($null -eq $t) { $t = @($script:__prof.Tweaks | Where-Object { $_.Default } | ForEach-Object { $_.Id }) }
+        $script:__apps = @($a); $script:__tweakIds = @($t)
+        $script:__tweakDefs = @($script:__prof.Tweaks | Where-Object { $t -contains $_.Id })
+    }
+    & $planFor $os
+    $RemoveApps = $script:__apps; $Tweaks = $script:__tweakIds; $tweakDefs = $script:__tweakDefs
 
     $mountDir = Join-Path $WorkDir 'mount'
     $tree = Join-Path $WorkDir 'iso'
     $workWim = Join-Path $WorkDir 'install.work.wim'
     $marker = Join-Path $WorkDir '.w11debloat-work'
     $iso = $null; $imageMounted = $false; $success = $false
-    $result = New-W11Obj @{ OutputIso = $OutputIso; Sha256 = $null; LogPath = $LogPath; DryRun = $DryRun }
+    $result = New-W11Obj @{ OutputIso = $OutputIso; Sha256 = $null; LogPath = $LogPath; DryRun = $DryRun; TargetOs = $null }
 
-    Write-W11Log -Level STEP -En '===== Win11 Debloat Tool =====' -Vi '===== Công cụ debloat Windows 11 ====='
+    Write-W11Log -Level STEP -En '===== WinDebloat Tool (Windows 10/11) =====' -Vi '===== Công cụ debloat Windows 10/11 ====='
     Write-W11Log -En "Source ISO: $IsoPath" -Vi 'ISO nguồn'
     Write-W11Log -En "Output ISO: $OutputIso" -Vi 'ISO đầu ra'
     Write-W11Log -En "Work dir  : $WorkDir" -Vi 'Thư mục tạm'
@@ -728,6 +865,18 @@ function Invoke-Win11Debloat {
         Write-W11Log -Level OK -En ('Editions to keep: ' + (($selected | ForEach-Object { "$($_.Index):$($_.Name)" }) -join ', ')) -Vi 'Phiên bản giữ lại'
         $lang = $selected[0].DefaultLanguage
         $archName = Get-W11ArchName $selected[0].Architecture
+        $detected = Resolve-W11OsFromBuild $selected[0].Build
+        if ($detected) { Write-W11Log -Level OK -En "Image build $($selected[0].Build) = $(Get-W11OsLabel $detected)" -Vi "Bản build $($selected[0].Build) = $(Get-W11OsLabel $detected)" }
+        else { Write-W11Log -Level WARN -En "Could not read the image build; using profile $(Get-W11OsLabel $os)" -Vi 'Không đọc được build, dùng hồ sơ đã chọn' }
+        if ($TargetOs -eq 'Auto') {
+            if ($detected -and $detected -ne $os) { $os = $detected; & $planFor $os; $RemoveApps = $script:__apps; $Tweaks = $script:__tweakIds; $tweakDefs = $script:__tweakDefs }
+            elseif ($detected) { $os = $detected }
+        } elseif ($detected -and $detected -ne $TargetOs) {
+            Write-W11Log -Level WARN -En "You chose $(Get-W11OsLabel $TargetOs) but the image is $(Get-W11OsLabel $detected). Continuing with your choice." -Vi "Đã chọn $(Get-W11OsLabel $TargetOs) nhưng image là $(Get-W11OsLabel $detected). Vẫn làm theo lựa chọn thủ công."
+        }
+        $cfgProtected = (Get-W11Profile -Config $cfg -Os $os).Protected
+        $result.TargetOs = $os
+        Write-W11Log -Level OK -En "Debloat profile: $(Get-W11OsLabel $os)" -Vi "Hồ sơ debloat: $(Get-W11OsLabel $os)"
         Write-W11Log -En "Language: $lang, architecture: $archName"
         Write-W11Log -En ('Apps to remove: ' + ($RemoveApps -join ', ')) -Vi 'App sẽ gỡ'
         Write-W11Log -En ('Tweaks: ' + ($Tweaks -join ', ')) -Vi 'Tinh chỉnh registry'
@@ -738,14 +887,14 @@ function Invoke-Win11Debloat {
                 try {
                     $null = Invoke-W11Dism ('/Mount-Image /ImageFile:{0} /Index:{1} /MountDir:{2} /ReadOnly' -f (ConvertTo-W11Arg $srcImage), $selected[0].Index, (ConvertTo-W11Arg $mountDir)) -Quiet
                     $imageMounted = $true
-                    if ($script:W11D.DismCanAppx) { Remove-W11AppsDism -MountDir $mountDir -Patterns $RemoveApps -Protected $cfg.Protected -DryRun }
+                    if ($script:W11D.DismCanAppx) { Remove-W11AppsDism -MountDir $mountDir -Patterns $RemoveApps -Protected $cfgProtected -DryRun }
                     else { Write-W11Log -Level DRY -En 'Manual app removal mode; listing skipped.' }
                 } catch { Write-W11Log -Level WARN -En "Read-only inspection failed: $($_.Exception.Message)" -Vi 'Không xem thử được' }
             } else {
                 Write-W11Log -Level DRY -En 'install.esd will be converted to WIM first.' -Vi 'install.esd sẽ được chuyển sang WIM trước.'
             }
             Invoke-W11Tweaks -TweakDefs $tweakDefs -DryRun
-            if ($Autounattend) { Write-W11Log -Level DRY -En "Would add autounattend.xml (UILanguage=$lang, arch=$archName)" -Vi 'Sẽ thêm autounattend.xml' }
+            if ($Autounattend) { Write-W11Log -Level DRY -En "Would add autounattend.xml (UILanguage=$lang, arch=$archName, $(Get-W11OsLabel $os))" -Vi 'Sẽ thêm autounattend.xml' }
             Write-W11Log -Level DRY -En "Would build $OutputIso with oscdimg (BIOS+UEFI)." -Vi 'Sẽ tạo ISO bằng oscdimg.'
             Write-W11Log -Level OK -En 'Dry run finished.' -Vi 'Chạy thử xong.'
             $success = $true
@@ -799,13 +948,13 @@ function Invoke-Win11Debloat {
             $kept = Join-Path $outDir ('kept_index{0}.txt' -f $t.WorkIndex)
             Set-W11Progress ($base + $span * 0.2) "$tag Removing apps / Gỡ app"
             if ($script:W11D.DismCanAppx) {
-                Remove-W11AppsDism -MountDir $mountDir -Patterns $RemoveApps -Protected $cfg.Protected -KeptListPath $kept
+                Remove-W11AppsDism -MountDir $mountDir -Patterns $RemoveApps -Protected $cfgProtected -KeptListPath $kept
                 Mount-W11Hives -MountDir $mountDir
                 try { Invoke-W11Tweaks -TweakDefs $tweakDefs } finally { Dismount-W11Hives }
             } else {
                 Mount-W11Hives -MountDir $mountDir
                 try {
-                    Remove-W11AppsManual -MountDir $mountDir -Patterns $RemoveApps -Protected $cfg.Protected -KeptListPath $kept
+                    Remove-W11AppsManual -MountDir $mountDir -Patterns $RemoveApps -Protected $cfgProtected -KeptListPath $kept
                     Invoke-W11Tweaks -TweakDefs $tweakDefs
                 } finally { Dismount-W11Hives }
             }
@@ -836,7 +985,7 @@ function Invoke-Win11Debloat {
         # ---- autounattend ----
         if ($Autounattend) {
             Write-W11Log -Level STEP -En 'Adding autounattend.xml to ISO root...' -Vi 'Thêm autounattend.xml vào gốc ISO...'
-            Write-W11Autounattend -Template $AutounattendPath -Destination (Join-Path $tree 'autounattend.xml') -Language $lang -Arch $archName
+            Write-W11Autounattend -Template $AutounattendPath -Destination (Join-Path $tree 'autounattend.xml') -Language $lang -Arch $archName -Os $os
         }
 
         # ---- build ISO ----

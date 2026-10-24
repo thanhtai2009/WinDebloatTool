@@ -24,7 +24,9 @@ $apps = @(Get-W11ProvisionedApps -MountDir 'X:\m')
 Assert ($apps.Count -eq 3 -and $apps[0].PackageName -like 'Clipchamp.Clipchamp_*') 'provisioned appx parsed'
 
 $cfg = Get-W11Config
-$def = @($cfg.Apps | Where-Object { $_.Default } | ForEach-Object { $_.Id })
+Assert ($info[1].Build -eq 26300) 'build parsed from dism Version line'
+$p11 = Get-W11Profile -Config $cfg -Os Win11
+$def = @($p11.Apps | Where-Object { $_.Default } | ForEach-Object { $_.Id })
 foreach ($fam in (Get-Content (Join-Path $root 'tests\fixtures\reference_families.txt'))) { if ($fam) { Assert ($def -contains $fam) "reference removal kept in defaults: $fam" } }
 Assert (-not (Test-W11Like 'Microsoft.WindowsStore' $def)) 'Store not in removal list'
 Assert (Test-W11Like 'Microsoft.WindowsStore' $cfg.Protected) 'Store protected'
@@ -39,7 +41,7 @@ Assert (-not ($script:dismCalls | Where-Object { $_ -match 'WindowsStore' })) 'S
 # --- tweaks (mock reg) ---
 $script:regCalls = @()
 function Invoke-W11Reg { param([string]$Arguments) $script:regCalls += $Arguments; if ($Arguments -like 'query*') { return 0 }; return 0 }
-Invoke-W11Tweaks -TweakDefs @($cfg.Tweaks)
+Invoke-W11Tweaks -TweakDefs @($p11.Tweaks)
 $adds = @($script:regCalls | Where-Object { $_ -like 'add *' })
 $dels = @($script:regCalls | Where-Object { $_ -like 'delete *' })
 Assert ($adds.Count -eq 28) "28 registry values written (got $($adds.Count))"
@@ -49,7 +51,7 @@ Assert (@($adds | Where-Object { $_ -match 'W11D_DEFAULT\\Software\\Microsoft\\W
 
 # --- MS page parsing / hash matching ---
 function Invoke-MsDlRequest { param([string]$Uri, [string]$Referer) return [IO.File]::ReadAllText((Join-Path $fx 'mspage.html')) }
-$pi = Get-MsDlPageInfo -Url 'https://x' -Arch 'x64'
+$pi = Get-MsDlPageInfo -Url 'https://x' -Fallback '3813'
 Assert (@($pi.Editions).Count -eq 1 -and $pi.Editions[0].Id -eq '3813') 'edition 3813 parsed from page'
 Assert ($pi.Hashes.Count -eq 4) 'hash table parsed'
 Assert ((Find-MsPublishedHash $pi.Hashes 'English' 'English (United States)') -eq 'BD4307DF32BC8AF33B39CCECB1174AEB345386630F89A2B86C7A4E36B55EA650') 'English hash matched (= hash of the ISO used for the reference build)'
@@ -68,6 +70,120 @@ Assert ($x -match '<UILanguage>de-DE</UILanguage>' -and $x -notmatch 'processorA
 [xml]$null = $x
 Remove-Item $tmp, $ua
 Assert ((Get-W11ArchName 'arm64') -eq 'arm64' -and (Get-W11ArchName 'x64') -eq 'amd64') 'arch mapping'
+
+# ================= Windows 10 support =================
+# --- OS detection from build / file name ---
+Assert ((Resolve-W11OsFromBuild 19045) -eq 'Win10' -and (Resolve-W11OsFromBuild 19041) -eq 'Win10' -and (Resolve-W11OsFromBuild 10240) -eq 'Win10') 'builds 10240/19041/19045 -> Win10'
+Assert ((Resolve-W11OsFromBuild 22000) -eq 'Win11' -and (Resolve-W11OsFromBuild 26300) -eq 'Win11') 'builds 22000/26300 -> Win11'
+Assert ($null -eq (Resolve-W11OsFromBuild 9600) -and $null -eq (Resolve-W11OsFromBuild 0)) 'build 9600/0 -> unknown'
+Assert ((Get-W11OsFromName 'D:\iso\Win10_22H2_English_x64v1.iso') -eq 'Win10') 'name Win10_22H2_English_x64v1.iso'
+Assert ((Get-W11OsFromName 'Win11_25H2_English_x64.iso') -eq 'Win11') 'name Win11_25H2_English_x64.iso'
+Assert ((Get-W11OsFromName 'Windows11_Client_x64_en-us_26300_9457.iso') -eq 'Win11') 'name Windows11_Client_..._26300'
+Assert ((Get-W11OsFromName '19045.2965.230505-1139.22h2_release_CLIENT_x64FRE_en-us.iso') -eq 'Win10') 'name with build 19045'
+Assert ($null -eq (Get-W11OsFromName 'my_backup.iso')) 'unknown name -> $null'
+
+# --- WIM header XML reader (synthetic Windows 10 WIM) ---
+function New-FakeWim($path, $xml) {
+    $x = [Text.Encoding]::Unicode.GetPreamble() + [Text.Encoding]::Unicode.GetBytes($xml)
+    $hdr = New-Object byte[] 208
+    [Text.Encoding]::ASCII.GetBytes("MSWIM`0`0`0").CopyTo($hdr, 0)
+    $sz = [BitConverter]::GetBytes([long]$x.Length); for ($i = 0; $i -lt 7; $i++) { $hdr[72 + $i] = $sz[$i] }
+    $hdr[79] = 2
+    [BitConverter]::GetBytes([long]4096).CopyTo($hdr, 80)
+    $fs = [IO.File]::Create($path)
+    $fs.Write($hdr, 0, 208); $fs.Write((New-Object byte[] (4096 - 208)), 0, 4096 - 208); $fs.Write($x, 0, $x.Length); $fs.Close()
+}
+$fw = [IO.Path]::GetTempFileName()
+New-FakeWim $fw '<WIM><TOTALBYTES>1</TOTALBYTES><IMAGE INDEX="1"><NAME>Windows 10 Home</NAME><WINDOWS><ARCH>9</ARCH><EDITIONID>Core</EDITIONID><LANGUAGES><LANGUAGE>vi-VN</LANGUAGE><DEFAULT>vi-VN</DEFAULT></LANGUAGES><VERSION><MAJOR>10</MAJOR><MINOR>0</MINOR><BUILD>19045</BUILD></VERSION></WINDOWS></IMAGE><IMAGE INDEX="6"><NAME>Windows 10 Pro</NAME><WINDOWS><ARCH>0</ARCH><EDITIONID>Professional</EDITIONID><VERSION><BUILD>19045</BUILD></VERSION></WINDOWS></IMAGE></WIM>'
+$wx = @(Get-W11WimXmlInfo -Path $fw)
+Assert ($wx.Count -eq 2 -and $wx[0].Build -eq 19045 -and $wx[0].EditionId -eq 'Core' -and $wx[0].DefaultLanguage -eq 'vi-VN') 'WIM XML: build/edition/language'
+Assert ($wx[1].Index -eq 6 -and $wx[1].Architecture -eq 'x86' -and $wx[0].Architecture -eq 'x64') 'WIM XML: index + arch mapping'
+Assert ((Resolve-W11OsFromBuild $wx[0].Build) -eq 'Win10') 'synthetic Win10 WIM -> Win10'
+[IO.File]::WriteAllBytes($fw, [Text.Encoding]::ASCII.GetBytes('not a wim at all' * 20))
+$threw = $false; try { $null = Get-W11WimXmlInfo -Path $fw } catch { $threw = $true }
+Assert $threw 'non-WIM file rejected'
+Remove-Item $fw
+if ($env:W11D_REAL_WIM -and (Test-Path -LiteralPath $env:W11D_REAL_WIM)) {
+    $rw = @(Get-W11WimXmlInfo -Path $env:W11D_REAL_WIM)
+    Write-Host ("     real WIM: " + (($rw | ForEach-Object { "$($_.Index):$($_.Name)/$($_.EditionId)/$($_.Build)/$($_.Architecture)/$($_.DefaultLanguage)" }) -join '; '))
+    Assert ($rw.Count -ge 1 -and (Resolve-W11OsFromBuild $rw[0].Build)) "real WIM header parsed ($env:W11D_REAL_WIM)"
+}
+
+# --- Windows 10 profile ---
+$p10 = Get-W11Profile -Config $cfg -Os Win10
+$d10 = @($p10.Apps | Where-Object { $_.Default } | ForEach-Object { $_.Id })
+$o10 = @($p10.Apps | Where-Object { -not $_.Default } | ForEach-Object { $_.Id })
+foreach ($id in @('Microsoft.3DBuilder', 'Microsoft.Microsoft3DViewer', 'Microsoft.Print3D', 'Microsoft.MixedReality.Portal', 'Microsoft.People', 'Microsoft.SkypeApp', 'Microsoft.OneConnect', 'Microsoft.Wallet', 'Microsoft.Messaging', 'Microsoft.BingWeather', 'Microsoft.BingNews', 'Microsoft.GetHelp', 'Microsoft.Getstarted', 'Microsoft.MicrosoftOfficeHub', 'Microsoft.MicrosoftSolitaireCollection', 'Microsoft.XboxApp', 'Microsoft.XboxGamingOverlay', 'Microsoft.YourPhone', 'Microsoft.WindowsFeedbackHub', 'Microsoft.549981C3F5F10', 'Clipchamp.Clipchamp', 'MicrosoftTeams')) {
+    Assert ($d10 -contains $id) "Win10 default removal: $id"
+}
+foreach ($id in @('Microsoft.ZuneMusic', 'Microsoft.ZuneVideo', 'Microsoft.WindowsMaps', 'Microsoft.MSPaint')) { Assert ($o10 -contains $id) "Win10 optional (unticked): $id" }
+foreach ($id in @('Microsoft.WindowsStore', 'Microsoft.Windows.Photos', 'Microsoft.WindowsCalculator', 'Microsoft.WindowsNotepad', 'Microsoft.WindowsTerminal', 'Microsoft.ScreenSketch', 'Microsoft.StorePurchaseApp', 'Microsoft.VCLibs.140.00', 'Microsoft.UI.Xaml.2.4', 'Microsoft.NET.Native.Framework.2.2', 'Microsoft.DesktopAppInstaller', 'Microsoft.HEIFImageExtension', 'Microsoft.WebpImageExtension', 'Microsoft.VP9VideoExtensions', 'Microsoft.SecHealthUI')) {
+    Assert ((-not (Test-W11Like $id $d10)) -and (Test-W11Like $id $p10.Protected)) "Win10 keeps + protects: $id"
+}
+Assert (@($p10.Apps | ForEach-Object { $_.Id } | Where-Object { Test-W11Like $_ $p10.Protected }).Count -eq 0) 'no Win10 app entry is also protected'
+Assert (@($p11.Apps | ForEach-Object { $_.Id } | Where-Object { Test-W11Like $_ $p11.Protected }).Count -eq 0) 'no Win11 app entry is also protected'
+$t10 = @($p10.Tweaks | ForEach-Object { $_.Id })
+Assert ($t10 -notcontains 'BypassNRO' -and $t10 -notcontains 'TeamsChatAutoInstallOff') 'Win10 profile has no Win11-only tweaks'
+Assert (@($p10.Tweaks | Where-Object { $_.Id -eq 'OneDriveSetupOff' })[0].Default -eq $false) 'OneDrive removal optional (unticked)'
+$script:regCalls = @()
+Invoke-W11Tweaks -TweakDefs @($p10.Tweaks)
+$adds = @($script:regCalls | Where-Object { $_ -like 'add *' })
+Assert (@($adds | Where-Object { $_ -match 'DataCollection" /v "AllowTelemetry" /t REG_DWORD /d 0' }).Count -eq 1) 'Win10 AllowTelemetry=0'
+Assert (@($adds | Where-Object { $_ -match 'Windows Search" /v "DisableWebSearch" /t REG_DWORD /d 1' }).Count -eq 1) 'Win10 web search off'
+Assert (@($adds | Where-Object { $_ -match 'W11D_SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer" /v "HideSCAMeetNow"' }).Count -eq 1) 'Win10 Meet Now hidden'
+Assert (@($adds | Where-Object { $_ -match 'W11D_DEFAULT\\Software\\Microsoft\\Windows\\CurrentVersion\\Feeds" /v "ShellFeedsTaskbarViewMode" /t REG_DWORD /d 2' }).Count -eq 1) 'Win10 News and Interests hidden'
+Assert (@($script:regCalls | Where-Object { $_ -match '^delete .*CurrentVersion\\Run" /v "OneDriveSetup" /f' }).Count -eq 1) 'OneDriveSetup Run value deleted (DeleteValue)'
+Assert (@($adds | Where-Object { $_ -match 'BypassNRO' }).Count -eq 0) 'Win10: no BypassNRO in registry'
+
+# --- autounattend per OS ---
+$ua = [IO.Path]::GetTempFileName()
+Write-W11Autounattend -Template (Join-Path $root 'autounattend.xml') -Destination $ua -Language 'en-US' -Arch 'x86' -Os 'Win10'
+$x10 = [IO.File]::ReadAllText($ua); $d = New-Object Xml.XmlDocument; $d.LoadXml($x10)
+$cmds = @($d.GetElementsByTagName('RunSynchronousCommand'))
+$paths10 = @($d.GetElementsByTagName('Path') | ForEach-Object { $_.InnerText })
+Assert ((@($paths10 | Where-Object { $_ -match 'BypassNRO' }).Count -eq 0) -and $cmds.Count -eq 1 -and [string]$cmds[0].Order -eq '1' -and $x10 -match 'DisableWindowsConsumerFeatures') 'Win10 autounattend: BypassNRO removed, order renumbered'
+Assert ($x10 -match 'processorArchitecture="x86"' -and $x10 -match 'HideOnlineAccountScreens') 'Win10 autounattend: x86 + local account'
+Write-W11Autounattend -Template (Join-Path $root 'autounattend.xml') -Destination $ua -Language 'en-US' -Arch 'amd64' -Os 'Win11'
+$d.LoadXml([IO.File]::ReadAllText($ua))
+Assert (@($d.GetElementsByTagName('Path') | Where-Object { $_.InnerText -match 'BypassNRO' }).Count -eq 1 -and @($d.GetElementsByTagName('RunSynchronousCommand')).Count -eq 2) 'Win11 autounattend keeps BypassNRO'
+Remove-Item $ua
+
+# --- Microsoft download flow with Windows 10 (endpoints mocked) ---
+# pwsh-only stand-in for JavaScriptSerializer (the test suite runs on PowerShell 7; the tool itself does not use this)
+function ConvertFrom-MsJson {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseCompatibleCommands', '')]
+    param([string]$Json)
+    return ($Json | ConvertFrom-Json -AsHashtable)
+}
+function New-MsDlSession { return 'sess-' + [guid]::NewGuid().ToString().Substring(0, 8) }
+function Initialize-MsDl { }
+function Invoke-MsDlRequest {
+    param([string]$Uri, [string]$Referer)
+    $f = $null
+    if ($Uri -like '*software-download/windows10ISO') { $f = 'win10page.html' }
+    elseif ($Uri -like '*software-download/windows11') { $f = 'mspage.html' }
+    elseif ($Uri -like '*software-download/windows11arm64') { throw 'simulated: arm64 page unreachable' }
+    elseif ($Uri -like '*getskuinformationbyproductedition*productEditionId=2618*') { $f = 'sku_win10.json' }
+    elseif ($Uri -like '*getskuinformationbyproductedition*') { $f = 'sku_win11.json' }
+    elseif ($Uri -like '*GetProductDownloadLinksBySku*') { $f = 'links_win10.json' }
+    if (-not $f) { throw "unexpected URL $Uri" }
+    return [IO.File]::ReadAllText((Join-Path $fx $f))
+}
+$cat = @(Get-MsWinCatalog)
+$w10 = @($cat | Where-Object { $_.Os -eq 'Win10' })
+$w11 = @($cat | Where-Object { $_.Os -eq 'Win11' })
+Assert ($w10.Count -eq 2 -and (@($w10 | ForEach-Object { $_.Arch }) -join ',') -eq 'x64,x86') 'catalog: Windows 10 offers x64 + x86'
+Assert ($w10[0].EditionId -eq '2618' -and $w10[0].Release -eq 'Windows 10 22H2 v1' -and $w10[0].SessionId -eq $w10[1].SessionId) 'catalog: Win10 edition 2618, release label, shared session'
+Assert ($w11.Count -ge 2 -and $w11[0].Release -eq 'Windows 11 26H2 (Build 26300.9457)') 'catalog: Windows 11 still listed (arm64 page fell back to id 3816)'
+Assert ((@($w11 | Where-Object { $_.Arch -eq 'arm64' })[0].EditionId) -eq '3816') 'arm64 fallback edition id'
+$x86 = @($w10 | Where-Object { $_.Arch -eq 'x86' })[0]
+$x64 = @($w10 | Where-Object { $_.Arch -eq 'x64' })[0]
+Assert ((Get-MsIsoDownloadLink -Entry $x86 -SkuId '19002') -like '*x32v1.iso*') 'Win10 x86 link picked by DownloadType 0'
+Assert ((Get-MsIsoDownloadLink -Entry $x64 -SkuId '19002') -like '*x64v1.iso*') 'Win10 x64 link picked by DownloadType 1'
+Assert ((Find-MsPublishedHash $x64.Hashes 'English' 'English (United States)' 'x64') -like '*0064') 'Win10 hash: 64-bit row for x64'
+Assert ((Find-MsPublishedHash $x86.Hashes 'English' 'English (United States)' 'x86') -like '*0032') 'Win10 hash: 32-bit row for x86'
+Assert ((Find-MsPublishedHash @{ 'English  64-bit' = 'ARM' } 'English' 'English' 'arm64') -eq 'ARM') 'arm64 page label with double space'
+Assert ((Get-MsReleaseLabel -Display 'Windows 10 Client - Build 19045.2965' -OsName 'Windows 10') -eq 'Windows 10 22H2 (Build 19045.2965)') 'release label from Win10 build'
 
 Write-Host "Failures: $script:fail"
 exit $script:fail

@@ -1,5 +1,5 @@
 ﻿<#
-    Win11 Debloat Tool - Windows Forms GUI (PowerShell 2.0+ / .NET 3.5+ compatible).
+    WinDebloat Tool - Windows Forms GUI (PowerShell 2.0+ / .NET 3.5+ compatible).
     Long work runs in a background runspace; a timer pumps log lines and progress into the UI.
     SPDX-License-Identifier: MIT
 #>
@@ -76,7 +76,7 @@ function Invoke-W11Tick {
 
 function Show-W11Msg {
     param([string]$Text, [string]$Icon = 'Information', [string]$Buttons = 'OK')
-    return [Windows.Forms.MessageBox]::Show($script:ui.form, $Text, 'Win11 Debloat Tool', $Buttons, $Icon)
+    return [Windows.Forms.MessageBox]::Show($script:ui.form, $Text, 'WinDebloat Tool', $Buttons, $Icon)
 }
 
 function Update-W11DownloadLists {
@@ -95,7 +95,7 @@ function Update-W11DownloadLists {
         $rel = [string]$ui.cbRelease.SelectedItem
         foreach ($a in @($cat | Where-Object { $_.Release -eq $rel } | ForEach-Object { $_.Arch } | Select-Object -Unique)) { [void]$ui.cbArch.Items.Add($a) }
         if ($ui.cbArch.Items.Count -gt 0) {
-            $idx = $ui.cbArch.Items.IndexOf((Get-W11HostArch) -replace 'amd64', 'x64')
+            $idx = $ui.cbArch.Items.IndexOf(((Get-W11HostArch) -replace 'amd64', 'x64'))
             if ($idx -lt 0) { $idx = 0 }
             $ui.cbArch.SelectedIndex = $idx                                         # triggers 'lang'
         }
@@ -129,6 +129,68 @@ function Get-W11SuggestedOutput {
     return (Join-Path $dir $name)
 }
 
+function Get-W11EffectiveOs {
+    # Combo: 0 = Auto (detected, else Windows 11 list as placeholder), 1 = Windows 11, 2 = Windows 10
+    $i = $script:ui.cbOs.SelectedIndex
+    if ($i -eq 1) { return 'Win11' }
+    if ($i -eq 2) { return 'Win10' }
+    if ($script:DetectedOs) { return $script:DetectedOs }
+    return 'Win11'
+}
+
+function Set-W11ProfileLists {
+    # (Re)fills the app and tweak lists for the effective target OS; keeps nothing from the other profile.
+    param([switch]$Force)
+    $os = Get-W11EffectiveOs
+    if (-not $Force -and $script:ShownOs -eq $os) { return }
+    $script:ShownOs = $os
+    $prof = Get-W11Profile -Config $script:Cfg -Os $os
+    $script:ProfileApps = @($prof.Apps)
+    $ui = $script:ui
+    $ui.clbApps.Items.Clear(); $script:AppIds = @()
+    foreach ($a in $prof.Apps) {
+        $i = $ui.clbApps.Items.Add(('{0}   [{1}]' -f $a.Name, $a.Id))
+        $ui.clbApps.SetItemChecked($i, [bool]$a.Default)
+        $script:AppIds += $a.Id
+    }
+    $ui.clbTweaks.Items.Clear(); $script:TweakIds = @()
+    foreach ($t in $prof.Tweaks) {
+        $i = $ui.clbTweaks.Items.Add(('{0} / {1}' -f $t.Name, $t.NameVi))
+        $ui.clbTweaks.SetItemChecked($i, [bool]$t.Default)
+        $script:TweakIds += $t.Id
+    }
+    $ui.grpApps.Text = ('2. Apps to remove / App sẽ gỡ  -  {0}' -f (Get-W11OsLabel $os))
+}
+
+function Set-W11Detected {
+    param([string]$Os, [string]$Source, [int]$Build = 0)
+    $script:DetectedOs = $Os
+    $txt = 'Detected / Nhận diện: '
+    if ($Os) {
+        $txt += (Get-W11OsLabel $Os)
+        if ($Build -gt 0) { $txt += " (build $Build)" }
+        $txt += " [$Source]"
+    } else { $txt += 'unknown - choose manually / chưa rõ, hãy chọn tay' }
+    $script:ui.lblOs.Text = $txt
+    Set-W11ProfileLists
+}
+
+function Start-W11Detect {
+    # quick guess from the file name, then (Win8+) read the WIM header inside the ISO in the background
+    param([string]$Iso)
+    $g = Get-W11OsFromName $Iso
+    Set-W11Detected -Os $g -Source 'filename'
+    if (-not (Get-Command Mount-DiskImage -ErrorAction SilentlyContinue)) { return }
+    if ($script:Job) { return }
+    Start-W11Job -Script '$sync.Result = Get-W11IsoOsInfo -IsoPath $JobArgs.Iso' -JobArgs @{ Iso = $Iso } -OnDone {
+        $r = $script:Sync.Result
+        if ($r -and $r.Os) {
+            Set-W11Detected -Os $r.Os -Source $r.Source -Build $r.Build
+            Write-W11Log -Level OK -En "Target OS detected: $(Get-W11OsLabel $r.Os) (build $($r.Build), from $($r.Source))" -Vi 'Đã nhận diện hệ điều hành'
+        }
+    }
+}
+
 function Show-W11Gui {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
@@ -147,7 +209,7 @@ function Show-W11Gui {
     $ui = @{}
     $script:ui = $ui
     $f = New-Object Windows.Forms.Form
-    $f.Text = 'Win11 Debloat Tool - tạo ISO Windows 11 gọn nhẹ'
+    $f.Text = 'WinDebloat Tool - tạo ISO Windows 10 / 11 gọn nhẹ'
     $f.ClientSize = New-Object Drawing.Size 980, 790
     $f.StartPosition = 'CenterScreen'
     $f.Font = New-Object Drawing.Font 'Segoe UI', 9
@@ -158,12 +220,20 @@ function Show-W11Gui {
     $g1 = New-W11Ctl GroupBox '1. Source ISO / Nguồn ISO' 10 8 960 140
     $ui.rbLocal = New-W11Ctl RadioButton 'Local ISO file / File ISO có sẵn trên máy' 12 20 400 22
     $ui.rbLocal.Checked = $true
+    $lo = New-W11Ctl Label 'Target OS / Hệ điều hành:' 418 23 150 20
+    $ui.cbOs = New-W11Ctl ComboBox '' 570 19 170 23
+    $ui.cbOs.DropDownStyle = 'DropDownList'
+    [void]$ui.cbOs.Items.Add('Auto (detect) / Tự nhận')
+    [void]$ui.cbOs.Items.Add('Windows 11')
+    [void]$ui.cbOs.Items.Add('Windows 10')
+    $ui.lblOs = New-W11Ctl Label 'Detected / Nhận diện: -' 746 23 210 20
+    $ui.lblOs.ForeColor = [Drawing.Color]::DimGray
     $ui.tbIso = New-W11Ctl TextBox '' 32 44 790 23
     $ui.btnIso = New-W11Ctl Button 'Browse... / Chọn...' 830 42 118 26
     $ui.rbDl = New-W11Ctl RadioButton 'Download official ISO from Microsoft / Tải ISO gốc từ Microsoft' 12 74 520 22
     $ui.btnFetch = New-W11Ctl Button 'Load list / Lấy danh sách' 32 102 150 27
     $lr = New-W11Ctl Label 'Version:' 190 107 52 20
-    $ui.cbRelease = New-W11Ctl ComboBox '' 244 104 250 23
+    $ui.cbRelease = New-W11Ctl ComboBox '' 244 104 250 23   # Windows 11 + Windows 10 releases
     $la = New-W11Ctl Label 'Arch:' 500 107 36 20
     $ui.cbArch = New-W11Ctl ComboBox '' 538 104 70 23
     $ll = New-W11Ctl Label 'Language:' 614 107 62 20
@@ -172,18 +242,14 @@ function Show-W11Gui {
     $ui.btnDownload = New-W11Ctl Button 'Download / Tải' 834 102 114 27
     $ui.lnkMs = New-W11Ctl LinkLabel 'Open Microsoft page / Mở trang Microsoft' 560 76 390 20
     $ui.lnkMs.TextAlign = 'MiddleRight'
-    $g1.Controls.AddRange(@($ui.rbLocal, $ui.tbIso, $ui.btnIso, $ui.rbDl, $ui.btnFetch, $lr, $ui.cbRelease, $la, $ui.cbArch, $ll, $ui.cbLang, $ui.btnDownload, $ui.lnkMs))
+    $g1.Controls.AddRange(@($lo, $ui.cbOs, $ui.lblOs, $ui.rbLocal, $ui.tbIso, $ui.btnIso, $ui.rbDl, $ui.btnFetch, $lr, $ui.cbRelease, $la, $ui.cbArch, $ll, $ui.cbLang, $ui.btnDownload, $ui.lnkMs))
 
     # ---------- 2. apps ----------
     $g2 = New-W11Ctl GroupBox '2. Apps to remove / App sẽ gỡ' 10 154 560 330
+    $ui.grpApps = $g2
     $ui.clbApps = New-W11Ctl CheckedListBox '' 12 22 536 266
     $ui.clbApps.CheckOnClick = $true
     $script:AppIds = @()
-    foreach ($a in $cfg.Apps) {
-        $i = $ui.clbApps.Items.Add(('{0}   [{1}]' -f $a.Name, $a.Id))
-        $ui.clbApps.SetItemChecked($i, [bool]$a.Default)
-        $script:AppIds += $a.Id
-    }
     $ui.btnAppDef = New-W11Ctl Button 'Defaults / Mặc định' 12 294 140 27
     $ui.btnAppAll = New-W11Ctl Button 'All / Tất cả' 158 294 110 27
     $ui.btnAppNone = New-W11Ctl Button 'None / Bỏ hết' 274 294 110 27
@@ -205,12 +271,7 @@ function Show-W11Gui {
     $ui.clbTweaks = New-W11Ctl CheckedListBox '' 12 115 366 128
     $ui.clbTweaks.CheckOnClick = $true
     $script:TweakIds = @()
-    foreach ($t in $cfg.Tweaks) {
-        $i = $ui.clbTweaks.Items.Add(('{0} / {1}' -f $t.Name, $t.NameVi))
-        $ui.clbTweaks.SetItemChecked($i, [bool]$t.Default)
-        $script:TweakIds += $t.Id
-    }
-    $ui.chkUnattend = New-W11Ctl CheckBox 'autounattend.xml: local account, skip MS-account screens / tài khoản local' 12 246 370 34
+    $ui.chkUnattend = New-W11Ctl CheckBox 'autounattend.xml: local account, skip MS-account screens (BypassNRO only for Win11) / tài khoản local' 12 246 370 34
     $ui.chkUnattend.Checked = $true
     $ui.chkCleanup = New-W11Ctl CheckBox 'Component cleanup (slow) / Dọn WinSxS (chậm)' 12 280 370 22
     $ui.chkDry = New-W11Ctl CheckBox 'Dry run (change nothing) / Chạy thử (không đổi gì)' 12 302 370 22
@@ -238,7 +299,12 @@ function Show-W11Gui {
     $ui.tbLog.Anchor = 'Top, Bottom, Left, Right'
     $f.Controls.AddRange(@($g1, $g2, $g3, $g4, $ui.btnCheck, $ui.btnStart, $ui.btnCancel, $ui.pb, $ui.lblStatus, $ui.tbLog))
 
-    $script:BusyControls = @($ui.btnIso, $ui.btnFetch, $ui.btnDownload, $ui.btnEd, $ui.btnCheck, $ui.btnStart, $ui.btnOut, $ui.clbApps, $ui.clbTweaks)
+    $script:DetectedOs = $null; $script:ShownOs = $null; $script:LastDlEntry = $null
+    $ui.cbOs.SelectedIndex = 0
+    Set-W11ProfileLists -Force
+    $ui.cbOs.Add_SelectedIndexChanged({ Set-W11ProfileLists })
+
+    $script:BusyControls = @($ui.cbOs, $ui.btnIso, $ui.btnFetch, $ui.btnDownload, $ui.btnEd, $ui.btnCheck, $ui.btnStart, $ui.btnOut, $ui.clbApps, $ui.clbTweaks)
 
     # ---------- events ----------
     $ui.btnIso.Add_Click({
@@ -249,6 +315,7 @@ function Show-W11Gui {
                 $script:ui.tbIso.Text = $d.FileName
                 $script:ui.rbLocal.Checked = $true
                 if (-not $script:ui.tbOut.Text) { $script:ui.tbOut.Text = Get-W11SuggestedOutput $d.FileName }
+                Start-W11Detect $d.FileName
             }
         })
     $ui.btnOut.Add_Click({
@@ -258,22 +325,24 @@ function Show-W11Gui {
             if ($script:ui.tbOut.Text) { $d.InitialDirectory = Split-Path -Parent $script:ui.tbOut.Text; $d.FileName = Split-Path -Leaf $script:ui.tbOut.Text }
             if ($d.ShowDialog($script:ui.form) -eq 'OK') { $script:ui.tbOut.Text = $d.FileName }
         })
-    $ui.btnAppDef.Add_Click({ for ($i = 0; $i -lt $script:ui.clbApps.Items.Count; $i++) { $script:ui.clbApps.SetItemChecked($i, [bool]$script:Cfg.Apps[$i].Default) } })
+    $ui.btnAppDef.Add_Click({ for ($i = 0; $i -lt $script:ui.clbApps.Items.Count; $i++) { $script:ui.clbApps.SetItemChecked($i, [bool]$script:ProfileApps[$i].Default) } })
     $ui.btnAppAll.Add_Click({ for ($i = 0; $i -lt $script:ui.clbApps.Items.Count; $i++) { $script:ui.clbApps.SetItemChecked($i, $true) } })
     $ui.btnAppNone.Add_Click({ for ($i = 0; $i -lt $script:ui.clbApps.Items.Count; $i++) { $script:ui.clbApps.SetItemChecked($i, $false) } })
     $ui.tbIdx.Add_TextChanged({ if ($script:ui.tbIdx.Text) { $script:ui.rbEdCustom.Checked = $true } })
 
     $ui.lnkMs.Add_LinkClicked({
-            $url = $script:MsDl.Pages['x64']
-            if ([string]$script:ui.cbArch.SelectedItem -eq 'arm64') { $url = $script:MsDl.Pages['arm64'] }
+            $e = Get-W11SelectedEntry
+            if ($e) { $url = $e.PageUrl }
+            elseif ((Get-W11EffectiveOs) -eq 'Win10') { $url = $script:MsDl.Pages['Win10'] }
+            else { $url = $script:MsDl.Pages['Win11'] }
             Start-Process $url
             Write-W11Log -En 'Opened the official Microsoft page. After the download finishes, choose the ISO with Browse.' -Vi 'Đã mở trang Microsoft. Tải xong hãy bấm "Chọn..." để chọn file ISO.'
         })
 
     $ui.btnFetch.Add_Click({
             $script:ui.rbDl.Checked = $true
-            Write-W11Log -Level STEP -En 'Asking Microsoft for available Windows 11 releases/languages...' -Vi 'Đang hỏi Microsoft danh sách phiên bản/ngôn ngữ...'
-            Start-W11Job -Script '$sync.Result = @(Get-MsWin11Catalog)' -OnDone {
+            Write-W11Log -Level STEP -En 'Asking Microsoft for available Windows 11 / Windows 10 releases and languages...' -Vi 'Đang hỏi Microsoft danh sách Windows 11 / 10 và ngôn ngữ...'
+            Start-W11Job -Script '$sync.Result = @(Get-MsWinCatalog)' -OnDone {
                 if ($script:Sync.Error) {
                     Show-W11Msg ("Microsoft did not return the list:`n$($script:Sync.Error)`n`nUse 'Open Microsoft page' and download in your browser, then Browse to the ISO.`n`nKhông lấy được danh sách từ Microsoft. Hãy bấm 'Mở trang Microsoft', tải bằng trình duyệt rồi chọn file ISO.") 'Warning' | Out-Null
                     return
@@ -296,12 +365,14 @@ function Show-W11Gui {
             try { $free = Get-W11FreeGB -Path $d.SelectedPath } catch { $free = 999 }
             if ($free -lt 9) { Show-W11Msg "Only $free GB free there / Chỉ còn $free GB trống" 'Warning' | Out-Null; return }
             $script:ui.rbDl.Checked = $true
+            $script:LastDlEntry = $e
             Start-W11Job -Script '$sync.Result = Invoke-MsIsoDownload -Entry $JobArgs.Entry -Sku $JobArgs.Sku -Folder $JobArgs.Folder -Sync $sync' -JobArgs @{ Entry = $e; Sku = $sku; Folder = $d.SelectedPath } -OnDone {
                 if ($script:Sync.Error) { Show-W11Msg ("Download failed / Tải thất bại:`n$($script:Sync.Error)") 'Error' | Out-Null; return }
                 $iso = [string]$script:Sync.Result
                 $script:ui.tbIso.Text = $iso
                 $script:ui.rbLocal.Checked = $true
                 if (-not $script:ui.tbOut.Text) { $script:ui.tbOut.Text = Get-W11SuggestedOutput $iso }
+                if ($script:LastDlEntry) { Set-W11Detected -Os $script:LastDlEntry.Os -Source 'download' }
                 $script:ui.lblStatus.Text = 'Download complete / Tải xong'
             }
         })
@@ -337,6 +408,10 @@ function Show-W11Gui {
         }
         $apps = @(); foreach ($i in $ui.clbApps.CheckedIndices) { $apps += $script:AppIds[$i] }
         $tw = @(); foreach ($i in $ui.clbTweaks.CheckedIndices) { $tw += $script:TweakIds[$i] }
+        $targetOs = Get-W11EffectiveOs
+        $osNote = Get-W11OsLabel $targetOs
+        $useDefaults = ($ui.cbOs.SelectedIndex -eq 0 -and -not $script:DetectedOs)
+        if ($useDefaults) { $targetOs = 'Auto'; $osNote = 'Auto: detected from the image at start, default lists of that OS / tự nhận khi chạy, dùng danh sách mặc định' }
         $dry = $ui.chkDry.Checked
         if (-not $dry -and -not (Find-W11Oscdimg)) {
             if ((Get-W11OsBuild) -ge 10240) {
@@ -351,13 +426,14 @@ function Show-W11Gui {
             Show-W11Msg ("oscdimg.exe not found. The current Windows ADK cannot be installed on Windows 7/8.x.`nCopy oscdimg.exe from a Windows 10/11 PC with ADK (Deployment Tools\amd64\Oscdimg) into:`n$(Join-Path $script:W11Root 'tools')`n`nKhông có oscdimg.exe. ADK mới không cài được trên Win7/8. Hãy chép oscdimg.exe từ máy Win10/11 có ADK vào thư mục tools.") 'Warning' | Out-Null
             return
         }
-        $summary = "Source: $iso`nOutput: $out`nEditions: $mode $($idx -join ',')`nApps: $($apps.Count)  Tweaks: $($tw.Count)`nautounattend: $($ui.chkUnattend.Checked)  Cleanup: $($ui.chkCleanup.Checked)  Dry run: $dry`n`nNeeds ~25 GB free and 20-60 minutes. Continue? / Cần ~25 GB trống, 20-60 phút. Tiếp tục?"
+        $summary = "Source: $iso`nOutput: $out`nTarget OS: $osNote`nEditions: $mode $($idx -join ',')`nApps: $($apps.Count)  Tweaks: $($tw.Count)`nautounattend: $($ui.chkUnattend.Checked)  Cleanup: $($ui.chkCleanup.Checked)  Dry run: $dry`n`nNeeds ~25 GB free and 20-60 minutes. Continue? / Cần ~25 GB trống, 20-60 phút. Tiếp tục?"
         if ([string](Show-W11Msg $summary 'Question' 'YesNo') -ne 'Yes') { return }
         $ui.tbLog.Clear()
         $jobArgs = @{
-            IsoPath = $iso; OutputIso = $out; EditionMode = $mode; Indexes = $idx; RemoveApps = $apps; Tweaks = $tw
+            IsoPath = $iso; OutputIso = $out; EditionMode = $mode; Indexes = $idx; TargetOs = $targetOs
             Autounattend = $ui.chkUnattend.Checked; ComponentCleanup = $ui.chkCleanup.Checked; DryRun = $dry
         }
+        if (-not $useDefaults) { $jobArgs.RemoveApps = $apps; $jobArgs.Tweaks = $tw }
         Start-W11Job -Script '$sync.Result = Invoke-Win11Debloat @JobArgs -Sync $sync' -JobArgs $jobArgs -OnDone {
             $r = $script:Sync.Result
             if ($script:Sync.Error) {
@@ -385,7 +461,7 @@ function Show-W11Gui {
     $timer.Start()
 
     $f.Add_Shown({
-            Write-W11Log -En 'Welcome. 1) pick or download an ISO  2) choose apps/options  3) START.' -Vi 'Xin chào. 1) chọn hoặc tải ISO  2) chọn app/tuỳ chọn  3) BẮT ĐẦU.'
+            Write-W11Log -En 'Welcome. 1) pick or download a Windows 10/11 ISO  2) check target OS, apps, options  3) START.' -Vi 'Xin chào. 1) chọn hoặc tải ISO Windows 10/11  2) kiểm tra hệ điều hành, app, tuỳ chọn  3) BẮT ĐẦU.'
             $wp = $env:TEMP
             Start-W11Job -Script '$null = Get-W11Capabilities -WorkPath $JobArgs.Work' -JobArgs @{ Work = $wp }
         })

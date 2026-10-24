@@ -7,6 +7,7 @@
 *.sha256
 kept_index*.txt
 W11Debloat_work/
+WinDebloat_work/
 mount/
 # release archive
 *.zip

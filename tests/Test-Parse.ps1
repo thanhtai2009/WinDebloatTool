@@ -10,7 +10,7 @@ Get-ChildItem -Path $root -Recurse -Include *.ps1, *.psd1 | ForEach-Object {
 # config must load through the same PS2-compatible loader the tool uses
 . (Join-Path $root 'lib\Core.ps1')
 $cfg = Get-W11Config -Path (Join-Path $root 'config\DebloatConfig.psd1')
-Write-Host ("Config: {0} apps ({1} default), {2} protected, {3} tweaks" -f @($cfg.Apps).Count, @($cfg.Apps | Where-Object { $_.Default }).Count, @($cfg.Protected).Count, @($cfg.Tweaks).Count)
+Write-Host ("Config: Win11 {0} apps ({1} default) {2} tweaks; Win10 {3} apps ({4} default) {5} tweaks; {6} protected" -f @($cfg.Apps).Count, @($cfg.Apps | Where-Object { $_.Default }).Count, @($cfg.Tweaks).Count, @($cfg.Win10Apps).Count, @($cfg.Win10Apps | Where-Object { $_.Default }).Count, @($cfg.Win10Tweaks).Count, @($cfg.Protected).Count)
 [xml]$x = Get-Content -LiteralPath (Join-Path $root 'autounattend.xml') -Encoding UTF8
 Write-Host "autounattend.xml: well-formed XML ($($x.unattend.settings.Count) passes)"
 exit $fail

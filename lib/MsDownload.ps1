@@ -1,7 +1,7 @@
 ﻿<#
-    Win11 Debloat Tool - official ISO download from microsoft.com (PowerShell 2.0+ compatible).
+    WinDebloat Tool - official Windows 10 / 11 ISO download from microsoft.com (PowerShell 2.0+ compatible).
     Talks only to Microsoft endpoints, doing what https://www.microsoft.com/software-download/windows11
-    does in a browser:
+    (and /windows11arm64, /windows10ISO) does in a browser:
       1. whitelist a random session id (vlscppe.microsoft.com/tags + ov-df.microsoft.com)
       2. software-download-connector/api/getskuinformationbyproductedition  -> languages (SKUs)
       3. software-download-connector/api/GetProductDownloadLinksBySku         -> signed ISO URL (~24 h)
@@ -16,13 +16,23 @@ $script:MsDl = @{
     InstanceId = '560dc9f3-1aa5-4a2f-b63c-9e18f8d0e175'
     Locale     = 'en-US'
     UserAgent  = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0'
-    ArchOrder  = @('x64', 'arm64')
+    # One entry per official download page. Fallback = product edition id used if the page cannot be parsed
+    # (verified 2026-10-24: windows11 -> 3813, windows11arm64 -> 3816, windows10ISO -> 2618).
+    # DownloadType in Microsoft's answer: 0 = x86 (32-bit), 1 = x64, 2 = arm64.
+    Products   = @(
+        @{ Os = 'Win11'; Archs = @('x64');        Page = 'https://www.microsoft.com/en-us/software-download/windows11';      Fallback = '3813' }
+        @{ Os = 'Win11'; Archs = @('arm64');      Page = 'https://www.microsoft.com/en-us/software-download/windows11arm64'; Fallback = '3816' }
+        @{ Os = 'Win10'; Archs = @('x64', 'x86'); Page = 'https://www.microsoft.com/en-us/software-download/windows10ISO';   Fallback = '2618' }
+    )
     Pages      = @{
+        Win11 = 'https://www.microsoft.com/en-us/software-download/windows11'
+        Win11arm64 = 'https://www.microsoft.com/en-us/software-download/windows11arm64'
+        Win10 = 'https://www.microsoft.com/en-us/software-download/windows10ISO'
         x64   = 'https://www.microsoft.com/en-us/software-download/windows11'
         arm64 = 'https://www.microsoft.com/en-us/software-download/windows11arm64'
     }
-    FallbackEditions = @{ x64 = '3813'; arm64 = '3816' }   # used only if the page cannot be parsed
-    Releases = @{ '22000' = '21H2'; '22621' = '22H2'; '22631' = '23H2'; '26100' = '24H2'; '26200' = '25H2'; '26300' = '26H2' }
+    DownloadTypes = @{ x86 = 0; x64 = 1; arm64 = 2 }
+    Releases = @{ '19044' = '21H2'; '19045' = '22H2'; '22000' = '21H2'; '22621' = '22H2'; '22631' = '23H2'; '26100' = '24H2'; '26200' = '25H2'; '26300' = '26H2' }
 }
 
 function Initialize-MsDl {
@@ -45,6 +55,13 @@ function Get-MsVal {
     param($Object, [string]$Key)
     if ($null -ne $Object -and $Object -is [Collections.IDictionary] -and $Object.ContainsKey($Key)) { return $Object[$Key] }
     return $null
+}
+
+function Get-MsCount {
+    # Element count of a JSON value; $null (missing key) counts as 0. (@($null).Count is 1.)
+    param($Value)
+    if ($null -eq $Value) { return 0 }
+    return @($Value).Count
 }
 
 function Invoke-MsDlRequest {
@@ -81,7 +98,7 @@ function New-MsDlSession {
 
 function Get-MsDlPageInfo {
     # Edition ids + published SHA256 table from the official page.
-    param([string]$Url, [string]$Arch)
+    param([string]$Url, [string]$Fallback, [string]$Label = 'Windows')
     $editions = @(); $hashes = @{}
     try {
         $html = Invoke-MsDlRequest -Uri $Url
@@ -92,50 +109,49 @@ function Get-MsDlPageInfo {
             $hashes[$m.Groups[1].Value.Trim()] = $m.Groups[2].Value.ToUpper()
         }
     } catch { $null = $_ }
-    if ($editions.Count -eq 0) { $editions = @(New-Object PSObject -Property @{ Id = $script:MsDl.FallbackEditions[$Arch]; Name = "Windows 11 ($Arch)" }) }
+    if ($editions.Count -eq 0 -and $Fallback) { $editions = @(New-Object PSObject -Property @{ Id = $Fallback; Name = $Label }) }
     return (New-Object PSObject -Property @{ Editions = $editions; Hashes = $hashes })
 }
 
-function Get-MsWin11Catalog {
-    <# One entry per (architecture, edition) Microsoft currently offers:
-       Arch, EditionId, EditionName, Release, SessionId, PageUrl, Hashes, Skus (Id, Language, LocalizedLanguage) #>
-    param([string[]]$Arch = @('x64', 'arm64'))
+function Get-MsWinCatalog {
+    <# One entry per (OS, edition, architecture) Microsoft currently offers:
+       Os, Arch, DownloadType, EditionId, EditionName, Release, SessionId, PageUrl, Hashes, Skus (Id, Language, LocalizedLanguage) #>
+    param([string[]]$Os = @('Win11', 'Win10'))
     Initialize-MsDl
     $out = @(); $errors = @()
-    foreach ($a in $script:MsDl.ArchOrder) {
-        if ($Arch -notcontains $a) { continue }
-        $page = $script:MsDl.Pages[$a]
-        $info = Get-MsDlPageInfo -Url $page -Arch $a
+    foreach ($prod in $script:MsDl.Products) {
+        if ($Os -notcontains $prod.Os) { continue }
+        $osName = 'Windows 11'; if ($prod.Os -eq 'Win10') { $osName = 'Windows 10' }
+        $info = Get-MsDlPageInfo -Url $prod.Page -Fallback $prod.Fallback -Label $osName
         foreach ($ed in $info.Editions) {
             try {
                 $sid = New-MsDlSession   # one session per edition: Microsoft only honours the last SKU list of a session
                 $u = 'https://www.microsoft.com/software-download-connector/api/getskuinformationbyproductedition?profile={0}&productEditionId={1}&SKU=undefined&friendlyFileName=undefined&Locale={2}&sessionID={3}' -f $script:MsDl.ProfileId, $ed.Id, $script:MsDl.Locale, $sid
                 $resp = $null
                 for ($try = 0; $try -lt 3; $try++) {
-                    $resp = ConvertFrom-MsJson (Invoke-MsDlRequest -Uri $u -Referer $page)
-                    if (@(Get-MsVal $resp 'Skus').Count -gt 0) { break }
+                    $resp = ConvertFrom-MsJson (Invoke-MsDlRequest -Uri $u -Referer $prod.Page)
+                    if ((Get-MsCount (Get-MsVal $resp 'Skus')) -gt 0) { break }
                     Start-Sleep -Seconds 2
                 }
-                $skuList = @(Get-MsVal $resp 'Skus')
+                $skuList = @(); if ((Get-MsCount (Get-MsVal $resp 'Skus')) -gt 0) { $skuList = @(Get-MsVal $resp 'Skus') }
                 if ($skuList.Count -eq 0) {
                     $msg = 'no SKUs returned'
-                    $errs = @(Get-MsVal $resp 'Errors')
+                    $errs = @(); if ((Get-MsCount (Get-MsVal $resp 'Errors')) -gt 0) { $errs = @(Get-MsVal $resp 'Errors') }
                     if ($errs.Count -gt 0) { $msg = Get-MsVal $errs[0] 'Value' }
                     throw "Microsoft refused the language list ($msg)"
                 }
                 $display = [string](Get-MsVal $skuList[0] 'ProductDisplayName')
-                $release = $display
-                if ($display -match 'Build (\d{5})(\.\d+)?') {
-                    $rel = $script:MsDl.Releases[$Matches[1]]
-                    if ($rel) { $release = "Windows 11 $rel (Build $($Matches[1])$($Matches[2]))" } else { $release = "Windows 11 (Build $($Matches[1])$($Matches[2]))" }
-                }
+                $release = Get-MsReleaseLabel -Display $display -OsName $osName
                 $skus = @()
-                foreach ($s in $skuList) { $skus += (New-Object PSObject -Property @{ Id = [string](Get-MsVal $s 'Id'); Language = [string](Get-MsVal $s 'Language'); LocalizedLanguage = [string](Get-MsVal $s 'LocalizedLanguage') }) }
-                $out += (New-Object PSObject -Property @{
-                        Arch = $a; EditionId = $ed.Id; EditionName = $ed.Name; Release = $release; SessionId = $sid
-                        PageUrl = $page; Hashes = $info.Hashes; Skus = $skus
-                    })
-            } catch { $errors += "$a/$($ed.Id): $($_.Exception.Message)" }
+                foreach ($sk in $skuList) { $skus += (New-Object PSObject -Property @{ Id = [string](Get-MsVal $sk 'Id'); Language = [string](Get-MsVal $sk 'Language'); LocalizedLanguage = [string](Get-MsVal $sk 'LocalizedLanguage') }) }
+                foreach ($a in $prod.Archs) {
+                    $out += (New-Object PSObject -Property @{
+                            Os = $prod.Os; Arch = $a; DownloadType = $script:MsDl.DownloadTypes[$a]
+                            EditionId = $ed.Id; EditionName = $ed.Name; Release = $release; SessionId = $sid
+                            PageUrl = $prod.Page; Hashes = $info.Hashes; Skus = $skus
+                        })
+                }
+            } catch { $errors += "$($prod.Os)/$($ed.Id): $($_.Exception.Message)" }
         }
     }
     if ($out.Count -eq 0) { throw ('Could not get the list from Microsoft: ' + ($errors -join ' ; ')) }
@@ -143,20 +159,38 @@ function Get-MsWin11Catalog {
     return $out
 }
 
+function Get-MsWin11Catalog { return (Get-MsWinCatalog -Os @('Win11')) }   # backwards compatibility
+
+function Get-MsReleaseLabel {
+    # "Windows 11 Client - Build 26300.9457" -> "Windows 11 26H2 (Build 26300.9457)"; "Windows 10 22H2 v1" stays readable
+    param([string]$Display, [string]$OsName)
+    if ($Display -match 'Build (\d{5})(\.\d+)?') {
+        $rel = $script:MsDl.Releases[$Matches[1]]
+        if ($rel) { return "$OsName $rel (Build $($Matches[1])$($Matches[2]))" }
+        return "$OsName (Build $($Matches[1])$($Matches[2]))"
+    }
+    if ($Display) {
+        $d = $Display.Trim()
+        if ($d -notmatch '(?i)windows\s*1[01]') { $d = "$OsName $d" }
+        return $d
+    }
+    return $OsName
+}
+
 function Get-MsIsoDownloadLink {
     param([Parameter(Mandatory = $true)]$Entry, [Parameter(Mandatory = $true)][string]$SkuId)
     Initialize-MsDl
     $u = 'https://www.microsoft.com/software-download-connector/api/GetProductDownloadLinksBySku?profile={0}&productEditionId=undefined&SKU={1}&friendlyFileName=undefined&Locale={2}&sessionID={3}' -f $script:MsDl.ProfileId, $SkuId, $script:MsDl.Locale, $Entry.SessionId
     $resp = ConvertFrom-MsJson (Invoke-MsDlRequest -Uri $u -Referer $Entry.PageUrl)
-    $errs = @(Get-MsVal $resp 'Errors')
+    $errs = @(); if ((Get-MsCount (Get-MsVal $resp 'Errors')) -gt 0) { $errs = @(Get-MsVal $resp 'Errors') }
     if ($errs.Count -gt 0) {
         $e = $errs[0]
         if ([int](Get-MsVal $e 'Type') -eq 9) { throw "Microsoft blocked this request (message 715-123130: too many requests, VPN or region). Session $($Entry.SessionId). Use 'Open Microsoft page'. / Microsoft chặn yêu cầu, hãy dùng nút mở trang Microsoft." }
         throw ('Microsoft refused the download link: ' + (Get-MsVal $e 'Value'))
     }
-    $want = 1; if ($Entry.Arch -eq 'arm64') { $want = 2 }
+    $want = [int]$Entry.DownloadType
     $uri = $null
-    $opts = @(Get-MsVal $resp 'ProductDownloadOptions')
+    $opts = @(); if ((Get-MsCount (Get-MsVal $resp 'ProductDownloadOptions')) -gt 0) { $opts = @(Get-MsVal $resp 'ProductDownloadOptions') }
     foreach ($o in $opts) { if ([int](Get-MsVal $o 'DownloadType') -eq $want) { $uri = [string](Get-MsVal $o 'Uri'); break } }
     if (-not $uri -and $opts.Count -gt 0) { $uri = [string](Get-MsVal $opts[0] 'Uri') }
     if (-not $uri) { throw 'No ISO link in Microsoft response' }
@@ -164,12 +198,17 @@ function Get-MsIsoDownloadLink {
 }
 
 function Find-MsPublishedHash {
-    param([hashtable]$Hashes, [string]$Language, [string]$LocalizedLanguage)
+    # Labels look like "English 64-bit", "English  64-bit" (arm64 page) or "Arabic 32-bit" (Windows 10 page).
+    param([hashtable]$Hashes, [string]$Language, [string]$LocalizedLanguage, [string]$Arch = 'x64')
     if (-not $Hashes -or $Hashes.Count -eq 0) { return $null }
     $targets = @()
     foreach ($x in @($Language, $LocalizedLanguage)) { if ($x) { $targets += (($x -replace '[()]', '' -replace '\s+', ' ').Trim().ToLower()) } }
     foreach ($k in $Hashes.Keys) {
-        $label = (($k -replace '(?i)\s*(64-bit|32-bit|arm64|x64)\s*$', '') -replace '[()]', '' -replace '\s+', ' ').Trim().ToLower()
+        $kind = 'any'
+        if ($k -match '(?i)32-bit|x86') { $kind = 'x86' } elseif ($k -match '(?i)64-bit|arm64|x64') { $kind = '64' }
+        if ($Arch -eq 'x86' -and $kind -eq '64') { continue }
+        if ($Arch -ne 'x86' -and $kind -eq 'x86') { continue }
+        $label = (($k -replace '(?i)\s*(64-bit|32-bit|arm64|x64|x86)\s*$', '') -replace '[()]', '' -replace '\s+', ' ').Trim().ToLower()
         if ($targets -contains $label) { return $Hashes[$k] }
     }
     return $null
@@ -236,7 +275,7 @@ function Invoke-MsIsoDownload {
     Write-W11Log -Level STEP -En 'Verifying SHA256...' -Vi 'Đang kiểm tra SHA256...'
     if ($Sync) { $Sync.Status = 'SHA256...' }
     $hash = Get-W11Sha256 -Path $dest
-    $expected = Find-MsPublishedHash -Hashes $Entry.Hashes -Language $Sku.Language -LocalizedLanguage $Sku.LocalizedLanguage
+    $expected = Find-MsPublishedHash -Hashes $Entry.Hashes -Language $Sku.Language -LocalizedLanguage $Sku.LocalizedLanguage -Arch $Entry.Arch
     if ($expected) {
         if ($expected -eq $hash) { Write-W11Log -Level OK -En "SHA256 matches Microsoft's published hash: $hash" -Vi 'SHA256 khớp với Microsoft' }
         else { throw "SHA256 MISMATCH! got $hash, Microsoft published $expected. Delete the file and retry / SHA256 KHÔNG KHỚP, hãy xoá file và tải lại" }
