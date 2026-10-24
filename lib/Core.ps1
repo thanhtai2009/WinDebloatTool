@@ -13,6 +13,7 @@ if ($MyInvocation.MyCommand.Path) {
     $script:W11Root = Split-Path -Parent $script:W11LibDir
 }
 $script:W11D = @{
+    Version      = '0.2.1'
     LogPath      = $null
     Sync         = $null
     HiveSoftware = 'HKLM\W11D_SOFTWARE'
@@ -796,7 +797,7 @@ function Invoke-Win11Debloat {
     $iso = $null; $imageMounted = $false; $success = $false
     $result = New-W11Obj @{ OutputIso = $OutputIso; Sha256 = $null; LogPath = $LogPath; DryRun = $DryRun; TargetOs = $null }
 
-    Write-W11Log -Level STEP -En '===== WinDebloat Tool (Windows 10/11) =====' -Vi '===== Công cụ debloat Windows 10/11 ====='
+    Write-W11Log -Level STEP -En "===== WinDebloat Tool $($script:W11D.Version) (Windows 10/11) =====" -Vi '===== Công cụ debloat Windows 10/11 ====='
     Write-W11Log -En "Source ISO: $IsoPath" -Vi 'ISO nguồn'
     Write-W11Log -En "Output ISO: $OutputIso" -Vi 'ISO đầu ra'
     Write-W11Log -En "Work dir  : $WorkDir" -Vi 'Thư mục tạm'

@@ -185,5 +185,127 @@ Assert ((Find-MsPublishedHash $x86.Hashes 'English' 'English (United States)' 'x
 Assert ((Find-MsPublishedHash @{ 'English  64-bit' = 'ARM' } 'English' 'English' 'arm64') -eq 'ARM') 'arm64 page label with double space'
 Assert ((Get-MsReleaseLabel -Display 'Windows 10 Client - Build 19045.2965' -OsName 'Windows 10') -eq 'Windows 10 22H2 (Build 19045.2965)') 'release label from Win10 build'
 
+# ================= 0.2.1: "Load list shows nothing" (vlscppe.microsoft.com not resolvable) =================
+# Reload the real download module (the tests above replaced New-MsDlSession), keep only a network mock.
+. (Join-Path $root 'lib\MsDownload.ps1')
+function ConvertFrom-MsJson {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseCompatibleCommands', '')]
+    param([string]$Json)
+    $t = $Json.Trim(); if (-not $t.StartsWith('{')) { throw "Microsoft answered with something that is not JSON: $t" }
+    return ($t | ConvertFrom-Json -AsHashtable)
+}
+function Initialize-MsDl { }
+$script:W11D.Sync = $null
+$script:logLines = New-Object Collections.ArrayList
+function Write-W11Log { param([string]$En, [string]$Vi, [string]$Level = 'INFO') [void]$script:logLines.Add("[$Level] $En | $Vi") }
+function Set-W11Progress { param($Percent, $Status) }
+$script:MsDl.RetryDelaySec = 0
+$script:Net = @{}      # host -> 'dns' (simulated resolve failure) ; key 'sku' -> fixture override ; 'links' -> fixture
+$script:netLog = New-Object Collections.ArrayList
+function Invoke-MsDlRequest {
+    param([string]$Uri, [string]$Referer, [int]$TimeoutMs)
+    $h = ([Uri]$Uri).Host
+    [void]$script:netLog.Add($Uri)
+    if ($script:Net[$h] -eq 'dns') { throw "${h}: NameResolutionFailure - The remote name could not be resolved: '$h'" }
+    if ($h -eq 'vlscppe.microsoft.com') { return '' }
+    if ($Uri -like 'https://ov-df.microsoft.com/mdt.js*') { return 'var a="https://ov-df.microsoft.com/?w=8DF31DFD0A&x=1";rticks="+1792854152655;' }
+    if ($h -eq 'ov-df.microsoft.com') { return '' }
+    if ($Uri -like '*software-download/windows10ISO') { return [IO.File]::ReadAllText((Join-Path $fx 'win10page.html')) }
+    if ($Uri -like '*software-download/windows11arm64') { return '<select><option value="3816">Windows 11 (multi-edition ISO for Arm64 devices)</option></select>' }
+    if ($Uri -like '*software-download/windows11') { return [IO.File]::ReadAllText((Join-Path $fx 'mspage.html')) }
+    if ($Uri -like '*getskuinformationbyproductedition*') {
+        if ($Uri -match 'productEditionId=(\d+)') { $ed = $Matches[1] }
+        if ($script:Net['sku' + $ed]) { return $script:Net['sku' + $ed] }
+        return [IO.File]::ReadAllText((Join-Path $fx "live_sku_$ed.json"))
+    }
+    if ($Uri -like '*GetProductDownloadLinksBySku*') { return [IO.File]::ReadAllText((Join-Path $fx $script:Net['links'])) }
+    throw "unexpected URL $Uri"
+}
+
+# 1) exactly the user's failure: vlscppe.microsoft.com cannot be resolved
+$script:Net = @{ 'vlscppe.microsoft.com' = 'dns'; links = 'links_win10.json' }
+$script:logLines.Clear()
+$cg = Get-MsCatalogForGui
+$liveE = @($cg.Entries | Where-Object { -not $_.Static })
+Assert ($cg.Live -eq 4 -and $liveE.Count -eq 4 -and -not $cg.Error) 'vlscppe DNS failure: list still loads (4 live entries, no error)'
+Assert ((@($liveE | ForEach-Object { "$($_.Os)/$($_.Arch)" }) -join ',') -eq 'Win11/x64,Win11/arm64,Win10/x64,Win10/x86') 'vlscppe DNS failure: Win11 x64/arm64 + Win10 x64/x86'
+Assert (@($liveE | Where-Object { $_.SessionState.Tags -eq $false -and $_.SessionState.OvDf -eq $true }).Count -eq 4) 'session state recorded (Tags failed, ov-df ok)'
+Assert (@($script:logLines | Where-Object { $_ -like '`[WARN`] Session step 1 (vlscppe.microsoft.com) failed*could not be resolved*' }).Count -ge 1) 'vlscppe failure logged as WARN with the reason'
+Assert (@($script:netLog | Where-Object { $_ -like '*getskuinformationbyproductedition*' }).Count -eq 3) 'SKU endpoint still called for 3813, 3816, 2618'
+$w11 = @($liveE | Where-Object { $_.Os -eq 'Win11' })
+Assert ($w11[0].Release -eq 'Windows 11 26H2 (Build 26300.9457)' -and $w11[1].Release -eq $w11[0].Release) 'real Microsoft SKU answers: x64 + ARM labels unified (26H2 Build 26300.9457)'
+Assert ((@($liveE | Where-Object { $_.Os -eq 'Win10' })[0].Release) -eq 'Windows 10 22H2 v1') 'real Win10 display "22H2_v1" -> "Windows 10 22H2 v1"'
+Assert ((@($w11[0].Skus | ForEach-Object { $_.Language }) -join ',') -eq 'Arabic,English') 'languages parsed from real answer'
+$x86 = @($liveE | Where-Object { $_.Arch -eq 'x86' })[0]
+Assert ((Get-MsIsoDownloadLink -Entry $x86 -SkuId '16067') -like '*x32v1.iso*') 'download link still works when only vlscppe is blocked'
+
+# 2) vlscppe AND ov-df blocked: list loads, the link request is rejected with a clear explanation
+$script:Net = @{ 'vlscppe.microsoft.com' = 'dns'; 'ov-df.microsoft.com' = 'dns'; links = 'live_sentinel.json' }
+$cg = Get-MsCatalogForGui
+Assert ($cg.Live -eq 4) 'vlscppe + ov-df blocked: list still loads'
+$e1 = @($cg.Entries | Where-Object { $_.Arch -eq 'x64' -and $_.Os -eq 'Win11' })[0]
+$msg = ''; try { $null = Get-MsIsoDownloadLink -Entry $e1 -SkuId '27160' } catch { $msg = $_.Exception.Message }
+Assert ($msg -match 'Sentinel' -and $msg -match 'vlscppe\.microsoft\.com' -and $msg -match '1\.1\.1\.1' -and $msg -match 'đổi DNS') 'SentinelReject explains blocked hosts + DNS fix (EN + VI)'
+
+# 3) SentinelReject with healthy session -> generic VPN/region hint
+$e1.SessionState = @{ Tags = $true; OvDf = $true; Note = '' }
+$msg = ''; try { $null = Get-MsIsoDownloadLink -Entry $e1 -SkuId '27160' } catch { $msg = $_.Exception.Message }
+Assert ($msg -match 'VPN' -and $msg -notmatch 'cannot reach') 'SentinelReject with working session -> VPN/region hint'
+
+# 4) www.microsoft.com unreachable: never throws, static list (4 choices) + error text
+$script:Net = @{ 'vlscppe.microsoft.com' = 'dns'; 'ov-df.microsoft.com' = 'dns'; 'www.microsoft.com' = 'dns' }
+$threw = $false; try { $cg = Get-MsCatalogForGui } catch { $threw = $true }
+Assert (-not $threw -and $cg.Live -eq 0 -and @($cg.Entries).Count -eq 4 -and @($cg.Entries | Where-Object { $_.Static }).Count -eq 4) 'offline: static Win11 x64/arm64 + Win10 x64/x86 choices'
+Assert ($cg.Error -match 'www\.microsoft\.com' -and $cg.Error -match 'could not be resolved') 'offline: error names the host and reason'
+Assert (@($cg.Entries | Where-Object { -not $_.PageUrl }).Count -eq 0) 'static entries carry the official page URL (browser fallback)'
+
+# 5) partial failure: arm64 SKU list refused -> arm64 shown as static, others live
+$script:Net = @{ sku3816 = '{"ValidationContainer":{"Errors":[]},"Errors":[{"Key":"ErrorSettings.SentinelReject","Value":"Sentinel marked this request as rejected.","Type":8}]}' }
+$cg = Get-MsCatalogForGui
+$arm = @($cg.Entries | Where-Object { $_.Arch -eq 'arm64' })
+Assert ($cg.Live -eq 3 -and $arm.Count -eq 1 -and $arm[0].Static) 'partial: arm64 falls back to the static entry'
+
+# 6) blocked page instead of JSON (proxy / captive portal)
+$script:Net = @{ sku3813 = '<html>Access denied</html>'; sku3816 = '<html>x</html>'; sku2618 = '<html>x</html>' }
+$cg = Get-MsCatalogForGui
+Assert ($cg.Live -eq 0 -and $cg.Error -match 'not JSON') 'HTML instead of JSON -> clear error, static list'
+
+# 7) GUI background job path: job text runs in a runspace, results + log lines cross back, errors are logged with details
+. (Join-Path $root 'lib\Gui.ps1')
+$prelude = @'
+function ConvertFrom-MsJson { param([string]$Json) return ($Json | ConvertFrom-Json -AsHashtable) }
+function Initialize-MsDl { }
+$script:MsDl.RetryDelaySec = 0
+function Invoke-MsDlRequest {
+    param([string]$Uri, [string]$Referer, [int]$TimeoutMs)
+    $h = ([Uri]$Uri).Host
+    if ($h -eq 'vlscppe.microsoft.com') { throw "The remote name could not be resolved: '$h'" }
+    if ($Uri -like '*mdt.js*') { return 'x?w=AB12&y rticks="+123' }
+    if ($h -eq 'ov-df.microsoft.com') { return '' }
+    if ($Uri -like '*getskuinformationbyproductedition*') { $null = $Uri -match 'productEditionId=(\d+)'; return [IO.File]::ReadAllText((Join-Path $JobArgs.Fx "live_sku_$($Matches[1]).json")) }
+    return '<html></html>'
+}
+'@
+function Invoke-TestJob([string]$Script, [string]$LogPath) {
+    $sync = [hashtable]::Synchronized(@{ LogQueue = [Collections.Queue]::Synchronized((New-Object Collections.Queue)); Error = $null; Result = $null; Percent = 0; Status = '' })
+    $rs = [runspacefactory]::CreateRunspace(); $rs.Open()
+    $rs.SessionStateProxy.SetVariable('sync', $sync); $rs.SessionStateProxy.SetVariable('JobArgs', @{ Fx = $fx })
+    $rs.SessionStateProxy.SetVariable('W11RootPath', $root); $rs.SessionStateProxy.SetVariable('W11LogPath', $LogPath)
+    $ps = [powershell]::Create(); $ps.Runspace = $rs
+    [void]$ps.AddScript((Get-W11JobText -Script $Script -Root $root -Prelude $prelude))
+    [void]$ps.Invoke(); $ps.Dispose(); $rs.Close()
+    return $sync
+}
+$lp = [IO.Path]::GetTempFileName()
+$js = Invoke-TestJob '$sync.Result = Get-MsCatalogForGui' $lp
+$logTxt = [IO.File]::ReadAllText($lp)
+Assert (-not $js.Error -and $js.Result.Live -eq 4 -and @($js.Result.Entries).Count -eq 4) 'runspace: Load list job returns 4 live entries despite vlscppe failure'
+Assert ($js.LogQueue.Count -gt 3 -and $logTxt -match 'vlscppe\.microsoft\.com' -and $logTxt -match 'Querying Microsoft') 'runspace: progress + warnings reach the GUI queue and the log file'
+Assert ($js.Status -like 'Microsoft list done*') 'runspace: status text updated for the status label'
+$js = Invoke-TestJob 'throw "boom from job"' $lp
+$logTxt = [IO.File]::ReadAllText($lp)
+Assert ($js.Error -eq 'boom from job' -and $logTxt -match '\[ERROR\] boom from job' -and $logTxt -match 'RuntimeException') 'runspace: job exception -> $sync.Error + details in log'
+Remove-Item $lp
+
 Write-Host "Failures: $script:fail"
 exit $script:fail

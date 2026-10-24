@@ -96,6 +96,18 @@ Muốn sửa danh sách: mở `config\DebloatConfig.psd1` bằng Notepad (`Apps`
 - Link tải của Microsoft hết hạn sau khoảng 24 giờ.
 - Thư mục làm việc phải ở ổ NTFS trong máy (không dùng ổ mạng).
 
+## Khi gặp lỗi
+- **File log:** giao diện ghi log vào `logs\WinDebloat_gui_<ngày>_<giờ>.log` trong thư mục tool (nếu thư mục
+  không ghi được thì vào `%TEMP%`). Bấm **Mở thư mục log** trong cửa sổ để mở. Khi tạo ISO, tool còn ghi
+  `WinDebloat_<giờ>.log` cạnh file ISO đầu ra. Gặp lỗi thì gửi các file này.
+- **Bấm "Lấy danh sách" không ra / lỗi "remote name could not be resolved: vlscppe.microsoft.com":**
+  DNS, phần mềm chặn quảng cáo, file hosts hoặc nhà mạng đang chặn hai tên miền `vlscppe.microsoft.com`
+  và `ov-df.microsoft.com` mà Microsoft dùng để chống tải tự động. Từ bản 0.2.1 danh sách vẫn hiện bình
+  thường. Nếu đến lúc tải Microsoft báo từ chối (*Sentinel* / 715-123130) thì đổi DNS sang 1.1.1.1 hoặc
+  8.8.8.8 (hoặc bỏ chặn hai tên miền trên), tắt VPN, hoặc bấm **Mở trang Microsoft** để tải bằng trình duyệt.
+- Nếu hoàn toàn không có mạng, danh sách phiên bản Windows 11 / Windows 10 vẫn hiện; bấm **Tải** sẽ mở
+  trang tải chính thức của Microsoft.
+
 ## Hỗ trợ phiên bản Windows (máy chạy tool)
 - **Windows 10 / 11:** mục tiêu chính, đầy đủ tính năng.
 - **Windows 8 / 8.1:** thử nghiệm. DISM của Win8 không xử lý được Win11 nên tool dùng DISM có sẵn trong ISO

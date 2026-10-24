@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.2.1 - 2026-10-24
+**Fix: "Load list" showed nothing.**
+
+- Root cause: the session registration call to `vlscppe.microsoft.com` was fatal. On PCs where DNS,
+  an ad blocker, a hosts file or the ISP blocks that host ("The remote name could not be resolved:
+  'vlscppe.microsoft.com'"), every product failed and no list appeared.
+  Both registration steps (vlscppe + ov-df) are now best effort with a 10 s timeout; the tool continues
+  to www.microsoft.com anyway. Verified live: the language list needs no registration, the download
+  link needs only the ov-df step.
+- When Microsoft rejects a link (`SentinelReject`, 715-123130) the message says which host was
+  unreachable and suggests DNS 1.1.1.1 / 8.8.8.8, turning off VPN, or the browser fallback (EN + VI).
+- The version/architecture list (Windows 11 x64/arm64, Windows 10 x64/x86) is always shown, even
+  offline; for entries Microsoft did not return, *Download* opens the official page.
+- Status line while loading, per-product progress, errors from the list are shown in a message box.
+- GUI robustness: every event handler and job callback is wrapped (errors no longer vanish into the
+  hidden console); a click while another task runs is queued instead of silently ignored; the startup
+  system check and ISO detection run in the background without locking the buttons.
+- GUI session log file: `logs\WinDebloat_gui_<date>_<time>.log` in the tool folder (or `%TEMP%` if the
+  folder is read-only), with error details; *Open log folder* link in the window.
+- Web requests use HttpWebRequest with timeouts (30 s; WebClient had none) and name the failing host.
+- Non-JSON answers (proxy / captive portal pages) give a clear error.
+- Release labels: x64 and ARM64 Windows 11 now share one label ("Windows 11 26H2 (Build 26300.9457)").
+- Tests: user's exact DNS failure, vlscppe + ov-df blocked, fully offline, partial failure, HTML answer,
+  real Microsoft responses (captured 2026-10-24), background runspace job + log file.
+
 ## 0.2.0 - 2026-10-24
 **Windows 10 support; project renamed to WinDebloat Tool.**
 

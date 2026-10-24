@@ -15,3 +15,4 @@ mount/
 tools/*.exe
 tools/*.dll
 tools/Oscdimg/
+logs/

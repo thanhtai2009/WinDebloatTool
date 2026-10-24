@@ -119,6 +119,18 @@ the Windows 11 profile, `Win10Apps` / `Win10Tweaks` the Windows 10 profile; `Pro
 - Download links expire after ~24 h.
 - Use a local NTFS drive for the work folder (not a network share).
 
+## Troubleshooting
+- **Log file:** the GUI writes `logs\WinDebloat_gui_<date>_<time>.log` in the tool folder (or `%TEMP%`
+  if the folder is not writable); the link *Open log folder* in the window opens it. A build also writes
+  `WinDebloat_<time>.log` next to the output ISO. Send these files when reporting a problem.
+- **"Load list" fails / "remote name could not be resolved: vlscppe.microsoft.com"**: your DNS, ad
+  blocker, hosts file or ISP blocks Microsoft's download-protection hosts `vlscppe.microsoft.com` and
+  `ov-df.microsoft.com`. Since 0.2.1 the list still loads; if the download link is then rejected
+  (*Sentinel* / 715-123130), switch DNS to 1.1.1.1 or 8.8.8.8 (or unblock the two hosts), turn off
+  VPN, or use *Open Microsoft page* and download in the browser.
+- If nothing loads at all, the version list still shows Windows 11 / Windows 10; *Download* then opens
+  the official page.
+
 ## Requirements & Windows version support
 | Host | Status |
 |---|---|
