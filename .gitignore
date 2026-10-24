@@ -1,0 +1,16 @@
+# build / runtime artefacts
+*.iso
+*.wim
+*.esd
+*.partial
+*.log
+*.sha256
+kept_index*.txt
+W11Debloat_work/
+mount/
+# release archive
+*.zip
+# binaries users drop in locally (not redistributable here)
+tools/*.exe
+tools/*.dll
+tools/Oscdimg/

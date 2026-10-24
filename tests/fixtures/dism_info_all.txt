@@ -1,0 +1,17 @@
+
+Deployment Image Servicing and Management tool
+Version: 10.0.26100.1
+
+Details for image : D:\sources\install.wim
+
+Index : 1
+Name : Windows 11 Home
+Description : Windows 11 Home
+Size : 19,012,345,678 bytes
+
+Index : 2
+Name : Windows 11 Pro
+Description : Windows 11 Pro
+Size : 19,123,456,789 bytes
+
+The operation completed successfully.

@@ -1,0 +1,28 @@
+Deployment Image Servicing and Management tool
+Version: 10.0.26100.1
+
+Details for image : D:\sources\install.wim
+
+Index : 2
+Name : Windows 11 Pro
+Description : Windows 11 Pro
+Size : 19,123,456,789 bytes
+WIM Bootable : No
+Architecture : x64
+Hal : <undefined>
+Version : 10.0.26300
+ServicePack Build : 9457
+ServicePack Level : 0
+Edition : Professional
+Installation : Client
+ProductType : WinNT
+ProductSuite : Terminal Server
+System Root : WINDOWS
+Directories : 26000
+Files : 110000
+Created : 9/20/2026 - 1:00:00 AM
+Modified : 9/20/2026 - 1:10:00 AM
+Languages :
+        en-US (Default)
+
+The operation completed successfully.

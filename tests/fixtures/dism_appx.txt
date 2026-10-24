@@ -1,0 +1,30 @@
+Deployment Image Servicing and Management tool
+Version: 10.0.26100.1
+
+Image Version: 10.0.26300.9457
+
+Obtaining list of provisioned appx (.appx or .appxbundle) packages...
+[==========================100.0%==========================]
+
+DisplayName : Clipchamp.Clipchamp
+Version : 3.1.13190.0
+Architecture : neutral
+ResourceId : ~
+PackageName : Clipchamp.Clipchamp_3.1.13190.0_neutral_~_yxz26nhyzhsrt
+Regions : N/A
+
+DisplayName : Microsoft.WindowsStore
+Version : 22409.1401.5.0
+Architecture : neutral
+ResourceId : ~
+PackageName : Microsoft.WindowsStore_22409.1401.5.0_neutral_~_8wekyb3d8bbwe
+Regions : N/A
+
+DisplayName : Microsoft.XboxGamingOverlay
+Version : 7.324.9061.0
+Architecture : neutral
+ResourceId : ~
+PackageName : Microsoft.XboxGamingOverlay_7.324.9061.0_neutral_~_8wekyb3d8bbwe
+Regions : N/A
+
+The operation completed successfully.
