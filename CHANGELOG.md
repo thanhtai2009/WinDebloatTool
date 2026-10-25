@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.1 - 2026-10-25
+**Cross-check against the teammate research (MS edition IDs, appx names by build).**
+
+- Edition 2360 (Windows 11 22H2 original, 22621.382) marked "no longer offered – use a local ISO": the API
+  still returns a link but the CDN answers HTTP 400 (probe on 2 sessions, 2026-10-25).
+- Error 715-123130 (Type 9, IP / region / VPN block) is no longer retried (SKU list and link);
+  SentinelReject (Type 8) is still retried with a new session.
+- Xbox TCUI, Xbox Identity Provider, Xbox Speech-to-text and Get Help are now opt-in (Win10 + Win11),
+  labelled *unsafe* (Win11Debloat rates them unsafe: Store/game dialogs, Xbox sign-in, accessibility,
+  troubleshooters).
+- Build ranges (Win11): Maps, People, Mail & Calendar, Movies & TV up to 23H2 (22631), since a clean
+  24H2 install no longer has them; Dev Home 23H2–24H2 only.
+- Tests for all of the above, plus package-name checks (Clipchamp.Clipchamp, MicrosoftTeams vs MSTeams,
+  Microsoft.Copilot, Microsoft.Paint protected).
+
 ## 0.3.0 - 2026-10-25
 **Multi-connection downloads (aria2), every Windows release, version-aware debloat profile.**
 

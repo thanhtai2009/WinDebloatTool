@@ -35,8 +35,9 @@ $script:MsDl = @{
     }
     DownloadTypes = @{ x86 = 0; x64 = 1; arm64 = 2 }
     # Every release Microsoft's download API serves (edition ids from pbatard/Fido history).
-    # Verified 2026-10-25: all of these returned languages AND a download link (Sentinel rejects were
-    # intermittent and passed on retry). Offered = $false would mark a release as "local ISO only".
+    # Verified 2026-10-25: these returned languages AND a download link (Sentinel rejects were intermittent
+    # and passed on retry). Offered = $false marks a release "local ISO only": 2360 (22H2 original) gets a
+    # link but its ISO answers HTTP 400 at the CDN (teammate probe, 2 sessions, 2026-10-25).
     Catalog = @(
         @{ Os = 'Win11'; Name = '26H2';    Build = '26300.9457';  Date = '2026-09'; Ids = @{ x64 = '3813'; arm64 = '3816' }; Offered = $true }
         @{ Os = 'Win11'; Name = '25H2 v2'; Build = '26200.8037';  Date = '2026-03'; Ids = @{ x64 = '3321'; arm64 = '3324' }; Offered = $true }
@@ -46,7 +47,7 @@ $script:MsDl = @{
         @{ Os = 'Win11'; Name = '23H2';    Build = '22631.2428';  Date = '2023-10'; Ids = @{ x64 = '2860' }; Offered = $true }
         @{ Os = 'Win11'; Name = '22H2 v2'; Build = '22621.1702';  Date = '2023-05'; Ids = @{ x64 = '2616' }; Offered = $true }
         @{ Os = 'Win11'; Name = '22H2 v1'; Build = '22621.525';   Date = '2022-10'; Ids = @{ x64 = '2370' }; Offered = $true }
-        @{ Os = 'Win11'; Name = '22H2';    Build = '22621.382';   Date = '2022-09'; Ids = @{ x64 = '2360' }; Offered = $true }
+        @{ Os = 'Win11'; Name = '22H2';    Build = '22621.382';   Date = '2022-09'; Ids = @{ x64 = '2360' }; Offered = $false; Why = 'CDN answers HTTP 400 for this ISO (2026-10-25) / máy chủ tải trả lỗi HTTP 400' }
         @{ Os = 'Win11'; Name = '21H2 v1'; Build = '22000.318';   Date = '2021-11'; Ids = @{ x64 = '2093' }; Offered = $true }
         @{ Os = 'Win11'; Name = '21H2';    Build = '22000.194';   Date = '2021-10'; Ids = @{ x64 = '2069' }; Offered = $true }
         @{ Os = 'Win10'; Name = '22H2 v1'; Build = '19045.2965';  Date = '2023-05'; Ids = @{ x64 = '2618'; x86 = '2618' }; Offered = $true }
@@ -242,10 +243,12 @@ function Get-MsSkuList {
         $sentinel = $false
         if ($errs.Count -gt 0) {
             $lastMsg = [string](Get-MsVal $errs[0] 'Value')
-            $sentinel = (@('8', '9') -contains [string](Get-MsVal $errs[0] 'Type') -or $lastMsg -match '715-123130|[Ss]entinel')
-            if ($sentinel) { $lastMsg = "$lastMsg`n" + (Get-MsBlockedHint (Get-MsSessionState $sid)) }
+            $etype = [string](Get-MsVal $errs[0] 'Type')
+            $blocked = ($etype -eq '9' -or $lastMsg -match '715-123130')
+            $sentinel = (-not $blocked -and ($etype -eq '8' -or $lastMsg -match '[Ss]entinel'))
+            if ($sentinel -or $blocked) { $lastMsg = "$lastMsg`n" + (Get-MsBlockedHint (Get-MsSessionState $sid)) }
         }
-        if (-not $sentinel) { break }   # a plain "no languages" answer will not change on retry
+        if (-not $sentinel) { break }   # "no languages" or an IP/region block (Type 9) will not change on retry
         if ($script:MsDl.RetryDelaySec -gt 0) { Start-Sleep -Seconds ($script:MsDl.RetryDelaySec * 2) }
     }
     throw "Microsoft refused the language list ($lastMsg)"
@@ -267,7 +270,7 @@ function Get-MsReleaseCatalog {
                     Os = $r.Os; Arch = $a; DownloadType = $script:MsDl.DownloadTypes[$a]; EditionId = $r.Ids[$a]; EditionName = $label
                     Release = $label; ReleaseName = $r.Name; Build = [int]($r.Build.Split('.')[0]); BuildFull = $r.Build
                     SessionId = $null; SessionState = $null; PageUrl = $pg; Hashes = @{}; Skus = @(); Static = $true
-                    Available = [bool]$r.Offered; Note = ''
+                    Available = [bool]$r.Offered; Note = $(if ($r.Offered) { '' } else { "Microsoft no longer offers this - use a local ISO / Microsoft không còn cung cấp bản này, hãy dùng file ISO có sẵn ($($r.Why))" })
                 })
         }
     }
@@ -429,7 +432,8 @@ function Get-MsIsoDownloadLink {
             if (@('8', '9') -contains $etype -or $eval -match '715-123130|[Ss]entinel') {
                 if (-not $state) { $state = Get-MsSessionState $sid }
                 $lastErr = "Microsoft: $eval (session $sid)`n" + (Get-MsBlockedHint $state)
-                continue
+                if ($etype -eq '9' -or $eval -match '715-123130') { break }   # IP / region / VPN block: a new session does not help
+                continue                                                      # SentinelReject is often random: new session
             }
             throw ('Microsoft refused the download link: ' + $eval)
         }

@@ -27,7 +27,16 @@ $cfg = Get-W11Config
 Assert ($info[1].Build -eq 26300) 'build parsed from dism Version line'
 $p11 = Get-W11Profile -Config $cfg -Os Win11
 $def = @($p11.Apps | Where-Object { $_.Default } | ForEach-Object { $_.Id })
-foreach ($fam in (Get-Content (Join-Path $root 'tests\fixtures\reference_families.txt'))) { if ($fam) { Assert ($def -contains $fam) "reference removal kept in defaults: $fam" } }
+# 0.3.1: four packages of the reference build are rated "unsafe" by Win11Debloat (Apps.json, checked 2026-10-25):
+# listed but opt-in, so a default build keeps Store/game sign-in/troubleshooters working
+$unsafe = @('Microsoft.GetHelp', 'Microsoft.Xbox.TCUI', 'Microsoft.XboxIdentityProvider', 'Microsoft.XboxSpeechToTextOverlay')
+foreach ($fam in (Get-Content (Join-Path $root 'tests\fixtures\reference_families.txt'))) {
+    if (-not $fam) { continue }
+    if ($unsafe -contains $fam) { Assert (($def -notcontains $fam) -and @($p11.Apps | Where-Object { $_.Id -eq $fam -and $_.Name -match 'unsafe' }).Count -eq 1) "unsafe reference removal is listed but opt-in: $fam" }
+    else { Assert ($def -contains $fam) "reference removal kept in defaults: $fam" }
+}
+$d10 = @((Get-W11Profile -Config $cfg -Os Win10).Apps | Where-Object { $_.Default } | ForEach-Object { $_.Id })
+Assert (@($unsafe | Where-Object { $d10 -contains $_ }).Count -eq 0) 'Win10: unsafe packages not removed by default'
 Assert (-not (Test-W11Like 'Microsoft.WindowsStore' $def)) 'Store not in removal list'
 Assert (Test-W11Like 'Microsoft.WindowsStore' $cfg.Protected) 'Store protected'
 Assert (Test-W11Like 'Microsoft.VCLibs.140.00.UWPDesktop' $cfg.Protected) 'VCLibs protected (wildcard)'
@@ -115,7 +124,7 @@ if ($env:W11D_REAL_WIM -and (Test-Path -LiteralPath $env:W11D_REAL_WIM)) {
 $p10 = Get-W11Profile -Config $cfg -Os Win10
 $d10 = @($p10.Apps | Where-Object { $_.Default } | ForEach-Object { $_.Id })
 $o10 = @($p10.Apps | Where-Object { -not $_.Default } | ForEach-Object { $_.Id })
-foreach ($id in @('Microsoft.3DBuilder', 'Microsoft.Microsoft3DViewer', 'Microsoft.Print3D', 'Microsoft.MixedReality.Portal', 'Microsoft.People', 'Microsoft.SkypeApp', 'Microsoft.OneConnect', 'Microsoft.Wallet', 'Microsoft.Messaging', 'Microsoft.BingWeather', 'Microsoft.BingNews', 'Microsoft.GetHelp', 'Microsoft.Getstarted', 'Microsoft.MicrosoftOfficeHub', 'Microsoft.MicrosoftSolitaireCollection', 'Microsoft.XboxApp', 'Microsoft.XboxGamingOverlay', 'Microsoft.YourPhone', 'Microsoft.WindowsFeedbackHub', 'Microsoft.549981C3F5F10', 'Clipchamp.Clipchamp', 'MicrosoftTeams')) {
+foreach ($id in @('Microsoft.3DBuilder', 'Microsoft.Microsoft3DViewer', 'Microsoft.Print3D', 'Microsoft.MixedReality.Portal', 'Microsoft.People', 'Microsoft.SkypeApp', 'Microsoft.OneConnect', 'Microsoft.Wallet', 'Microsoft.Messaging', 'Microsoft.BingWeather', 'Microsoft.BingNews', 'Microsoft.Getstarted', 'Microsoft.MicrosoftOfficeHub', 'Microsoft.MicrosoftSolitaireCollection', 'Microsoft.XboxApp', 'Microsoft.XboxGamingOverlay', 'Microsoft.YourPhone', 'Microsoft.WindowsFeedbackHub', 'Microsoft.549981C3F5F10', 'Clipchamp.Clipchamp', 'MicrosoftTeams')) {
     Assert ($d10 -contains $id) "Win10 default removal: $id"
 }
 foreach ($id in @('Microsoft.ZuneMusic', 'Microsoft.ZuneVideo', 'Microsoft.WindowsMaps', 'Microsoft.MSPaint')) { Assert ($o10 -contains $id) "Win10 optional (unticked): $id" }
@@ -278,7 +287,10 @@ Assert ($cg.Live -eq 0 -and $cg.Error -match 'not JSON') 'HTML instead of JSON -
 # ================= 0.3.0: release catalog, per-release languages =================
 $rc = @(Get-MsReleaseCatalog)
 Assert (@($rc | Where-Object { $_.Os -eq 'Win11' }).Count -eq 15 -and @($rc | Where-Object { $_.Os -eq 'Win10' }).Count -eq 36) 'release catalog: 15 Win11 entries (4 releases x64+arm64, 7 x64 only) + 36 Win10 (18 x64+x86)'
-Assert (@($rc | Where-Object { $_.Available -and $_.Static -and @($_.Skus).Count -eq 0 }).Count -eq $rc.Count) 'release catalog: everything offered, languages not loaded yet'
+Assert (@($rc | Where-Object { $_.Static -and @($_.Skus).Count -eq 0 }).Count -eq $rc.Count -and @($rc | Where-Object { -not $_.Available }).Count -eq 1) 'release catalog: languages not loaded yet; one release not offered'
+$e2360 = @($rc | Where-Object { $_.EditionId -eq '2360' })[0]
+Assert ($e2360.Available -eq $false -and $e2360.Note -match 'use a local ISO' -and $e2360.Note -match 'HTTP 400' -and $e2360.ReleaseName -eq '22H2') '2360 (Win11 22H2 original, CDN HTTP 400) marked "no longer offered - use a local ISO"'
+Assert (@($rc | Where-Object { $_.EditionId -eq '2370' -or $_.EditionId -eq '2616' -or $_.EditionId -eq '3813' } | Where-Object { $_.Available }).Count -eq 3) 'other 22H2 builds + 26H2 stay downloadable'
 $r242 = @($rc | Where-Object { $_.ReleaseName -eq '24H2' -and $_.Arch -eq 'arm64' })[0]
 Assert ($r242.EditionId -eq '3131' -and $r242.Build -eq 26100 -and $r242.PageUrl -like '*windows11arm64' -and $r242.DownloadType -eq 2) 'release catalog: 24H2 arm64 = edition 3131, build 26100, ARM page'
 Assert ((@($rc | Where-Object { $_.Os -eq 'Win10' -and $_.ReleaseName -eq '1507' })[0]).Release -eq 'Windows 10 1507 (Build 10240.16384, 2015-07)') 'release catalog: label with build + date'
@@ -320,7 +332,20 @@ function Invoke-MsDlRequest {
 $e10 = @($rc | Where-Object { $_.EditionId -eq '2377' -and $_.Arch -eq 'x86' })[0]
 $lk = $null; try { $lk = Get-MsIsoDownloadLink -Entry $e10 -SkuId '16067' } catch { $lk = $_.Exception.Message }
 Assert ($lk -like '*x32v1.iso*' -and $script:linkCalls -eq 2) 'link: Sentinel once -> new session -> link (x86 picked)'
+# Type 9 (715-123130, IP / region / VPN block): no retry loop, clear message
+$script:linkCalls = 0
+function Invoke-MsDlRequest {
+    param([string]$Uri, [string]$Referer, [int]$TimeoutMs)
+    if ($Uri -like '*GetProductDownloadLinksBySku*') { $script:linkCalls++; return '{"Errors":[{"Key":"ErrorSettings.ErrorCode","Value":"715-123130","Type":9}]}' }
+    return (& $origReq -Uri $Uri -Referer $Referer -TimeoutMs $TimeoutMs)
+}
+$m9 = ''; try { $null = Get-MsIsoDownloadLink -Entry $e10 -SkuId '16067' } catch { $m9 = $_.Exception.Message }
+Assert ($script:linkCalls -eq 1 -and $m9 -match '715-123130' -and $m9 -match 'VPN') 'Type 9 on link: stops after one try with the VPN/region hint'
 Set-Item function:Invoke-MsDlRequest $origReq
+$script:Net = @{ sku2084 = '{"Errors":[{"Key":"ErrorSettings.ErrorCode","Value":"715-123130","Type":9}]}' }
+$script:netLog.Clear()
+$ur9 = Update-MsEntryLanguages -Entry (@($rc | Where-Object { $_.EditionId -eq '2084' })[0])
+Assert (-not $ur9.Ok -and -not $ur9.NotOffered -and $ur9.Error -match '715-123130' -and @($script:netLog | Where-Object { $_ -like '*getskuinformation*' }).Count -eq 3) 'Type 9 on languages: one round only, not marked withdrawn'
 
 # ================= 0.3.0: build -> release, version-aware profile =================
 $pairs = @{ 10240 = '1507'; 10586 = '1511'; 14393 = '1607'; 15063 = '1703'; 16299 = '1709'; 17134 = '1803'; 17763 = '1809'; 18362 = '1903'; 18363 = '1909'; 19041 = '2004'; 19042 = '20H2'; 19043 = '21H1'; 19044 = '21H2'; 19045 = '22H2'; 22000 = '21H2'; 22621 = '22H2'; 22631 = '23H2'; 26100 = '24H2'; 26200 = '25H2'; 26300 = '26H2' }
@@ -335,7 +360,13 @@ Assert (($ids -notcontains 'Clipchamp.Clipchamp') -and ($ids -notcontains 'Micro
 Assert (($tids -contains 'BypassNRO') -and ($tids -contains 'ChatTaskbarOff') -and ($tids -notcontains 'CopilotOff') -and @($pa.SkippedApps).Count -gt 0) 'Win11 21H2 tweaks: BypassNRO + Chat on, Copilot off-tweak hidden'
 $pb = Get-W11Profile -Config $cfg -Os Win11 -Build 26100
 $ids = @($pb.Apps | ForEach-Object { $_.Id }); $tids = @($pb.Tweaks | ForEach-Object { $_.Id })
-Assert (($ids -notcontains 'Microsoft.549981C3F5F10') -and ($ids -contains 'Microsoft.Copilot') -and ($ids -contains 'Microsoft.OutlookForWindows') -and ($ids -contains 'Microsoft.WindowsMaps') -and ($tids -notcontains 'ChatTaskbarOff') -and ($tids -contains 'CopilotOff')) 'Win11 24H2 profile: Copilot/Outlook/Maps, no Cortana, no Chat tweak'
+Assert (($ids -notcontains 'Microsoft.549981C3F5F10') -and ($ids -contains 'Microsoft.Copilot') -and ($ids -contains 'Microsoft.OutlookForWindows') -and ($ids -contains 'Microsoft.Windows.DevHome') -and ($tids -notcontains 'ChatTaskbarOff') -and ($tids -contains 'CopilotOff')) 'Win11 24H2 profile: Copilot/Outlook/Dev Home, no Cortana, no Chat tweak'
+Assert (@($pb.Apps | Where-Object { @('Microsoft.WindowsMaps', 'Microsoft.People', 'microsoft.windowscommunicationsapps', 'Microsoft.ZuneVideo') -contains $_.Id }).Count -eq 0) 'Win11 24H2 clean install: no Maps / People / Mail & Calendar / Movies & TV (Thurrott 24H2)'
+$p23 = @((Get-W11Profile -Config $cfg -Os Win11 -Build 22631).Apps | ForEach-Object { $_.Id })
+Assert (($p23 -contains 'Microsoft.WindowsMaps') -and ($p23 -contains 'Microsoft.People') -and ($p23 -contains 'Microsoft.ZuneVideo') -and ($p23 -contains 'MicrosoftTeams') -and ($p23 -contains 'MSTeams')) 'Win11 23H2: Maps / People / Movies & TV still listed; old (MicrosoftTeams) + new (MSTeams) Teams'
+$p25 = @((Get-W11Profile -Config $cfg -Os Win11 -Build 26200).Apps | ForEach-Object { $_.Id })
+Assert (($p25 -notcontains 'Microsoft.Windows.DevHome') -and ($p25 -notcontains 'MicrosoftTeams') -and ($p25 -contains 'MSTeams') -and ($p25 -contains 'Clipchamp.Clipchamp') -and ($p25 -contains 'Microsoft.Copilot')) 'Win11 25H2: Dev Home + old Teams gone; MSTeams, Clipchamp.Clipchamp, Microsoft.Copilot listed'
+Assert (@($cfg.Apps + $cfg.Win10Apps | Where-Object { $_.Id -eq 'Microsoft.Clipchamp' -or $_.Id -eq 'Microsoft.Paint' }).Count -eq 0 -and (Test-W11Like 'Microsoft.Paint' $cfg.Protected)) 'package names: no Microsoft.Clipchamp; Microsoft.Paint (new Paint) protected, only Microsoft.MSPaint (Paint 3D) listed'
 $pc = Get-W11Profile -Config $cfg -Os Win11 -Build 26200
 Assert (@($pc.Apps | Where-Object { $_.Id -eq 'Microsoft.WindowsMaps' -or $_.Id -eq 'Microsoft.Windows.Ai.Copilot.Provider' }).Count -eq 0) 'Win11 25H2: Maps + old Copilot provider hidden'
 $pd = Get-W11Profile -Config $cfg -Os Win10 -Build 15063

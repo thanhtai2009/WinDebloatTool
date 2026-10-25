@@ -41,7 +41,9 @@ run.bat -Check                                                  (kiểm tra máy
 ## Tải từ Microsoft
 - **Các bản Windows:** danh sách gồm mọi bản mà hệ thống tải của Microsoft còn phục vụ. Kiểm tra trực tiếp
   ngày 25/10/2026: tất cả đều lấy được ngôn ngữ và link tải – Windows 11 26H2, 25H2 (+v2), 24H2 (x64 + ARM64);
-  23H2, 22H2, 21H2 (x64); Windows 10 22H2 về tới 1507 (x64 + x86). Nếu Microsoft gỡ bản nào, bấm **Lấy ngôn ngữ**
+  23H2, 22H2 v1 + v2, 21H2 (x64); Windows 10 22H2 về tới 1507 (x64 + x86). Bản Windows 11 22H2 đầu tiên
+  (mã 2360) được đánh dấu không còn cung cấp vì máy chủ tải trả lỗi HTTP 400. Lỗi *SentinelReject* thường
+  ngẫu nhiên nên tool tự thử lại với phiên mới; lỗi 715-123130 (IP, khu vực hoặc VPN bị chặn) thì không thử lại. Nếu Microsoft gỡ bản nào, bấm **Lấy ngôn ngữ**
   sẽ báo "Microsoft không còn cung cấp bản này, hãy dùng file ISO có sẵn". Microsoft chỉ công bố SHA256 cho các
   bản mới nhất; với bản cũ, mã SHA256 được ghi vào log để anh tự đối chiếu.
 - **aria2** (có sẵn trong `tools\aria2\x64|x86\aria2c.exe`; hoặc `tools\aria2c.exe`, cạnh script, hoặc trong PATH):
@@ -68,10 +70,12 @@ chọn tay; nếu chọn khác với image thực tế, log sẽ cảnh báo.
 
 ## Tool thay đổi những gì – Windows 11
 **Gỡ (mặc định):** Clipchamp, Teams mới, Outlook mới, Tin tức, Bing Search, Thời tiết, app Xbox, Game Bar,
-Xbox TCUI, Xbox Identity Provider, Xbox Speech-to-text, Solitaire, Get Help, Microsoft 365 hub,
+Solitaire, Microsoft 365 hub,
 Power Automate, To Do, Dev Home, Feedback Hub, Phone Link, Cross Device, Quick Assist, Copilot, Family;
 bản cũ thì gỡ thêm Cortana, Maps, People, Tips, Copilot provider, Teams cũ.
-Tuỳ chọn (không tick sẵn): Widgets, Media Player, Phim & TV, Camera, Đồng hồ, Ghi âm, Sticky Notes, Mail & Lịch.
+Tuỳ chọn (không tick sẵn): Widgets, Media Player, Phim & TV, Camera, Đồng hồ, Ghi âm, Sticky Notes, Mail & Lịch,
+và các mục ghi *unsafe* (gỡ đi có thể hỏng game, hộp thoại Store, đăng nhập Xbox hoặc trình sửa lỗi): Xbox TCUI,
+Xbox Identity Provider, Xbox Speech-to-text, Get Help (đến bản 0.3.0 vẫn gỡ mặc định).
 
 **Luôn giữ lại:** Store, Defender/Bảo mật, Edge, WebView2, Máy tính, Ảnh, Notepad, Terminal, Snipping Tool,
 Paint, codec, runtime, App Installer (winget). Mọi app đã gỡ đều cài lại được từ Store.
@@ -86,8 +90,8 @@ lúc cài đặt (UScheduler_Oobe).
 
 ## Tool thay đổi những gì – Windows 10 (22H2)
 **Gỡ (mặc định):** 3D Builder, 3D Viewer, Print 3D, Mixed Reality Portal, People (Danh bạ), Skype, Mobile Plans,
-Wallet, Messaging, Thời tiết, Tin tức, Get Help, Tips, Office hub, OneNote (bản Store), Solitaire, app Xbox,
-Game Bar, Xbox TCUI / Identity Provider / Speech-to-text, Your Phone, Feedback Hub, **Cortana**; nếu bản
+Wallet, Messaging, Thời tiết, Tin tức, Tips, Office hub, OneNote (bản Store), Solitaire, app Xbox,
+Game Bar (Xbox TCUI / Identity Provider / Speech-to-text và Get Help vẫn có trong danh sách nhưng không tick sẵn), Your Phone, Feedback Hub, **Cortana**; nếu bản
 ISO mới có thì gỡ thêm Clipchamp, Teams, To Do, Power Automate, Outlook mới, Copilot, Family.
 Tuỳ chọn (không tick sẵn): Groove Music, Phim & TV, Bản đồ, Paint 3D, Mail & Lịch, Camera, Báo thức & Đồng hồ,
 Ghi âm, Sticky Notes.

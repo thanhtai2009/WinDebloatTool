@@ -21,15 +21,15 @@
         @{ Id = 'Microsoft.BingWeather';                  Name = 'Weather';                         Default = $true }
         @{ Id = 'Microsoft.GamingApp';                    Name = 'Xbox app';                        Default = $true }
         @{ Id = 'Microsoft.XboxGamingOverlay';            Name = 'Xbox Game Bar';                   Default = $true }
-        @{ Id = 'Microsoft.Xbox.TCUI';                    Name = 'Xbox TCUI';                       Default = $true }
-        @{ Id = 'Microsoft.XboxIdentityProvider';         Name = 'Xbox Identity Provider';          Default = $true }
-        @{ Id = 'Microsoft.XboxSpeechToTextOverlay';      Name = 'Xbox Speech-to-text overlay';     Default = $true }
+        @{ Id = 'Microsoft.Xbox.TCUI';                    Name = 'Xbox TCUI (unsafe: Store/games UI)'; Default = $false }
+        @{ Id = 'Microsoft.XboxIdentityProvider';         Name = 'Xbox Identity Provider (unsafe: game sign-in)'; Default = $false }
+        @{ Id = 'Microsoft.XboxSpeechToTextOverlay';      Name = 'Xbox Speech-to-text (unsafe: accessibility, hard to reinstall)'; Default = $false }
         @{ Id = 'Microsoft.MicrosoftSolitaireCollection'; Name = 'Solitaire Collection';            Default = $true }
-        @{ Id = 'Microsoft.GetHelp';                      Name = 'Get Help';                        Default = $true }
+        @{ Id = 'Microsoft.GetHelp';                      Name = 'Get Help (unsafe: troubleshooters)'; Default = $false }
         @{ Id = 'Microsoft.MicrosoftOfficeHub';           Name = 'Microsoft 365 (Office) hub';      Default = $true }
         @{ Id = 'Microsoft.PowerAutomateDesktop';         Name = 'Power Automate';                  Default = $true }
         @{ Id = 'Microsoft.Todos';                        Name = 'Microsoft To Do';                 Default = $true }
-        @{ Id = 'Microsoft.Windows.DevHome';              Name = 'Dev Home';                        Default = $true; MinBuild = 22631 }
+        @{ Id = 'Microsoft.Windows.DevHome';              Name = 'Dev Home';                        Default = $true; MinBuild = 22631; MaxBuild = 26100 }
         @{ Id = 'Microsoft.WindowsFeedbackHub';           Name = 'Feedback Hub';                    Default = $true }
         @{ Id = 'Microsoft.YourPhone';                    Name = 'Phone Link';                      Default = $true }
         @{ Id = 'MicrosoftWindows.CrossDevice';           Name = 'Cross Device experience';         Default = $true; MinBuild = 26100 }
@@ -38,20 +38,20 @@
         @{ Id = 'MicrosoftCorporationII.MicrosoftFamily'; Name = 'Microsoft Family';                Default = $true; MinBuild = 22621 }
         # ---- removed only if present (older builds) ----
         @{ Id = 'Microsoft.549981C3F5F10';                Name = 'Cortana (older builds)';          Default = $true; MaxBuild = 22631 }
-        @{ Id = 'Microsoft.WindowsMaps';                  Name = 'Maps (older builds)';             Default = $true; MaxBuild = 26100 }
-        @{ Id = 'Microsoft.People';                       Name = 'People (older builds)';           Default = $true; MaxBuild = 22621 }
+        @{ Id = 'Microsoft.WindowsMaps';                  Name = 'Maps (older builds)';             Default = $true; MaxBuild = 22631 }
+        @{ Id = 'Microsoft.People';                       Name = 'People (older builds)';           Default = $true; MaxBuild = 22631 }
         @{ Id = 'Microsoft.Getstarted';                   Name = 'Tips / Get Started';              Default = $true }
         @{ Id = 'Microsoft.Windows.Ai.Copilot.Provider';  Name = 'Copilot provider (older builds)'; Default = $true; MinBuild = 22631; MaxBuild = 26100 }
         @{ Id = 'MicrosoftTeams';                         Name = 'Teams consumer (older builds)';   Default = $true; MaxBuild = 22631 }
         # ---- optional, NOT removed by default ----
         @{ Id = 'MicrosoftWindows.Client.WebExperience';  Name = 'Widgets board (optional)';        Default = $false }
         @{ Id = 'Microsoft.ZuneMusic';                    Name = 'Media Player (optional)';         Default = $false }
-        @{ Id = 'Microsoft.ZuneVideo';                    Name = 'Movies & TV (optional)';          Default = $false }
+        @{ Id = 'Microsoft.ZuneVideo';                    Name = 'Movies & TV (optional)';          Default = $false; MaxBuild = 22631 }
         @{ Id = 'Microsoft.WindowsCamera';                Name = 'Camera (optional)';               Default = $false }
         @{ Id = 'Microsoft.WindowsAlarms';                Name = 'Clock / Alarms (optional)';       Default = $false }
         @{ Id = 'Microsoft.WindowsSoundRecorder';         Name = 'Sound Recorder (optional)';       Default = $false }
         @{ Id = 'Microsoft.MicrosoftStickyNotes';         Name = 'Sticky Notes (optional)';         Default = $false }
-        @{ Id = 'microsoft.windowscommunicationsapps';    Name = 'Mail & Calendar (older builds)';  Default = $false; MaxBuild = 26100 }
+        @{ Id = 'microsoft.windowscommunicationsapps';    Name = 'Mail & Calendar (older builds)';  Default = $false; MaxBuild = 22631 }
     )
 
     # Never removed / Không bao giờ gỡ
@@ -161,7 +161,7 @@
         @{ Id = 'Microsoft.Messaging';                    Name = 'Messaging (older builds)';        Default = $true; MinBuild = 10586; MaxBuild = 18363 }
         @{ Id = 'Microsoft.BingWeather';                  Name = 'Weather';                         Default = $true }
         @{ Id = 'Microsoft.BingNews';                     Name = 'News';                            Default = $true }
-        @{ Id = 'Microsoft.GetHelp';                      Name = 'Get Help';                        Default = $true; MinBuild = 16299 }
+        @{ Id = 'Microsoft.GetHelp';                      Name = 'Get Help (unsafe: troubleshooters)'; Default = $false; MinBuild = 16299 }
         @{ Id = 'Microsoft.Getstarted';                   Name = 'Tips / Get Started';              Default = $true }
         @{ Id = 'Microsoft.MicrosoftOfficeHub';           Name = 'Office hub';                      Default = $true }
         @{ Id = 'Microsoft.Office.OneNote';               Name = 'OneNote for Windows 10';          Default = $true }
@@ -170,9 +170,9 @@
         @{ Id = 'Microsoft.GamingApp';                    Name = 'Xbox app (if present)';           Default = $true; MinBuild = 19041 }
         @{ Id = 'Microsoft.XboxGameOverlay';              Name = 'Xbox Game Overlay';               Default = $true; MinBuild = 15063 }
         @{ Id = 'Microsoft.XboxGamingOverlay';            Name = 'Xbox Game Bar';                   Default = $true; MinBuild = 17134 }
-        @{ Id = 'Microsoft.Xbox.TCUI';                    Name = 'Xbox TCUI';                       Default = $true; MinBuild = 15063 }
-        @{ Id = 'Microsoft.XboxIdentityProvider';         Name = 'Xbox Identity Provider';          Default = $true }
-        @{ Id = 'Microsoft.XboxSpeechToTextOverlay';      Name = 'Xbox Speech-to-text overlay';     Default = $true; MinBuild = 17134 }
+        @{ Id = 'Microsoft.Xbox.TCUI';                    Name = 'Xbox TCUI (unsafe: Store/games UI)'; Default = $false; MinBuild = 15063 }
+        @{ Id = 'Microsoft.XboxIdentityProvider';         Name = 'Xbox Identity Provider (unsafe: game sign-in)'; Default = $false }
+        @{ Id = 'Microsoft.XboxSpeechToTextOverlay';      Name = 'Xbox Speech-to-text (unsafe: accessibility, hard to reinstall)'; Default = $false; MinBuild = 17134 }
         @{ Id = 'Microsoft.YourPhone';                    Name = 'Your Phone / Phone Link';         Default = $true; MinBuild = 17763 }
         @{ Id = 'Microsoft.WindowsFeedbackHub';           Name = 'Feedback Hub';                    Default = $true; MinBuild = 14393 }
         @{ Id = 'Microsoft.549981C3F5F10';                Name = 'Cortana';                         Default = $true; MinBuild = 19041 }

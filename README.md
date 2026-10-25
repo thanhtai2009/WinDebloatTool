@@ -41,9 +41,12 @@ Parameters: `-TargetOs Auto|Win10|Win11`, `-Edition All|HomePro|Custom -Indexes 
 ## Downloading from Microsoft
 - **Releases:** the picker lists every release Microsoft's download API serves (edition IDs as used by
   [Fido](https://github.com/pbatard/Fido)). Checked live on 2026-10-25: all of them returned a language
-  list and a link – Windows 11 26H2, 25H2 (+v2), 24H2 (x64 + ARM64); 23H2 (+v2), 22H2 (+v1, v2), 21H2 (+v1)
+  list and a link – Windows 11 26H2, 25H2 (+v2), 24H2 (x64 + ARM64); 23H2 (+v2), 22H2 v1 + v2, 21H2 (+v1)
   (x64); Windows 10 22H2 (+v1), 21H2, 21H1, 20H2 (+v2), 2004, 1909, 1903 (+v2), 1809 (+v2), 1803, 1709,
-  1703, 1607, 1511, 1507 (x64 + x86). If Microsoft withdraws one, *Languages* marks it
+  1703, 1607, 1511, 1507 (x64 + x86). The original Windows 11 22H2 ISO (edition 2360, build 22621.382) is
+  marked "no longer offered": Microsoft still returns a link but its CDN answers HTTP 400.
+  `SentinelReject` is often random and is retried with a new session; error 715-123130 (Type 9: IP, region
+  or VPN blocked) is not retried. If Microsoft withdraws one, *Languages* marks it
   "no longer offered – use a local ISO". Microsoft publishes SHA256 values only for the current releases;
   for older ones the hash is logged for manual comparison.
 - **aria2** (`tools\aria2\x64|x86\aria2c.exe`, bundled; also `tools\aria2c.exe`, next to the script, or PATH):
@@ -72,11 +75,13 @@ and logged.
 
 ## What it changes – Windows 11
 **Removed (provisioned apps, default):** Clipchamp, Teams (new), Outlook (new), News, Bing Search,
-Weather, Xbox app, Game Bar, Xbox TCUI, Xbox Identity Provider, Xbox Speech-to-text overlay,
-Solitaire, Get Help, Microsoft 365 hub, Power Automate, To Do, Dev Home, Feedback Hub,
+Weather, Xbox app, Game Bar,
+Solitaire, Microsoft 365 hub, Power Automate, To Do, Dev Home, Feedback Hub,
 Phone Link, Cross Device, Quick Assist, Copilot, Family; on older builds also Cortana, Maps, People,
 Tips, Copilot provider, old Teams. Optional (unchecked): Widgets, Media Player, Movies & TV, Camera,
-Clock, Sound Recorder, Sticky Notes, Mail & Calendar.
+Clock, Sound Recorder, Sticky Notes, Mail & Calendar, and – marked *unsafe*, because games, Store
+dialogs, game sign-in or troubleshooters depend on them – Xbox TCUI, Xbox Identity Provider,
+Xbox Speech-to-text overlay, Get Help (removed by default up to 0.3.0).
 
 **Always kept:** Store, Defender/Security, Edge, WebView2, Calculator, Photos, Notepad, Terminal,
 Snipping Tool, Paint, codecs, runtimes, App Installer (winget). Everything removed can be reinstalled
@@ -101,8 +106,9 @@ the ISO.
 
 ## What it changes – Windows 10 (22H2)
 **Removed (default):** 3D Builder, 3D Viewer, Print 3D, Mixed Reality Portal, People, Skype, Mobile Plans
-(OneConnect), Wallet, Messaging, Weather, News, Get Help, Tips (Getstarted), Office hub, OneNote (Store
-app), Solitaire, Xbox app / Game Bar / Xbox TCUI / Identity Provider / Speech-to-text overlay,
+(OneConnect), Wallet, Messaging, Weather, News, Tips (Getstarted), Office hub, OneNote (Store
+app), Solitaire, Xbox app / Game Bar (Xbox TCUI / Identity Provider / Speech-to-text and Get Help are
+listed as *unsafe*, unchecked),
 Your Phone, Feedback Hub, **Cortana**, and – if present in newer refreshes – Clipchamp, Teams,
 To Do, Power Automate, Outlook (new), Copilot, Family.
 Optional (unchecked): Groove Music, Movies & TV, Maps, Paint 3D, Mail & Calendar, Camera, Alarms & Clock,
