@@ -16,3 +16,5 @@ tools/*.exe
 tools/*.dll
 tools/Oscdimg/
 logs/
+!tools/aria2/
+!tools/aria2/**

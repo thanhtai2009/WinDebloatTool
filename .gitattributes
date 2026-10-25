@@ -6,3 +6,5 @@
 *.txt text eol=crlf
 *.xml text eol=crlf
 *.html text eol=crlf
+tools/aria2/** -text
+*.exe binary

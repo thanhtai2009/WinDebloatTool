@@ -107,6 +107,8 @@ if ($env:W11D_REAL_WIM -and (Test-Path -LiteralPath $env:W11D_REAL_WIM)) {
     $rw = @(Get-W11WimXmlInfo -Path $env:W11D_REAL_WIM)
     Write-Host ("     real WIM: " + (($rw | ForEach-Object { "$($_.Index):$($_.Name)/$($_.EditionId)/$($_.Build)/$($_.Architecture)/$($_.DefaultLanguage)" }) -join '; '))
     Assert ($rw.Count -ge 1 -and (Resolve-W11OsFromBuild $rw[0].Build)) "real WIM header parsed ($env:W11D_REAL_WIM)"
+    $rl = Get-W11ReleaseLabel -Build $rw[0].Build
+    Assert ($rl -match '^Windows 1[01] \S+ \(\d{5}\)$') "real WIM -> release label: $rl"
 }
 
 # --- Windows 10 profile ---
@@ -248,9 +250,12 @@ $msg = ''; try { $null = Get-MsIsoDownloadLink -Entry $e1 -SkuId '27160' } catch
 Assert ($msg -match 'Sentinel' -and $msg -match 'vlscppe\.microsoft\.com' -and $msg -match '1\.1\.1\.1' -and $msg -match 'đổi DNS') 'SentinelReject explains blocked hosts + DNS fix (EN + VI)'
 
 # 3) SentinelReject with healthy session -> generic VPN/region hint
+$script:Net = @{ links = 'live_sentinel.json' }   # hosts reachable, link still rejected (VPN / rate limit)
 $e1.SessionState = @{ Tags = $true; OvDf = $true; Note = '' }
+$script:netLog.Clear()
 $msg = ''; try { $null = Get-MsIsoDownloadLink -Entry $e1 -SkuId '27160' } catch { $msg = $_.Exception.Message }
 Assert ($msg -match 'VPN' -and $msg -notmatch 'cannot reach') 'SentinelReject with working session -> VPN/region hint'
+Assert (@($script:netLog | Where-Object { $_ -like '*GetProductDownloadLinksBySku*' }).Count -eq 3 -and @($script:netLog | Where-Object { $_ -like '*getskuinformation*' }).Count -eq 2) 'Sentinel on link: 2 retries, each with a fresh session + SKU list'
 
 # 4) www.microsoft.com unreachable: never throws, static list (4 choices) + error text
 $script:Net = @{ 'vlscppe.microsoft.com' = 'dns'; 'ov-df.microsoft.com' = 'dns'; 'www.microsoft.com' = 'dns' }
@@ -269,6 +274,225 @@ Assert ($cg.Live -eq 3 -and $arm.Count -eq 1 -and $arm[0].Static) 'partial: arm6
 $script:Net = @{ sku3813 = '<html>Access denied</html>'; sku3816 = '<html>x</html>'; sku2618 = '<html>x</html>' }
 $cg = Get-MsCatalogForGui
 Assert ($cg.Live -eq 0 -and $cg.Error -match 'not JSON') 'HTML instead of JSON -> clear error, static list'
+
+# ================= 0.3.0: release catalog, per-release languages =================
+$rc = @(Get-MsReleaseCatalog)
+Assert (@($rc | Where-Object { $_.Os -eq 'Win11' }).Count -eq 15 -and @($rc | Where-Object { $_.Os -eq 'Win10' }).Count -eq 36) 'release catalog: 15 Win11 entries (4 releases x64+arm64, 7 x64 only) + 36 Win10 (18 x64+x86)'
+Assert (@($rc | Where-Object { $_.Available -and $_.Static -and @($_.Skus).Count -eq 0 }).Count -eq $rc.Count) 'release catalog: everything offered, languages not loaded yet'
+$r242 = @($rc | Where-Object { $_.ReleaseName -eq '24H2' -and $_.Arch -eq 'arm64' })[0]
+Assert ($r242.EditionId -eq '3131' -and $r242.Build -eq 26100 -and $r242.PageUrl -like '*windows11arm64' -and $r242.DownloadType -eq 2) 'release catalog: 24H2 arm64 = edition 3131, build 26100, ARM page'
+Assert ((@($rc | Where-Object { $_.Os -eq 'Win10' -and $_.ReleaseName -eq '1507' })[0]).Release -eq 'Windows 10 1507 (Build 10240.16384, 2015-07)') 'release catalog: label with build + date'
+$script:Net = @{}
+$e13 = @($rc | Where-Object { $_.EditionId -eq '3813' -and $_.Arch -eq 'x64' })[0]
+$ur = Update-MsEntryLanguages -Entry $e13
+Assert ($ur.Ok -and @($ur.Skus).Count -eq 2 -and $ur.Hashes.Count -eq 4) 'languages for 26H2: SKUs + published hashes (edition listed on the page)'
+$script:Net = @{ sku2860 = [IO.File]::ReadAllText((Join-Path $fx 'live_sku_3813.json')) }
+$e23 = @($rc | Where-Object { $_.EditionId -eq '2860' })[0]
+$ur = Update-MsEntryLanguages -Entry $e23
+Assert ($ur.Ok -and $ur.Hashes.Count -eq 0) 'older release (23H2 2860): languages ok, no hash table borrowed from the current release'
+Set-MsEntryLanguages -Catalog $rc -Result $ur
+Assert (-not $e23.Static -and @($e23.Skus).Count -eq 2 -and $e23.SessionId) 'Set-MsEntryLanguages fills the entry'
+$script:Net = @{ sku2377 = [IO.File]::ReadAllText((Join-Path $fx 'live_sku_2618.json')) }
+$e22 = @($rc | Where-Object { $_.EditionId -eq '2377' -and $_.Arch -eq 'x64' })[0]
+Set-MsEntryLanguages -Catalog $rc -Result (Update-MsEntryLanguages -Entry $e22)
+Assert (@($rc | Where-Object { $_.EditionId -eq '2377' -and -not $_.Static }).Count -eq 2) 'Win10: x64 + x86 share one edition, both filled'
+$script:Net = @{ sku79 = '{"Skus":[],"Errors":[]}' }
+$e07 = @($rc | Where-Object { $_.EditionId -eq '79' -and $_.Arch -eq 'x64' })[0]
+$ur = Update-MsEntryLanguages -Entry $e07
+Set-MsEntryLanguages -Catalog $rc -Result $ur
+Assert ($ur.NotOffered -and -not $ur.Ok -and @($rc | Where-Object { $_.EditionId -eq '79' -and -not $_.Available }).Count -eq 2 -and $e07.Note -match 'use a local ISO' -and $e07.Note -match 'ISO có sẵn') 'withdrawn edition -> marked "no longer offers - use a local ISO" (x64 + x86)'
+$script:Net = @{ sku1060 = [IO.File]::ReadAllText((Join-Path $fx 'live_sentinel.json')) }
+$script:netLog.Clear()
+$e18 = @($rc | Where-Object { $_.EditionId -eq '1060' -and $_.Arch -eq 'x64' })[0]
+$threw = $false; try { $ur = Update-MsEntryLanguages -Entry $e18 } catch { $threw = $true }
+Set-MsEntryLanguages -Catalog $rc -Result $ur
+Assert (-not $threw -and -not $ur.Ok -and -not $ur.NotOffered -and $e18.Available -and $ur.Error -match 'Sentinel') 'Sentinel on languages: no throw, not marked withdrawn, error kept'
+Assert (@($script:netLog | Where-Object { $_ -like '*getskuinformation*' }).Count -eq 6) 'Sentinel on languages: 2 rounds x 3 tries, fresh session per round'
+# link: Sentinel once, then OK on the retry
+$script:linkCalls = 0
+$script:Net = @{ links = 'links_win10.json'; sku2377 = [IO.File]::ReadAllText((Join-Path $fx 'live_sku_2618.json')) }
+$origReq = ${function:Invoke-MsDlRequest}
+function Invoke-MsDlRequest {
+    param([string]$Uri, [string]$Referer, [int]$TimeoutMs)
+    if ($Uri -like '*GetProductDownloadLinksBySku*') { $script:linkCalls++; if ($script:linkCalls -eq 1) { return [IO.File]::ReadAllText((Join-Path $fx 'live_sentinel.json')) } }
+    return (& $origReq -Uri $Uri -Referer $Referer -TimeoutMs $TimeoutMs)
+}
+$e10 = @($rc | Where-Object { $_.EditionId -eq '2377' -and $_.Arch -eq 'x86' })[0]
+$lk = $null; try { $lk = Get-MsIsoDownloadLink -Entry $e10 -SkuId '16067' } catch { $lk = $_.Exception.Message }
+Assert ($lk -like '*x32v1.iso*' -and $script:linkCalls -eq 2) 'link: Sentinel once -> new session -> link (x86 picked)'
+Set-Item function:Invoke-MsDlRequest $origReq
+
+# ================= 0.3.0: build -> release, version-aware profile =================
+$pairs = @{ 10240 = '1507'; 10586 = '1511'; 14393 = '1607'; 15063 = '1703'; 16299 = '1709'; 17134 = '1803'; 17763 = '1809'; 18362 = '1903'; 18363 = '1909'; 19041 = '2004'; 19042 = '20H2'; 19043 = '21H1'; 19044 = '21H2'; 19045 = '22H2'; 22000 = '21H2'; 22621 = '22H2'; 22631 = '23H2'; 26100 = '24H2'; 26200 = '25H2'; 26300 = '26H2' }
+$bad = @(); foreach ($b in $pairs.Keys) { if ((Get-W11ReleaseName $b) -ne $pairs[$b]) { $bad += "$b=$(Get-W11ReleaseName $b)" } }
+Assert ($bad.Count -eq 0) "build -> release name for all 20 known builds $($bad -join ' ')"
+Assert ((Get-W11ReleaseName 26400) -eq '26H2+' -and (Get-W11ReleaseName 19046) -eq '22H2+' -and $null -eq (Get-W11ReleaseName 9600) -and $null -eq (Get-W11ReleaseName 0)) 'unknown newer build -> "26H2+", Win8.1 / 0 -> none'
+Assert ((Get-W11ReleaseLabel -Build 26100 -Os Win11) -eq 'Windows 11 24H2 (26100)' -and (Get-W11ReleaseLabel -Build 19045) -eq 'Windows 10 22H2 (19045)') 'release label "Windows 11 24H2 (26100)"'
+Assert ((Test-W11ForBuild @{ MinBuild = 22621 } 22000) -eq $false -and (Test-W11ForBuild @{ MinBuild = 22621 } 22621) -and (Test-W11ForBuild @{ MaxBuild = 22631 } 26100) -eq $false -and (Test-W11ForBuild @{ MinBuild = 22621 } 0) -and (Test-W11ForBuild @{ Id = 'x' } 26100)) 'Test-W11ForBuild: Min/Max inclusive, unknown build = all'
+$pa = Get-W11Profile -Config $cfg -Os Win11 -Build 22000
+$ids = @($pa.Apps | ForEach-Object { $_.Id }); $tids = @($pa.Tweaks | ForEach-Object { $_.Id })
+Assert (($ids -notcontains 'Clipchamp.Clipchamp') -and ($ids -notcontains 'Microsoft.OutlookForWindows') -and ($ids -notcontains 'Microsoft.Copilot') -and ($ids -contains 'Microsoft.549981C3F5F10') -and ($ids -contains 'Microsoft.People')) 'Win11 21H2 profile: no Clipchamp/Outlook/Copilot, has Cortana/People'
+Assert (($tids -contains 'BypassNRO') -and ($tids -contains 'ChatTaskbarOff') -and ($tids -notcontains 'CopilotOff') -and @($pa.SkippedApps).Count -gt 0) 'Win11 21H2 tweaks: BypassNRO + Chat on, Copilot off-tweak hidden'
+$pb = Get-W11Profile -Config $cfg -Os Win11 -Build 26100
+$ids = @($pb.Apps | ForEach-Object { $_.Id }); $tids = @($pb.Tweaks | ForEach-Object { $_.Id })
+Assert (($ids -notcontains 'Microsoft.549981C3F5F10') -and ($ids -contains 'Microsoft.Copilot') -and ($ids -contains 'Microsoft.OutlookForWindows') -and ($ids -contains 'Microsoft.WindowsMaps') -and ($tids -notcontains 'ChatTaskbarOff') -and ($tids -contains 'CopilotOff')) 'Win11 24H2 profile: Copilot/Outlook/Maps, no Cortana, no Chat tweak'
+$pc = Get-W11Profile -Config $cfg -Os Win11 -Build 26200
+Assert (@($pc.Apps | Where-Object { $_.Id -eq 'Microsoft.WindowsMaps' -or $_.Id -eq 'Microsoft.Windows.Ai.Copilot.Provider' }).Count -eq 0) 'Win11 25H2: Maps + old Copilot provider hidden'
+$pd = Get-W11Profile -Config $cfg -Os Win10 -Build 15063
+$ids = @($pd.Apps | ForEach-Object { $_.Id }); $tids = @($pd.Tweaks | ForEach-Object { $_.Id })
+Assert (($ids -notcontains 'Microsoft.549981C3F5F10') -and ($ids -notcontains 'Microsoft.GamingApp') -and ($ids -contains 'Microsoft.3DBuilder') -and ($ids -contains 'Microsoft.Messaging') -and ($tids -notcontains 'NewsInterestsOff') -and ($tids -notcontains 'MeetNowOff')) 'Win10 1703 profile: no Cortana app/GamingApp/News/MeetNow, has 3D Builder/Messaging'
+$pe = Get-W11Profile -Config $cfg -Os Win10
+Assert (@($pe.Apps).Count -eq @($cfg.Win10Apps).Count -and @($pe.SkippedApps).Count -eq 0) 'unknown build: full list (nothing hidden)'
+$script:logLines.Clear()
+$ab = @(Write-W11AbsentPatterns -Patterns @('Clipchamp.Clipchamp', 'Microsoft.BingNews', 'Microsoft.People') -Names @('Microsoft.BingNews', 'Microsoft.WindowsStore'))
+Assert ($ab.Count -eq 2 -and @($script:logLines | Where-Object { $_ -like '*not in this image (skipped): Clipchamp.Clipchamp, Microsoft.People*' }).Count -eq 1) 'packages missing from the image are skipped + logged'
+
+# ================= 0.3.0: aria2 =================
+$tr = Join-Path ([IO.Path]::GetTempPath()) ('w11a2_' + [guid]::NewGuid().ToString('N'))
+$null = New-Item -ItemType Directory -Path (Join-Path $tr 'tools/aria2/x64'), (Join-Path $tr 'tools/aria2/x86') -Force
+$saveRoot = $script:W11Root; $script:W11Root = $tr
+$x86 = Join-Path (Join-Path (Join-Path $tr 'tools') 'aria2') 'x86'; $x64 = Join-Path (Join-Path (Join-Path $tr 'tools') 'aria2') 'x64'
+Set-Content -LiteralPath (Join-Path $x86 'aria2c.exe') -Value 'x'
+$origIs64 = ${function:Get-MsOsIs64}
+function Get-MsOsIs64 { return $script:fake64 }
+$script:fake64 = $true
+Assert ((Find-MsAria2) -eq (Join-Path $x86 'aria2c.exe')) 'aria2 detect: only bundled x86 -> x86 (also fine on 64-bit)'
+Set-Content -LiteralPath (Join-Path $x64 'aria2c.exe') -Value 'x'
+Assert ((Find-MsAria2) -eq (Join-Path $x64 'aria2c.exe')) 'aria2 detect: 64-bit Windows -> bundled x64'
+$script:fake64 = $false
+Assert ((Find-MsAria2) -eq (Join-Path $x86 'aria2c.exe')) 'aria2 detect: 32-bit Windows -> bundled x86'
+Set-Content -LiteralPath (Join-Path (Join-Path $tr 'tools') 'aria2c.exe') -Value 'x'
+Assert ((Find-MsAria2) -eq (Join-Path (Join-Path $tr 'tools') 'aria2c.exe')) 'aria2 detect: tools\aria2c.exe overrides the bundled build'
+$hint = Join-Path $tr 'my aria2c.exe'; Set-Content -LiteralPath $hint -Value 'x'
+Assert ((Find-MsAria2 -Hint $hint) -eq $hint) 'aria2 detect: explicit path (Aria2Path) first'
+Remove-Item -LiteralPath (Join-Path $tr 'tools') -Recurse -Force
+$onPath = Get-Command aria2c.exe, aria2c -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($onPath) { Assert ((Find-MsAria2) -eq $onPath.Definition) 'aria2 detect: falls back to PATH' } else { Assert ($null -eq (Find-MsAria2)) 'aria2 detect: none -> $null' }
+Set-Item function:Get-MsOsIs64 $origIs64
+$script:W11Root = $saveRoot
+
+$ao = Get-MsAria2Options -Config $cfg
+Assert ($ao.UseAria2 -and $ao.Aria2Connections -eq 16 -and $ao.Aria2Split -eq 16 -and $ao.Aria2MinSplitSize -eq '1M' -and $ao.Aria2FileAllocation -eq 'none') 'aria2 options from DebloatConfig.psd1 (-x16 -s16 -k1M, allocation none)'
+$ao2 = Get-MsAria2Options -Config $cfg -Override @{ Aria2Connections = 64; Aria2Split = 0; Aria2FileAllocation = 'bogus'; Aria2MinSplitSize = 'huge' }
+Assert ($ao2.Aria2Connections -eq 16 -and $ao2.Aria2Split -eq 1 -and $ao2.Aria2FileAllocation -eq 'none' -and $ao2.Aria2MinSplitSize -eq '1M') 'aria2 options clamped / validated'
+$al = @(Get-MsAria2Arguments -Uri 'https://dl.example/Win11.iso?t=1&P1=2' -Destination (Join-Path $tr 'Win11.iso') -Options (Get-MsAria2Options -Override @{ Aria2FileAllocation = 'falloc' }) -LogFile 'x.log' -ParentPid 4242)
+foreach ($want in @('--max-connection-per-server=16', '--split=16', '--min-split-size=1M', '--continue=true', '--file-allocation=falloc', '--check-certificate=true', '--max-tries=5', '--retry-wait=5', '--summary-interval=1', '--human-readable=false', '--stop-with-process=4242', '--out=Win11.iso', '--log=x.log', '--auto-file-renaming=false')) {
+    Assert ($al -contains $want) "aria2 argument $want"
+}
+Assert ($al[-1] -eq 'https://dl.example/Win11.iso?t=1&P1=2' -and @($al | Where-Object { $_ -like '--check-certificate=false*' }).Count -eq 0) 'aria2: URI last, certificates always checked'
+Assert ((ConvertTo-MsCmdArg 'plain') -eq 'plain' -and (ConvertTo-MsCmdArg 'C:\My Dir\') -eq '"C:\My Dir\\"' -and (ConvertTo-MsCmdArg 'a"b') -eq '"a\"b"' -and (ConvertTo-MsCmdArg 'https://x/a.iso?t=1&P1=2') -eq '"https://x/a.iso?t=1&P1=2"' -and (ConvertTo-MsCmdArg '') -eq '""') 'command-line quoting (spaces, quotes, &, trailing backslash)'
+
+$pl = ConvertFrom-MsAria2Line '[#847d8f 52428800B/6140975104B(0%) CN:16 DL:85983232B ETA:1m10s]'
+Assert ($pl.Done -eq 52428800 -and $pl.Total -eq 6140975104 -and [math]::Round($pl.Percent, 2) -eq 0.85 -and $pl.Connections -eq 16 -and $pl.Speed -eq 85983232 -and $pl.Eta -eq '1m10s') 'aria2 progress line parsed (raw bytes)'
+$pl = ConvertFrom-MsAria2Line ' *** [#2089b0 2.5GiB/5.7GiB(43%) CN:12 DL:82MiB ETA:39s]'
+Assert ($pl.Total -eq [long](5.7 * 1GB) -and $pl.Speed -eq 82MB -and $pl.Connections -eq 12) 'aria2 progress line parsed (human-readable sizes)'
+$pl = ConvertFrom-MsAria2Line '[#2089b0 0B/0B CN:1 DL:0B]'
+Assert ($pl -and $pl.Total -eq 0 -and $pl.Percent -eq 0) 'aria2 progress before the size is known'
+Assert ($null -eq (ConvertFrom-MsAria2Line '') -and $null -eq (ConvertFrom-MsAria2Line '*** Download Progress Summary as of Sat Oct 24 ***') -and $null -eq (ConvertFrom-MsAria2Line 'FILE: /x/Win11.iso') -and $null -eq (ConvertFrom-MsAria2Line '2b3c4d|OK  |  300MiB/s|/x/Win11.iso')) 'non-progress aria2 lines ignored'
+$st = Format-MsAria2Status (ConvertFrom-MsAria2Line '[#847d8f 3221225472B/6442450944B(50%) CN:16 DL:104857600B ETA:30s]')
+Assert ($st -match '3[.,]00 / 6[.,]00 GB' -and $st -match '100[.,]0 MB/s' -and $st -match '16 connections / luồng' -and $st -match 'ETA 30s') "status line shows size, speed, connections: $st"
+
+# mocked aria2 process -> success / failure -> fallback / cancel
+function New-FakeAria2([string[]]$Out, [int]$Code, [bool]$Running = $false) {
+    $o = New-Object PSObject -Property @{ StandardOutput = (New-Object IO.StringReader (($Out -join "`n") + "`n")); HasExited = (-not $Running); ExitCode = $Code; Killed = $false }
+    $o | Add-Member -MemberType ScriptMethod -Name Kill -Value { $this.Killed = $true; $this.HasExited = $true; $script:a2Killed = $true }
+    $o | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($ms) return $true }
+    return $o
+}
+$script:a2Plan = $null; $script:a2Calls = @(); $script:saveCalls = @(); $script:linkN = 0; $script:a2Killed = $false
+function Start-MsAria2Process { param([string]$Exe, [string]$Arguments)
+    $script:a2Calls += $Arguments
+    $script:a2SawDest = Test-Path -LiteralPath $script:a2Dest
+    if ($script:a2Plan.Code -eq 0) { Set-Content -LiteralPath $script:a2Dest -Value 'iso' }
+    if ($script:a2Plan.Code -ne 0 -and $script:a2Plan.Control) { Set-Content -LiteralPath "$($script:a2Dest).aria2" -Value 'ctl' }
+    return (New-FakeAria2 $script:a2Plan.Out $script:a2Plan.Code ([bool]$script:a2Plan.Running))
+}
+function Save-MsFile { param([string]$Uri, [string]$Destination, $Sync) $script:saveCalls += @{ Uri = $Uri; HadPartial = (Test-Path -LiteralPath "$Destination.partial") }; Set-Content -LiteralPath $Destination -Value 'iso'; return $Destination }
+$origLink = ${function:Get-MsIsoDownloadLink}
+function Get-MsIsoDownloadLink { param($Entry, $SkuId) $script:linkN++; return "https://dl.example/Win10_22H2_English_x64.iso?t=$($script:linkN)" }
+$origSha = ${function:Get-W11Sha256}
+function Get-W11Sha256 { param([string]$Path) return 'ABCDEF' }
+$null = New-Item -ItemType Directory -Path $tr -Force
+$fakeExe = Join-Path $tr 'aria2c.exe'; Set-Content -LiteralPath $fakeExe -Value 'x'
+$script:a2Dest = Join-Path $tr 'Win10_22H2_English_x64.iso'
+$dlEntry = New-Object PSObject -Property @{ Release = 'Windows 10 22H2'; Arch = 'x64'; Hashes = @{ 'English x64' = 'ABCDEF' }; EditionId = '2618'; DownloadType = 1 }
+$dlSku = New-Object PSObject -Property @{ Id = '1'; Language = 'English'; LocalizedLanguage = 'English' }
+$dlOpt = @{ UseAria2 = $true; Aria2Path = $fakeExe }
+$prog = @('[#1 0B/0B CN:1 DL:0B]', '[#1 1073741824B/4294967296B(25%) CN:16 DL:52428800B ETA:1m]', '[#1 2147483648B/4294967296B(50%) CN:16 DL:104857600B ETA:20s]')
+
+# success
+$script:a2Plan = @{ Out = ($prog + @('', 'Download Results:', 'abc|OK  |  300MiB/s|x')); Code = 0 }
+$sy = @{ Percent = 0; Status = ''; Cancel = $false }; $script:saveCalls = @(); $script:linkN = 0; $script:logLines.Clear()
+$res = Invoke-MsIsoDownload -Entry $dlEntry -Sku $dlSku -Folder $tr -Sync $sy -Options $dlOpt
+Assert ($res -eq $script:a2Dest -and $script:saveCalls.Count -eq 0 -and $sy.Percent -eq 50) 'aria2 success: progress reaches the GUI, no fallback'
+Assert (@($script:logLines | Where-Object { $_ -like '*SHA256 matches*' }).Count -eq 1) 'aria2 success: SHA256 still verified'
+Assert (($script:a2Calls[-1] -match '\?<signed>') -eq $false -and @($script:logLines | Where-Object { $_ -like '*aria2: *?<signed>*' -and $_ -notlike '*.iso?t=1*' }).Count -eq 1) 'aria2 command logged with the signed query hidden'
+$sy2 = @{ Percent = 0; Status = ''; Cancel = $false }
+$null = Invoke-MsAria2Download -Exe $fakeExe -Uri 'https://dl.example/a.iso' -Destination $script:a2Dest -Options $dlOpt -Sync $sy2
+Assert ($sy2.Status -like 'aria2: 2*/ 4*GB (50*%)*100*MB/s*16 connections / luồng*ETA 20s') "speed + connections in the status line: $($sy2.Status)"
+Remove-Item -LiteralPath $script:a2Dest -Force
+
+# failure (403 -> exit 22) -> fallback to the built-in downloader with a fresh link
+$script:a2Plan = @{ Out = @('10/24 12:00:00 [ERROR] CUID#7 - Download aborted. URI=https://dl.example/x', 'errorCode=22 The response status is not successful. status=403'); Code = 22; Control = $true }
+$sy = @{ Percent = 0; Status = ''; Cancel = $false }; $script:saveCalls = @(); $script:linkN = 0; $script:logLines.Clear()
+$res = Invoke-MsIsoDownload -Entry $dlEntry -Sku $dlSku -Folder $tr -Sync $sy -Options $dlOpt
+Assert ($res -eq $script:a2Dest -and $script:saveCalls.Count -eq 1 -and $script:saveCalls[0].Uri -like '*t=2') 'aria2 exit 22 (HTTP 403) -> built-in downloader with a fresh link'
+Assert (@($script:logLines | Where-Object { $_ -like '`[WARN`]*exit code 22*built-in downloader*' }).Count -eq 1 -and -not (Test-Path -LiteralPath "$($script:a2Dest).aria2")) 'fallback logged as WARN; aria2 control file removed'
+Assert (@($script:logLines | Where-Object { $_ -like '*SHA256 matches*' }).Count -eq 1) 'fallback: SHA256 still verified'
+Remove-Item -LiteralPath $script:a2Dest -Force
+
+# earlier .partial: aria2 continues it; aria2 fails before writing a control file -> .partial kept for the fallback resume
+Set-Content -LiteralPath "$($script:a2Dest).partial" -Value 'half'
+$script:a2Plan = @{ Out = @(); Code = 6; Control = $false }
+$script:saveCalls = @(); $script:logLines.Clear()
+$res = Invoke-MsIsoDownload -Entry $dlEntry -Sku $dlSku -Folder $tr -Sync @{ Percent = 0; Status = ''; Cancel = $false } -Options $dlOpt
+Assert ($script:a2SawDest -and $script:saveCalls.Count -eq 1 -and $script:saveCalls[0].HadPartial) '.partial handed to aria2, and back to the built-in resume when aria2 fails'
+Remove-Item -LiteralPath $script:a2Dest -Force
+
+# cancel: aria2 killed, no fallback, OperationCanceledException
+$script:a2Plan = @{ Out = $prog; Code = 7; Running = $true; Control = $true }
+$sy = @{ Percent = 0; Status = ''; Cancel = $true }; $script:saveCalls = @(); $script:a2Killed = $false
+$ex = $null; try { $null = Invoke-MsIsoDownload -Entry $dlEntry -Sku $dlSku -Folder $tr -Sync $sy -Options $dlOpt } catch { $ex = $_.Exception }
+Assert ($ex -is [System.OperationCanceledException] -and $script:a2Killed -and $script:saveCalls.Count -eq 0 -and (Test-Path -LiteralPath "$($script:a2Dest).aria2")) 'Cancel kills aria2c, no fallback, control file kept for resume'
+Remove-Item -LiteralPath "$($script:a2Dest).aria2" -Force -ErrorAction SilentlyContinue
+
+# aria2 off / missing -> built-in downloader directly
+$script:a2Calls = @(); $script:saveCalls = @()
+$res = Invoke-MsIsoDownload -Entry $dlEntry -Sku $dlSku -Folder $tr -Sync @{ Percent = 0; Status = ''; Cancel = $false } -Options @{ UseAria2 = $false }
+Assert ($script:a2Calls.Count -eq 0 -and $script:saveCalls.Count -eq 1) 'checkbox off -> built-in downloader only'
+Remove-Item -LiteralPath $script:a2Dest -Force
+
+Remove-Item function:Start-MsAria2Process, function:Save-MsFile
+Set-Item function:Get-W11Sha256 $origSha
+. (Join-Path $root 'lib\MsDownload.ps1')   # restore the real download functions (keeps the mocked network)
+$script:MsDl.RetryDelaySec = 0
+Set-Item function:Get-MsIsoDownloadLink $origLink
+
+# optional: real aria2c against a local Range server (Linux CI box / Windows with aria2 + python)
+$realA2 = Get-Command aria2c, aria2c.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+$py = Get-Command python3, python -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($realA2 -and $py -and $env:W11D_ARIA2_IT -ne '0') {
+    $sd = Join-Path $tr 'srv'; $null = New-Item -ItemType Directory -Path $sd -Force
+    $data = New-Object byte[] (24MB); (New-Object Random 7).NextBytes($data); [IO.File]::WriteAllBytes((Join-Path $sd 'test.iso'), $data)
+    $want = (Get-W11Sha256 -Path (Join-Path $sd 'test.iso'))
+    function Start-RangeServer([int]$Port, [string]$Mode) {
+        $psi = New-Object Diagnostics.ProcessStartInfo $py.Definition, ('"{0}" "{1}" {2} 0 {3}' -f (Join-Path $root 'tests/tools/range_server.py'), $sd, $Port, $Mode)
+        $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
+        $p = [Diagnostics.Process]::Start($psi); Start-Sleep -Milliseconds 700; return $p
+    }
+    $port = 18000 + (Get-Random -Maximum 900)
+    $srv = Start-RangeServer $port 'ok'
+    $dst = Join-Path $tr 'it/test.iso'; $null = New-Item -ItemType Directory -Path (Split-Path $dst) -Force
+    $sy = @{ Percent = 0; Status = ''; Cancel = $false }
+    $ok = $null; try { $ok = Invoke-MsAria2Download -Exe $realA2.Definition -Uri "http://127.0.0.1:$port/test.iso?t=1" -Destination $dst -Options (Get-MsAria2Options) -Sync $sy } catch { $ok = $_.Exception.Message }
+    Assert ($ok -eq $dst -and (Get-W11Sha256 -Path $dst) -eq $want) "real aria2c: 16-connection download, file identical ($ok)"
+    $srv.Kill(); $srv.WaitForExit()
+    $srv = Start-RangeServer $port '403'
+    $code = $null; try { $null = Invoke-MsAria2Download -Exe $realA2.Definition -Uri "http://127.0.0.1:$port/test.iso" -Destination (Join-Path $tr 'it/b.iso') -Options (Get-MsAria2Options -Override @{ Aria2MaxTries = 1 }) -Sync @{ Cancel = $false } } catch { $code = $_.Exception.Data['Aria2ExitCode']; $m403 = $_.Exception.Message }
+    Assert ($code -eq 22 -and $m403 -match 'exit code 22') "real aria2c: HTTP 403 -> exit code 22 ($m403)"
+    $srv.Kill(); $srv.WaitForExit()
+} else { Write-Host 'SKIP real aria2c integration test (aria2c or python not found)' }
+Remove-Item -LiteralPath $tr -Recurse -Force -ErrorAction SilentlyContinue
 
 # 7) GUI background job path: job text runs in a runspace, results + log lines cross back, errors are logged with details
 . (Join-Path $root 'lib\Gui.ps1')
@@ -302,6 +526,8 @@ $logTxt = [IO.File]::ReadAllText($lp)
 Assert (-not $js.Error -and $js.Result.Live -eq 4 -and @($js.Result.Entries).Count -eq 4) 'runspace: Load list job returns 4 live entries despite vlscppe failure'
 Assert ($js.LogQueue.Count -gt 3 -and $logTxt -match 'vlscppe\.microsoft\.com' -and $logTxt -match 'Querying Microsoft') 'runspace: progress + warnings reach the GUI queue and the log file'
 Assert ($js.Status -like 'Microsoft list done*') 'runspace: status text updated for the status label'
+$js = Invoke-TestJob '$sync.Result = Update-MsEntryLanguages -Entry (@(Get-MsReleaseCatalog) | Where-Object { $_.EditionId -eq ''3816'' })[0]' $lp
+Assert (-not $js.Error -and $js.Result.Ok -and @($js.Result.Skus).Count -ge 1 -and $js.Result.EditionId -eq '3816') 'runspace: "Languages" job for one release (GUI button path)'
 $js = Invoke-TestJob 'throw "boom from job"' $lp
 $logTxt = [IO.File]::ReadAllText($lp)
 Assert ($js.Error -eq 'boom from job' -and $logTxt -match '\[ERROR\] boom from job' -and $logTxt -match 'RuntimeException') 'runspace: job exception -> $sync.Error + details in log'

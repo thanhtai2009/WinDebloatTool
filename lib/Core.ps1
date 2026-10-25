@@ -13,7 +13,7 @@ if ($MyInvocation.MyCommand.Path) {
     $script:W11Root = Split-Path -Parent $script:W11LibDir
 }
 $script:W11D = @{
-    Version      = '0.2.1'
+    Version      = '0.3.0'
     LogPath      = $null
     Sync         = $null
     HiveSoftware = 'HKLM\W11D_SOFTWARE'
@@ -338,6 +338,14 @@ function Get-W11Capabilities {
     $oscVal = 'not found'; if ($osc) { $oscVal = $osc }
     $r += (New-W11Obj @{ Item = 'oscdimg'; Value = $oscVal; Ok = [bool]$osc; Hint = $oscHint })
 
+    if (Get-Command Find-MsAria2 -ErrorAction SilentlyContinue) {
+        $a2 = $null; try { $a2 = Find-MsAria2 } catch { $a2 = $null }
+        $a2Val = 'not found - downloads use one connection / không có, tải một luồng'; $a2Hint = ''
+        if ($a2) { $a2Val = $a2 }
+        if ($a2 -and $build -lt 9200) { $a2Hint = 'Windows 7: aria2 uses the system TLS (schannel); without TLS 1.2 updates (KB3140245) it fails and the tool falls back to the single-connection download / Win7: aria2 dùng TLS của hệ thống; thiếu bản cập nhật TLS 1.2 (KB3140245) thì tool tự chuyển sang tải một luồng' }
+        $r += (New-W11Obj @{ Item = 'aria2'; Value = $a2Val; Ok = $true; Hint = $a2Hint })
+    }
+
     if ($WorkPath) {
         try {
             $free = Get-W11FreeGB -Path $WorkPath
@@ -458,6 +466,7 @@ function Get-W11ImageInfo {
     }
     return $out
 }
+#endregion
 
 #region ---------- target OS detection / profiles ----------
 function Resolve-W11OsFromBuild {
@@ -543,12 +552,29 @@ function Get-W11IsoOsInfo {
     return (New-W11Obj @{ Os = $null; Build = 0; Source = 'unknown'; Editions = @() })
 }
 
-function Get-W11Profile {
-    <# App/tweak lists for the target OS. Config keys: Apps/Tweaks (Windows 11), Win10Apps/Win10Tweaks. #>
-    param([Parameter(Mandatory = $true)]$Config, [ValidateSet('Win10', 'Win11')][string]$Os = 'Win11')
-    if ($Os -eq 'Win10') { $apps = $Config.Win10Apps; $tweaks = $Config.Win10Tweaks }
-    else { $apps = $Config.Apps; $tweaks = $Config.Tweaks }
-    return (New-W11Obj @{ Os = $Os; Apps = @($apps); Tweaks = @($tweaks); Protected = @($Config.Protected) })
+# Feature-update builds (major build -> release name). Windows 10 20H2..22H2 share the 19041 code base
+# but their ISOs report their own build (19042..19045).
+$script:W11Builds = @(
+    @(10240, '1507'), @(10586, '1511'), @(14393, '1607'), @(15063, '1703'), @(16299, '1709'), @(17134, '1803'),
+    @(17763, '1809'), @(18362, '1903'), @(18363, '1909'), @(19041, '2004'), @(19042, '20H2'), @(19043, '21H1'),
+    @(19044, '21H2'), @(19045, '22H2'),
+    @(22000, '21H2'), @(22621, '22H2'), @(22631, '23H2'), @(26100, '24H2'), @(26200, '25H2'), @(26300, '26H2')
+)
+
+function Get-W11ReleaseName {
+    <# 19045 -> '22H2', 26100 -> '24H2'. Unlisted builds get the nearest older release + '+'
+       (e.g. an Insider 26400 -> '26H2+'); $null below 10240. #>
+    param([int]$Build)
+    if ($Build -lt 10240) { return $null }
+    $os = Resolve-W11OsFromBuild $Build
+    $best = $null
+    foreach ($b in $script:W11Builds) {
+        if ((Resolve-W11OsFromBuild $b[0]) -ne $os) { continue }
+        if ($b[0] -eq $Build) { return $b[1] }
+        if ($b[0] -lt $Build) { $best = $b[1] }
+    }
+    if ($best) { return "$best+" }
+    return $null
 }
 
 function Get-W11OsLabel([string]$Os) {
@@ -556,8 +582,39 @@ function Get-W11OsLabel([string]$Os) {
     if ($Os -eq 'Win11') { return 'Windows 11' }
     return 'unknown'
 }
-#endregion
 
+function Get-W11ReleaseLabel {
+    # 26100 -> 'Windows 11 24H2 (26100)'; 0 -> 'unknown'
+    param([int]$Build, [string]$Os)
+    if (-not $Os) { $Os = Resolve-W11OsFromBuild $Build }
+    $l = Get-W11OsLabel $Os
+    $r = Get-W11ReleaseName $Build
+    if ($r) { return "$l $r ($Build)" }
+    if ($Build -gt 0) { return "$l (build $Build)" }
+    return $l
+}
+
+function Test-W11ForBuild {
+    # Entry applies to the image build? Optional MinBuild / MaxBuild in the config entry; Build 0 = unknown -> yes
+    param($Entry, [int]$Build)
+    if ($Build -le 0) { return $true }
+    if ($Entry.MinBuild -and $Build -lt [int]$Entry.MinBuild) { return $false }
+    if ($Entry.MaxBuild -and $Build -gt [int]$Entry.MaxBuild) { return $false }
+    return $true
+}
+
+function Get-W11Profile {
+    <# App/tweak lists for the target OS. Config keys: Apps/Tweaks (Windows 11), Win10Apps/Win10Tweaks.
+       With -Build, entries whose MinBuild/MaxBuild exclude that build are left out (SkippedApps/SkippedTweaks). #>
+    param([Parameter(Mandatory = $true)]$Config, [ValidateSet('Win10', 'Win11')][string]$Os = 'Win11', [int]$Build = 0)
+    if ($Os -eq 'Win10') { $apps = $Config.Win10Apps; $tweaks = $Config.Win10Tweaks }
+    else { $apps = $Config.Apps; $tweaks = $Config.Tweaks }
+    $ka = @(); $sa = @(); $kt = @(); $st = @()
+    foreach ($a in @($apps)) { if ($null -eq $a) { continue }; if (Test-W11ForBuild $a $Build) { $ka += $a } else { $sa += $a } }
+    foreach ($t in @($tweaks)) { if ($null -eq $t) { continue }; if (Test-W11ForBuild $t $Build) { $kt += $t } else { $st += $t } }
+    return (New-W11Obj @{ Os = $Os; Build = $Build; Release = (Get-W11ReleaseLabel -Build $Build -Os $Os)
+            Apps = $ka; Tweaks = $kt; SkippedApps = $sa; SkippedTweaks = $st; Protected = @($Config.Protected) })
+}
 function Get-W11ProvisionedApps {
     param([Parameter(Mandatory = $true)][string]$MountDir)
     $res = Invoke-W11Dism ('/Image:{0} /Get-ProvisionedAppxPackages' -f (ConvertTo-W11Arg $MountDir)) -Quiet
@@ -642,9 +699,35 @@ function Invoke-W11Tweaks {
     }
 }
 
+function Write-W11AbsentPatterns {
+    # Apps on the list that this image simply does not contain: nothing to do, just say so
+    param([string[]]$Patterns, [string[]]$Names)
+    $absent = @()
+    foreach ($pt in @($Patterns)) {
+        if (-not $pt) { continue }
+        $hit = $false
+        foreach ($n in @($Names)) { if (Test-W11Like $n @($pt)) { $hit = $true; break } }
+        if (-not $hit) { $absent += $pt }
+    }
+    if ($absent.Count -gt 0) { Write-W11Log -En ('  not in this image (skipped): ' + ($absent -join ', ')) -Vi 'không có trong bản này (bỏ qua)' }
+    return $absent
+}
+
+function Write-W11OutOfRange {
+    # Default apps hidden by MinBuild/MaxBuild that ARE in the image: kept, but tell the user (config may need widening)
+    param([string[]]$OutOfRange, [string[]]$Patterns, [string[]]$Names)
+    foreach ($pt in @($OutOfRange)) {
+        if (-not $pt -or (Test-W11Like $pt @($Patterns))) { continue }
+        foreach ($n in @($Names)) {
+            if (Test-W11Like $n @($pt)) { Write-W11Log -Level WARN -En "  $n is in this image but outside its MinBuild/MaxBuild range in DebloatConfig.psd1 - kept" -Vi 'app này có trong bản này nhưng nằm ngoài khoảng build trong cấu hình - được giữ lại'; break }
+        }
+    }
+}
+
 function Remove-W11AppsDism {
-    param([string]$MountDir, [string[]]$Patterns, [string[]]$Protected, [switch]$DryRun, [string]$KeptListPath)
+    param([string]$MountDir, [string[]]$Patterns, [string[]]$Protected, [switch]$DryRun, [string]$KeptListPath, [string[]]$OutOfRange)
     $prov = @(Get-W11ProvisionedApps -MountDir $MountDir)
+    Write-W11OutOfRange -OutOfRange $OutOfRange -Patterns $Patterns -Names @($prov | ForEach-Object { $_.DisplayName })
     $removed = 0
     foreach ($p in $prov) {
         if (-not (Test-W11Like $p.DisplayName $Patterns)) { continue }
@@ -655,6 +738,7 @@ function Remove-W11AppsDism {
         if ($r.ExitCode -eq 0) { Write-W11Log -En "  removed $($p.PackageName)" -Vi 'đã gỡ'; $removed++ }
         else { Write-W11Log -Level WARN -En "  failed to remove $($p.PackageName) (exit $($r.ExitCode))" -Vi 'gỡ thất bại' }
     }
+    $null = Write-W11AbsentPatterns -Patterns $Patterns -Names @($prov | ForEach-Object { $_.DisplayName })
     if ($DryRun) { $kept = @($prov | Where-Object { -not (Test-W11Like $_.DisplayName $Patterns) -or (Test-W11Like $_.DisplayName $Protected) } | ForEach-Object { $_.DisplayName } | Sort-Object -Unique) }
     else { $kept = @(Get-W11ProvisionedApps -MountDir $MountDir | ForEach-Object { $_.DisplayName } | Sort-Object -Unique) }
     if ($KeptListPath) { $kept | Set-Content -LiteralPath $KeptListPath -Encoding UTF8 }
@@ -686,6 +770,7 @@ function Remove-W11AppsManual {
         Write-W11Log -En "  deprovisioned $n (manual)" -Vi 'đã gỡ (thủ công)'
         $removed++
     }
+    $null = Write-W11AbsentPatterns -Patterns $Patterns -Names @($names | ForEach-Object { $_.Split('_')[0] })
     $kept = @($kept | Sort-Object -Unique)
     if ($KeptListPath) { $kept | Set-Content -LiteralPath $KeptListPath -Encoding UTF8 }
     Write-W11Log -Level OK -En "  $removed package(s) removed (manual mode), $($kept.Count) kept" -Vi "đã gỡ $removed gói (chế độ thủ công)"
@@ -780,10 +865,13 @@ function Invoke-Win11Debloat {
     $os = $TargetOs
     if ($os -eq 'Auto') { $os = Get-W11OsFromName $IsoPath; if (-not $os) { $os = 'Win11' } }
     $planFor = {
-        param($o)
-        $script:__prof = Get-W11Profile -Config $cfg -Os $o
+        param($o, [int]$b = 0)
+        $script:__prof = Get-W11Profile -Config $cfg -Os $o -Build $b
         $a = $userApps; if ($null -eq $a) { $a = @($script:__prof.Apps | Where-Object { $_.Default } | ForEach-Object { $_.Id }) }
         $t = $userTweaks; if ($null -eq $t) { $t = @($script:__prof.Tweaks | Where-Object { $_.Default } | ForEach-Object { $_.Id }) }
+        # an explicitly chosen tweak that does not apply to this build is skipped (and logged)
+        $script:__skippedTweaks = @($script:__prof.SkippedTweaks | Where-Object { $t -contains $_.Id } | ForEach-Object { $_.Id })
+        $t = @($t | Where-Object { $script:__skippedTweaks -notcontains $_ })
         $script:__apps = @($a); $script:__tweakIds = @($t)
         $script:__tweakDefs = @($script:__prof.Tweaks | Where-Object { $t -contains $_.Id })
     }
@@ -795,7 +883,7 @@ function Invoke-Win11Debloat {
     $workWim = Join-Path $WorkDir 'install.work.wim'
     $marker = Join-Path $WorkDir '.w11debloat-work'
     $iso = $null; $imageMounted = $false; $success = $false
-    $result = New-W11Obj @{ OutputIso = $OutputIso; Sha256 = $null; LogPath = $LogPath; DryRun = $DryRun; TargetOs = $null }
+    $result = New-W11Obj @{ OutputIso = $OutputIso; Sha256 = $null; LogPath = $LogPath; DryRun = $DryRun; TargetOs = $null; Build = 0; Release = $null }
 
     Write-W11Log -Level STEP -En "===== WinDebloat Tool $($script:W11D.Version) (Windows 10/11) =====" -Vi '===== Công cụ debloat Windows 10/11 ====='
     Write-W11Log -En "Source ISO: $IsoPath" -Vi 'ISO nguồn'
@@ -866,18 +954,26 @@ function Invoke-Win11Debloat {
         Write-W11Log -Level OK -En ('Editions to keep: ' + (($selected | ForEach-Object { "$($_.Index):$($_.Name)" }) -join ', ')) -Vi 'Phiên bản giữ lại'
         $lang = $selected[0].DefaultLanguage
         $archName = Get-W11ArchName $selected[0].Architecture
-        $detected = Resolve-W11OsFromBuild $selected[0].Build
-        if ($detected) { Write-W11Log -Level OK -En "Image build $($selected[0].Build) = $(Get-W11OsLabel $detected)" -Vi "Bản build $($selected[0].Build) = $(Get-W11OsLabel $detected)" }
+        $build = [int]$selected[0].Build
+        $detected = Resolve-W11OsFromBuild $build
+        if ($detected) { Write-W11Log -Level OK -En "Image build $build = $(Get-W11ReleaseLabel -Build $build)" -Vi "Bản build $build = $(Get-W11ReleaseLabel -Build $build)" }
         else { Write-W11Log -Level WARN -En "Could not read the image build; using profile $(Get-W11OsLabel $os)" -Vi 'Không đọc được build, dùng hồ sơ đã chọn' }
         if ($TargetOs -eq 'Auto') {
-            if ($detected -and $detected -ne $os) { $os = $detected; & $planFor $os; $RemoveApps = $script:__apps; $Tweaks = $script:__tweakIds; $tweakDefs = $script:__tweakDefs }
-            elseif ($detected) { $os = $detected }
+            if ($detected) { $os = $detected }
         } elseif ($detected -and $detected -ne $TargetOs) {
             Write-W11Log -Level WARN -En "You chose $(Get-W11OsLabel $TargetOs) but the image is $(Get-W11OsLabel $detected). Continuing with your choice." -Vi "Đã chọn $(Get-W11OsLabel $TargetOs) nhưng image là $(Get-W11OsLabel $detected). Vẫn làm theo lựa chọn thủ công."
         }
-        $cfgProtected = (Get-W11Profile -Config $cfg -Os $os).Protected
+        # final plan for this OS and build (MinBuild/MaxBuild filters)
+        $planBuild = 0; if ($detected -eq $os) { $planBuild = $build }
+        & $planFor $os $planBuild
+        $RemoveApps = $script:__apps; $Tweaks = $script:__tweakIds; $tweakDefs = $script:__tweakDefs
+        foreach ($sk in @($script:__skippedTweaks)) { Write-W11Log -Level WARN -En "Tweak '$sk' does not apply to build $planBuild - skipped" -Vi "Tinh chỉnh '$sk' không áp dụng cho bản này - bỏ qua" }
+        $cfgProtected = $script:__prof.Protected
+        $outOfRange = @($script:__prof.SkippedApps | Where-Object { $_.Default } | ForEach-Object { $_.Id })
         $result.TargetOs = $os
-        Write-W11Log -Level OK -En "Debloat profile: $(Get-W11OsLabel $os)" -Vi "Hồ sơ debloat: $(Get-W11OsLabel $os)"
+        $result.Build = $build
+        $result.Release = Get-W11ReleaseLabel -Build $planBuild -Os $os
+        Write-W11Log -Level OK -En "Debloat profile: $($result.Release)" -Vi "Hồ sơ debloat: $($result.Release)"
         Write-W11Log -En "Language: $lang, architecture: $archName"
         Write-W11Log -En ('Apps to remove: ' + ($RemoveApps -join ', ')) -Vi 'App sẽ gỡ'
         Write-W11Log -En ('Tweaks: ' + ($Tweaks -join ', ')) -Vi 'Tinh chỉnh registry'
@@ -888,7 +984,7 @@ function Invoke-Win11Debloat {
                 try {
                     $null = Invoke-W11Dism ('/Mount-Image /ImageFile:{0} /Index:{1} /MountDir:{2} /ReadOnly' -f (ConvertTo-W11Arg $srcImage), $selected[0].Index, (ConvertTo-W11Arg $mountDir)) -Quiet
                     $imageMounted = $true
-                    if ($script:W11D.DismCanAppx) { Remove-W11AppsDism -MountDir $mountDir -Patterns $RemoveApps -Protected $cfgProtected -DryRun }
+                    if ($script:W11D.DismCanAppx) { Remove-W11AppsDism -MountDir $mountDir -Patterns $RemoveApps -Protected $cfgProtected -OutOfRange $outOfRange -DryRun }
                     else { Write-W11Log -Level DRY -En 'Manual app removal mode; listing skipped.' }
                 } catch { Write-W11Log -Level WARN -En "Read-only inspection failed: $($_.Exception.Message)" -Vi 'Không xem thử được' }
             } else {
@@ -949,7 +1045,7 @@ function Invoke-Win11Debloat {
             $kept = Join-Path $outDir ('kept_index{0}.txt' -f $t.WorkIndex)
             Set-W11Progress ($base + $span * 0.2) "$tag Removing apps / Gỡ app"
             if ($script:W11D.DismCanAppx) {
-                Remove-W11AppsDism -MountDir $mountDir -Patterns $RemoveApps -Protected $cfgProtected -KeptListPath $kept
+                Remove-W11AppsDism -MountDir $mountDir -Patterns $RemoveApps -Protected $cfgProtected -OutOfRange $outOfRange -KeptListPath $kept
                 Mount-W11Hives -MountDir $mountDir
                 try { Invoke-W11Tweaks -TweakDefs $tweakDefs } finally { Dismount-W11Hives }
             } else {

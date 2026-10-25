@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.0 - 2026-10-25
+**Multi-connection downloads (aria2), every Windows release, version-aware debloat profile.**
+
+- Before: one HTTPS connection (HttpWebRequest, 1 MB buffer, `.partial` resume, SHA256 check).
+- aria2 1.37.0 bundled (`tools\aria2\x64|x86\aria2c.exe`, GPLv2, unmodified, NOTICE with hashes + source
+  link). Detection: `tools\aria2c.exe`, next to the script, bundled x64/x86, PATH. `-x16 -s16 -k1M`,
+  `--continue`, certificate check, retries, options in `DebloatConfig.psd1` (`Download`). Progress, speed
+  and connections in the GUI status line; *Cancel* kills aria2c; aria2 failure (e.g. 403) → warning +
+  automatic fallback to the built-in downloader (keeps a sequential partial file for resume);
+  SHA256 still verified. GUI checkbox *Use aria2 (multi-connection) / Dùng aria2 (tải đa luồng)*.
+- Release picker: Windows 11 21H2…26H2 (x64, ARM64 for 24H2+) and Windows 10 1507…22H2 (x64/x86),
+  29 releases. *Languages* loads one release at a time; withdrawn releases are marked "no longer offered –
+  use a local ISO". Sentinel rejections are retried with a fresh session.
+- Version-aware profile: build → release name (`Windows 11 24H2 (26100)`), optional `MinBuild`/`MaxBuild`
+  per app/tweak (49 entries annotated); the GUI shows only entries for the detected build; the engine skips
+  and logs out-of-range tweaks and apps missing from the image.
+- System check reports aria2 (with the Windows 7 TLS note).
+- Tests: aria2 detection order, arguments + quoting, progress parsing, success / 403 fallback / cancel /
+  partial resume with a mocked process, real aria2c against a local Range server, release catalog,
+  language loading (ok / withdrawn / Sentinel), link retry, build mapping and profile filtering.
+
 ## 0.2.1 - 2026-10-24
 **Fix: "Load list" showed nothing.**
 

@@ -1,7 +1,8 @@
 # WinDebloat Tool (Windows 10 / 11)
 
-Turn an **official Windows 10 or Windows 11 ISO** into a **debloated ISO** – on Windows, with a GUI, using only
-Microsoft tools (DISM, reg.exe, oscdimg from the Windows ADK). No third-party downloads.
+Turn an **official Windows 10 or Windows 11 ISO** into a **debloated ISO** – on Windows, with a GUI, using
+Microsoft tools (DISM, reg.exe, oscdimg from the Windows ADK). The only third-party program is the bundled
+**aria2** (GPLv2, unmodified) used for faster multi-connection ISO downloads – see *Third-party*.
 
 > Vietnamese guide: [README_VI.md](README_VI.md)
 >
@@ -18,8 +19,9 @@ Microsoft tools (DISM, reg.exe, oscdimg from the Windows ADK). No third-party do
 
 ## Quick start
 1. Download/extract the zip, double-click **`run.bat`** (accept the UAC prompt).
-2. **Source**: *Browse…* to an ISO you already have, **or** *Load list* → choose version
-   (Windows 11 or Windows 10 22H2) / arch / language → *Download* (straight from Microsoft, SHA256 checked).
+2. **Source**: *Browse…* to an ISO you already have, **or** choose a release (every Windows 11 21H2…26H2
+   and Windows 10 1507…22H2 build Microsoft still serves) / arch → *Languages* → language → *Download*
+   (straight from Microsoft, with aria2 16 connections if enabled, SHA256 checked).
    **Target OS** is detected automatically (see below); you can force Windows 10 / Windows 11.
 3. Choose apps, tweaks, editions (All / Home+Pro / index list) and the output path.
 4. **START**. Takes 20–60 min and needs about **25 GB** free. The output folder gets
@@ -36,6 +38,23 @@ run.bat -Check                                                  # system report
 Parameters: `-TargetOs Auto|Win10|Win11`, `-Edition All|HomePro|Custom -Indexes 1,6`, `-NoAutounattend`, `-ComponentCleanup`,
 `-DryRun`/`-WhatIf`, `-WorkDir`, `-KeepWorkDir`, `-MinFreeGB`, `-OscdimgPath`.
 
+## Downloading from Microsoft
+- **Releases:** the picker lists every release Microsoft's download API serves (edition IDs as used by
+  [Fido](https://github.com/pbatard/Fido)). Checked live on 2026-10-25: all of them returned a language
+  list and a link – Windows 11 26H2, 25H2 (+v2), 24H2 (x64 + ARM64); 23H2 (+v2), 22H2 (+v1, v2), 21H2 (+v1)
+  (x64); Windows 10 22H2 (+v1), 21H2, 21H1, 20H2 (+v2), 2004, 1909, 1903 (+v2), 1809 (+v2), 1803, 1709,
+  1703, 1607, 1511, 1507 (x64 + x86). If Microsoft withdraws one, *Languages* marks it
+  "no longer offered – use a local ISO". Microsoft publishes SHA256 values only for the current releases;
+  for older ones the hash is logged for manual comparison.
+- **aria2** (`tools\aria2\x64|x86\aria2c.exe`, bundled; also `tools\aria2c.exe`, next to the script, or PATH):
+  `-x16 -s16 -k1M`, `--continue`, certificate check on, retries; options in the `Download` section of
+  `config\DebloatConfig.psd1`. Checkbox *Use aria2 (multi-connection)*; speed and connections show in the
+  status line; *Cancel* kills aria2c (the `.aria2` file stays, so *Download* again resumes).
+  On any aria2 error (e.g. HTTP 403) the tool logs a warning and falls back to the built-in single-connection
+  downloader (HttpWebRequest, `.partial` resume).
+- **Windows 7:** aria2 1.37 uses Windows' own TLS (schannel). Without TLS 1.2 updates (KB3140245) it fails and
+  the tool falls back automatically (not tested on Windows 7).
+
 ## Windows 10 or Windows 11? (target OS detection)
 The engine reads the build of each image with DISM: **10240–21999 = Windows 10** (22H2 is 19045),
 **22000+ = Windows 11**, and picks the matching profile from `config\DebloatConfig.psd1`.
@@ -44,6 +63,12 @@ Windows 8+, or the version you downloaded) and fills the app/tweak lists for tha
 (no ISO mounting) it uses the file name; if that says nothing, the engine still detects the OS from
 the image and uses that profile's defaults. The *Target OS* box (`-TargetOs`) overrides detection;
 a mismatch is logged as a warning.
+
+**Version-aware profile:** the build also selects the release (10240=1507 … 19045=22H2; 22000=21H2,
+22621=22H2, 22631=23H2, 26100=24H2, 26200=25H2, 26300+=26H2). Entries in `DebloatConfig.psd1` may carry
+`MinBuild` / `MaxBuild`; the GUI shows e.g. *Windows 11 24H2 (26100)* and only the entries for that build
+(e.g. no Cortana on 24H2, no Clipchamp/Outlook on 21H2). Listed apps that are not in the image are skipped
+and logged.
 
 ## What it changes – Windows 11
 **Removed (provisioned apps, default):** Clipchamp, Teams (new), Outlook (new), News, Bing Search,
@@ -123,7 +148,7 @@ the Windows 11 profile, `Win10Apps` / `Win10Tweaks` the Windows 10 profile; `Pro
 - **Log file:** the GUI writes `logs\WinDebloat_gui_<date>_<time>.log` in the tool folder (or `%TEMP%`
   if the folder is not writable); the link *Open log folder* in the window opens it. A build also writes
   `WinDebloat_<time>.log` next to the output ISO. Send these files when reporting a problem.
-- **"Load list" fails / "remote name could not be resolved: vlscppe.microsoft.com"**: your DNS, ad
+- **"Languages" fails / "remote name could not be resolved: vlscppe.microsoft.com"**: your DNS, ad
   blocker, hosts file or ISP blocks Microsoft's download-protection hosts `vlscppe.microsoft.com` and
   `ov-df.microsoft.com`. Since 0.2.1 the list still loads; if the download link is then rejected
   (*Sentinel* / 715-123130), switch DNS to 1.1.1.1 or 8.8.8.8 (or unblock the two hosts), turn off
@@ -165,6 +190,12 @@ Layout: `run.bat` (elevating launcher) · `WinDebloatTool.ps1` (entry, CLI; `Win
 compatibility wrapper) · `lib/Core.ps1`
 (engine) · `lib/MsDownload.ps1` (Microsoft download) · `lib/Gui.ps1` (WinForms) ·
 `config/DebloatConfig.psd1` · `autounattend.xml`.
+
+## Third-party
+- Our code is MIT. `tools\aria2\` contains **aria2 1.37.0** Windows builds (`aria2c.exe`), **GPLv2**,
+  distributed unmodified as a separate program that the tool runs as an external process (mere aggregation).
+  License, README, AUTHORS, NEWS and `NOTICE.txt` (original URL, SHA256 of zip and exe, link to the
+  corresponding source) are in that folder. To update, replace the exe with a newer official build.
 
 ## License
 MIT (see LICENSE). The Microsoft download flow was documented by the community, notably

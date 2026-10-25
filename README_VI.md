@@ -2,7 +2,7 @@
 
 Công cụ biến **ISO Windows 10 hoặc Windows 11 gốc của Microsoft** thành **ISO gọn nhẹ** (đã gỡ app rác, tắt quảng cáo/gợi ý),
 chạy trên Windows, có giao diện, chỉ dùng công cụ của Microsoft (DISM, reg.exe, oscdimg trong Windows ADK).
-Không tải phần mềm bên thứ ba.
+Phần mềm bên thứ ba duy nhất là **aria2** (GPLv2, giữ nguyên bản gốc) đi kèm để tải ISO nhanh hơn bằng nhiều luồng – xem mục *Bên thứ ba*.
 
 Tên cũ là *Win11 Debloat Tool*. Từ bản 0.2.0 file chính là `WinDebloatTool.ps1`; file `Win11DebloatTool.ps1`
 vẫn giữ để chạy được như cũ, `run.bat` dùng y như trước.
@@ -17,8 +17,8 @@ vẫn giữ để chạy được như cũ, `run.bat` dùng y như trước.
 1. Giải nén file zip, bấm đúp **`run.bat`** → chọn **Yes** khi Windows hỏi quyền Administrator.
 2. **Nguồn ISO**:
    - Đã có ISO: bấm **Chọn...** và chọn file.
-   - Chưa có: bấm **Lấy danh sách** → chọn phiên bản (Windows 11 hoặc Windows 10 22H2), kiến trúc (x64/arm64/x86), ngôn ngữ (mặc định English US)
-     → **Tải**. File tải thẳng từ máy chủ Microsoft và được kiểm tra SHA256 với bảng hash Microsoft công bố.
+   - Chưa có: chọn bản (mọi bản Windows 11 21H2…26H2 và Windows 10 1507…22H2 Microsoft còn cung cấp), kiến trúc
+     (x64/arm64/x86) → bấm **Lấy ngôn ngữ** → chọn ngôn ngữ (mặc định English US) → **Tải**. File tải thẳng từ máy chủ Microsoft và được kiểm tra SHA256 với bảng hash Microsoft công bố.
    - Nếu Microsoft chặn tải trong app: bấm **Mở trang Microsoft**, tải bằng trình duyệt rồi **Chọn...** file đó.
    - Ô **Hệ điều hành** tự nhận Windows 10 hay 11 (xem bên dưới); có thể chọn tay.
 3. Tick các app muốn gỡ (mặc định đã chọn sẵn), tinh chỉnh registry, phiên bản (Tất cả / Home+Pro / nhập index).
@@ -38,6 +38,20 @@ run.bat -IsoPath D:\Win11.iso -OutputIso D:\out.iso -WhatIf     (chạy thử, k
 run.bat -Check                                                  (kiểm tra máy)
 ```
 
+## Tải từ Microsoft
+- **Các bản Windows:** danh sách gồm mọi bản mà hệ thống tải của Microsoft còn phục vụ. Kiểm tra trực tiếp
+  ngày 25/10/2026: tất cả đều lấy được ngôn ngữ và link tải – Windows 11 26H2, 25H2 (+v2), 24H2 (x64 + ARM64);
+  23H2, 22H2, 21H2 (x64); Windows 10 22H2 về tới 1507 (x64 + x86). Nếu Microsoft gỡ bản nào, bấm **Lấy ngôn ngữ**
+  sẽ báo "Microsoft không còn cung cấp bản này, hãy dùng file ISO có sẵn". Microsoft chỉ công bố SHA256 cho các
+  bản mới nhất; với bản cũ, mã SHA256 được ghi vào log để anh tự đối chiếu.
+- **aria2** (có sẵn trong `tools\aria2\x64|x86\aria2c.exe`; hoặc `tools\aria2c.exe`, cạnh script, hoặc trong PATH):
+  tải 16 luồng (`-x16 -s16 -k1M`), tải tiếp được, luôn kiểm tra chứng chỉ; chỉnh trong mục `Download` của
+  `config\DebloatConfig.psd1`. Ô **Dùng aria2 (tải đa luồng)** bật sẵn khi tìm thấy aria2; tốc độ và số luồng
+  hiện ở dòng trạng thái; bấm **Huỷ** sẽ dừng aria2c ngay (bấm **Tải** lại để tải tiếp).
+  Nếu aria2 lỗi (ví dụ 403), tool ghi cảnh báo và tự chuyển sang bộ tải một luồng có sẵn (cũng tải tiếp được).
+- **Windows 7:** aria2 1.37 dùng TLS của Windows; thiếu bản cập nhật TLS 1.2 (KB3140245) thì aria2 lỗi và tool
+  tự chuyển sang bộ tải có sẵn (chưa thử trên Win7).
+
 ## Windows 10 hay Windows 11? (tự nhận hệ điều hành)
 Khi chạy, tool đọc số build của image bằng DISM: **10240–21999 là Windows 10** (22H2 = 19045),
 **từ 22000 là Windows 11**, rồi dùng bộ gỡ tương ứng trong `config\DebloatConfig.psd1`.
@@ -45,6 +59,12 @@ Giao diện đoán ngay từ tên file, sau đó đọc phần đầu file insta
 hoặc theo bản vừa tải, và đổi danh sách app/tinh chỉnh cho đúng. Trên Windows 7 chỉ đoán theo tên file;
 nếu không đoán được thì lúc chạy tool vẫn tự nhận theo image. Ô **Hệ điều hành** (`-TargetOs`) cho phép
 chọn tay; nếu chọn khác với image thực tế, log sẽ cảnh báo.
+
+**Danh sách theo đúng bản:** số build còn cho biết bản cụ thể (19045 = Win10 22H2; 22000 = Win11 21H2, 22621 = 22H2,
+22631 = 23H2, 26100 = 24H2, 26200 = 25H2, 26300 trở lên = 26H2). Mỗi mục trong `DebloatConfig.psd1` có thể có
+`MinBuild` / `MaxBuild`; giao diện hiện ví dụ *Windows 11 24H2 (26100)* và chỉ liệt kê mục hợp với bản đó
+(24H2 không còn Cortana, 21H2 chưa có Clipchamp/Outlook). App có trong danh sách nhưng không có trong image thì
+được bỏ qua và ghi vào log.
 
 ## Tool thay đổi những gì – Windows 11
 **Gỡ (mặc định):** Clipchamp, Teams mới, Outlook mới, Tin tức, Bing Search, Thời tiết, app Xbox, Game Bar,
@@ -100,7 +120,7 @@ Muốn sửa danh sách: mở `config\DebloatConfig.psd1` bằng Notepad (`Apps`
 - **File log:** giao diện ghi log vào `logs\WinDebloat_gui_<ngày>_<giờ>.log` trong thư mục tool (nếu thư mục
   không ghi được thì vào `%TEMP%`). Bấm **Mở thư mục log** trong cửa sổ để mở. Khi tạo ISO, tool còn ghi
   `WinDebloat_<giờ>.log` cạnh file ISO đầu ra. Gặp lỗi thì gửi các file này.
-- **Bấm "Lấy danh sách" không ra / lỗi "remote name could not be resolved: vlscppe.microsoft.com":**
+- **Bấm "Lấy ngôn ngữ" không ra / lỗi "remote name could not be resolved: vlscppe.microsoft.com":**
   DNS, phần mềm chặn quảng cáo, file hosts hoặc nhà mạng đang chặn hai tên miền `vlscppe.microsoft.com`
   và `ov-df.microsoft.com` mà Microsoft dùng để chống tải tự động. Từ bản 0.2.1 danh sách vẫn hiện bình
   thường. Nếu đến lúc tải Microsoft báo từ chối (*Sentinel* / 715-123130) thì đổi DNS sang 1.1.1.1 hoặc
@@ -121,6 +141,12 @@ Muốn sửa danh sách: mở `config\DebloatConfig.psd1` bằng Notepad (`Apps`
 
 Nút **Kiểm tra máy** (hoặc `run.bat -Check`) báo phiên bản Windows/PowerShell/.NET, TLS 1.2, DISM,
 oscdimg, cách mở ISO, dung lượng trống, kèm hướng dẫn tiếng Việt.
+
+## Bên thứ ba
+- Code của tool dùng giấy phép MIT. Thư mục `tools\aria2\` chứa **aria2 1.37.0** (`aria2c.exe`) bản Windows chính thức,
+  giấy phép **GPLv2**, giữ nguyên không sửa, chạy như một chương trình riêng (chỉ đóng gói chung – "mere aggregation").
+  Giấy phép, README, AUTHORS, NEWS và `NOTICE.txt` (link gốc, SHA256 của file zip và exe, link mã nguồn) nằm trong thư mục đó.
+  Muốn cập nhật, thay `aria2c.exe` bằng bản chính thức mới hơn.
 
 ## Giấy phép
 MIT. Quy trình tải từ Microsoft được cộng đồng mô tả (đặc biệt là Fido, GPL-3.0); tool này tự viết lại,

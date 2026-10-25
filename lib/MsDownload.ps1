@@ -7,6 +7,8 @@
       3. software-download-connector/api/GetProductDownloadLinksBySku         -> signed ISO URL (~24 h)
     The flow is documented by the community (e.g. pbatard/Fido, GPLv3); this is an independent
     implementation and contains no Fido code.
+    The ISO itself is downloaded with aria2c.exe (separate GPLv2 program, bundled unmodified in
+    tools\aria2, started as a process) when available, else with the built-in single-stream downloader.
     SPDX-License-Identifier: MIT
 #>
 
@@ -32,6 +34,40 @@ $script:MsDl = @{
         arm64 = 'https://www.microsoft.com/en-us/software-download/windows11arm64'
     }
     DownloadTypes = @{ x86 = 0; x64 = 1; arm64 = 2 }
+    # Every release Microsoft's download API serves (edition ids from pbatard/Fido history).
+    # Verified 2026-10-25: all of these returned languages AND a download link (Sentinel rejects were
+    # intermittent and passed on retry). Offered = $false would mark a release as "local ISO only".
+    Catalog = @(
+        @{ Os = 'Win11'; Name = '26H2';    Build = '26300.9457';  Date = '2026-09'; Ids = @{ x64 = '3813'; arm64 = '3816' }; Offered = $true }
+        @{ Os = 'Win11'; Name = '25H2 v2'; Build = '26200.8037';  Date = '2026-03'; Ids = @{ x64 = '3321'; arm64 = '3324' }; Offered = $true }
+        @{ Os = 'Win11'; Name = '25H2';    Build = '26200.6584';  Date = '2025-10'; Ids = @{ x64 = '3262'; arm64 = '3265' }; Offered = $true }
+        @{ Os = 'Win11'; Name = '24H2';    Build = '26100.1742';  Date = '2024-10'; Ids = @{ x64 = '3113'; arm64 = '3131' }; Offered = $true }
+        @{ Os = 'Win11'; Name = '23H2 v2'; Build = '22631.2861';  Date = '2023-12'; Ids = @{ x64 = '2935' }; Offered = $true }
+        @{ Os = 'Win11'; Name = '23H2';    Build = '22631.2428';  Date = '2023-10'; Ids = @{ x64 = '2860' }; Offered = $true }
+        @{ Os = 'Win11'; Name = '22H2 v2'; Build = '22621.1702';  Date = '2023-05'; Ids = @{ x64 = '2616' }; Offered = $true }
+        @{ Os = 'Win11'; Name = '22H2 v1'; Build = '22621.525';   Date = '2022-10'; Ids = @{ x64 = '2370' }; Offered = $true }
+        @{ Os = 'Win11'; Name = '22H2';    Build = '22621.382';   Date = '2022-09'; Ids = @{ x64 = '2360' }; Offered = $true }
+        @{ Os = 'Win11'; Name = '21H2 v1'; Build = '22000.318';   Date = '2021-11'; Ids = @{ x64 = '2093' }; Offered = $true }
+        @{ Os = 'Win11'; Name = '21H2';    Build = '22000.194';   Date = '2021-10'; Ids = @{ x64 = '2069' }; Offered = $true }
+        @{ Os = 'Win10'; Name = '22H2 v1'; Build = '19045.2965';  Date = '2023-05'; Ids = @{ x64 = '2618'; x86 = '2618' }; Offered = $true }
+        @{ Os = 'Win10'; Name = '22H2';    Build = '19045.2006';  Date = '2022-10'; Ids = @{ x64 = '2377'; x86 = '2377' }; Offered = $true }
+        @{ Os = 'Win10'; Name = '21H2';    Build = '19044.1288';  Date = '2021-11'; Ids = @{ x64 = '2084'; x86 = '2084' }; Offered = $true }
+        @{ Os = 'Win10'; Name = '21H1';    Build = '19043.985';   Date = '2021-05'; Ids = @{ x64 = '2033'; x86 = '2033' }; Offered = $true }
+        @{ Os = 'Win10'; Name = '20H2 v2'; Build = '19042.631';   Date = '2020-12'; Ids = @{ x64 = '1882'; x86 = '1882' }; Offered = $true }
+        @{ Os = 'Win10'; Name = '20H2';    Build = '19042.508';   Date = '2020-10'; Ids = @{ x64 = '1807'; x86 = '1807' }; Offered = $true }
+        @{ Os = 'Win10'; Name = '2004';    Build = '19041.264';   Date = '2020-05'; Ids = @{ x64 = '1626'; x86 = '1626' }; Offered = $true }
+        @{ Os = 'Win10'; Name = '1909';    Build = '18363.418';   Date = '2019-11'; Ids = @{ x64 = '1429'; x86 = '1429' }; Offered = $true }
+        @{ Os = 'Win10'; Name = '1903 v2'; Build = '18362.356';   Date = '2019-09'; Ids = @{ x64 = '1384'; x86 = '1384' }; Offered = $true }
+        @{ Os = 'Win10'; Name = '1903';    Build = '18362.30';    Date = '2019-05'; Ids = @{ x64 = '1214'; x86 = '1214' }; Offered = $true }
+        @{ Os = 'Win10'; Name = '1809 v2'; Build = '17763.379';   Date = '2019-03'; Ids = @{ x64 = '1203'; x86 = '1203' }; Offered = $true }
+        @{ Os = 'Win10'; Name = '1809';    Build = '17763.107';   Date = '2018-10'; Ids = @{ x64 = '1060'; x86 = '1060' }; Offered = $true }
+        @{ Os = 'Win10'; Name = '1803';    Build = '17134.1';     Date = '2018-04'; Ids = @{ x64 = '651';  x86 = '651' };  Offered = $true }
+        @{ Os = 'Win10'; Name = '1709';    Build = '16299.15';    Date = '2017-09'; Ids = @{ x64 = '484';  x86 = '484' };  Offered = $true }
+        @{ Os = 'Win10'; Name = '1703';    Build = '15063.0';     Date = '2017-03'; Ids = @{ x64 = '361';  x86 = '361' };  Offered = $true }
+        @{ Os = 'Win10'; Name = '1607';    Build = '14393.0';     Date = '2016-07'; Ids = @{ x64 = '244';  x86 = '244' };  Offered = $true }
+        @{ Os = 'Win10'; Name = '1511';    Build = '10586.164';   Date = '2016-04'; Ids = @{ x64 = '178';  x86 = '178' };  Offered = $true }
+        @{ Os = 'Win10'; Name = '1507';    Build = '10240.16384'; Date = '2015-07'; Ids = @{ x64 = '79';   x86 = '79' };   Offered = $true }
+    )
     Releases = @{ '19044' = '21H2'; '19045' = '22H2'; '22000' = '21H2'; '22621' = '22H2'; '22631' = '23H2'; '26100' = '24H2'; '26200' = '25H2'; '26300' = '26H2' }
     RetryDelaySec = 2          # between SKU-list attempts (Microsoft sometimes needs a second try)
     SessionTimeoutMs = 10000   # vlscppe / ov-df: best effort, keep short
@@ -182,6 +218,102 @@ function Get-MsDlPageInfo {
     return (New-Object PSObject -Property @{ Editions = $editions; Hashes = $hashes })
 }
 
+function Get-MsSkuList {
+    <# Languages (SKUs) of one product edition, with a fresh session. Retries (Microsoft sometimes answers
+       empty / Sentinel on the first try). Returns Skus (Id, Language, LocalizedLanguage), Display, SessionId, SessionState. #>
+    param([Parameter(Mandatory = $true)][string]$EditionId, [string]$Referer)
+    $lastMsg = 'no SKUs returned'
+    for ($round = 0; $round -lt 2; $round++) {
+        $sid = New-MsDlSession   # one session per edition: Microsoft only honours the last SKU list of a session
+        $u = 'https://www.microsoft.com/software-download-connector/api/getskuinformationbyproductedition?profile={0}&productEditionId={1}&SKU=undefined&friendlyFileName=undefined&Locale={2}&sessionID={3}' -f $script:MsDl.ProfileId, $EditionId, $script:MsDl.Locale, $sid
+        $resp = $null
+        for ($try = 0; $try -lt 3; $try++) {
+            $resp = ConvertFrom-MsJson (Invoke-MsDlRequest -Uri $u -Referer $Referer)
+            if ((Get-MsCount (Get-MsVal $resp 'Skus')) -gt 0) { break }
+            if ($try -lt 2 -and $script:MsDl.RetryDelaySec -gt 0) { Start-Sleep -Seconds $script:MsDl.RetryDelaySec }
+        }
+        $skuList = @(); if ((Get-MsCount (Get-MsVal $resp 'Skus')) -gt 0) { $skuList = @(Get-MsVal $resp 'Skus') }
+        if ($skuList.Count -gt 0) {
+            $skus = @()
+            foreach ($sk in $skuList) { $skus += (New-Object PSObject -Property @{ Id = [string](Get-MsVal $sk 'Id'); Language = [string](Get-MsVal $sk 'Language'); LocalizedLanguage = [string](Get-MsVal $sk 'LocalizedLanguage') }) }
+            return (New-Object PSObject -Property @{ Skus = $skus; Display = [string](Get-MsVal $skuList[0] 'ProductDisplayName'); SessionId = $sid; SessionState = (Get-MsSessionState $sid) })
+        }
+        $errs = @(); if ((Get-MsCount (Get-MsVal $resp 'Errors')) -gt 0) { $errs = @(Get-MsVal $resp 'Errors') }
+        $sentinel = $false
+        if ($errs.Count -gt 0) {
+            $lastMsg = [string](Get-MsVal $errs[0] 'Value')
+            $sentinel = (@('8', '9') -contains [string](Get-MsVal $errs[0] 'Type') -or $lastMsg -match '715-123130|[Ss]entinel')
+            if ($sentinel) { $lastMsg = "$lastMsg`n" + (Get-MsBlockedHint (Get-MsSessionState $sid)) }
+        }
+        if (-not $sentinel) { break }   # a plain "no languages" answer will not change on retry
+        if ($script:MsDl.RetryDelaySec -gt 0) { Start-Sleep -Seconds ($script:MsDl.RetryDelaySec * 2) }
+    }
+    throw "Microsoft refused the language list ($lastMsg)"
+}
+
+function Get-MsReleaseCatalog {
+    <# Every known release x architecture as entries (no network). Languages are filled in later
+       (Update-MsEntryLanguages / Set-MsEntryLanguages). Available = $false: Microsoft no longer serves it. #>
+    param([string[]]$Os = @('Win11', 'Win10'))
+    $out = @()
+    foreach ($r in $script:MsDl.Catalog) {
+        if ($Os -notcontains $r.Os) { continue }
+        $osName = 'Windows 11'; if ($r.Os -eq 'Win10') { $osName = 'Windows 10' }
+        $label = "$osName $($r.Name) (Build $($r.Build), $($r.Date))"
+        foreach ($a in @('x64', 'arm64', 'x86')) {
+            if (-not $r.Ids.ContainsKey($a)) { continue }
+            $pg = $script:MsDl.Pages[$r.Os]; if ($a -eq 'arm64') { $pg = $script:MsDl.Pages['Win11arm64'] }
+            $out += (New-Object PSObject -Property @{
+                    Os = $r.Os; Arch = $a; DownloadType = $script:MsDl.DownloadTypes[$a]; EditionId = $r.Ids[$a]; EditionName = $label
+                    Release = $label; ReleaseName = $r.Name; Build = [int]($r.Build.Split('.')[0]); BuildFull = $r.Build
+                    SessionId = $null; SessionState = $null; PageUrl = $pg; Hashes = @{}; Skus = @(); Static = $true
+                    Available = [bool]$r.Offered; Note = ''
+                })
+        }
+    }
+    return $out
+}
+
+function Update-MsEntryLanguages {
+    <# Language list for $Entry's edition plus the published SHA256 table when the official page still
+       lists that edition. Never throws. Result: EditionId, Ok, Skus, SessionId, SessionState, Hashes, Display, Error, NotOffered. #>
+    param([Parameter(Mandatory = $true)]$Entry)
+    $res = New-Object PSObject -Property @{ EditionId = $Entry.EditionId; Ok = $false; Skus = @(); SessionId = $null; SessionState = $null; Hashes = @{}; Display = ''; Error = $null; NotOffered = $false }
+    Set-W11Progress -Percent 10 -Status "Microsoft: $($Entry.Release) [$($Entry.Arch)]..."
+    Write-W11Log -En "Asking Microsoft for the languages of $($Entry.Release) [$($Entry.Arch)] (edition $($Entry.EditionId))" -Vi 'Đang hỏi Microsoft danh sách ngôn ngữ'
+    try {
+        Initialize-MsDl
+        $info = Get-MsDlPageInfo -Url $Entry.PageUrl -Label $Entry.Release
+        if (@($info.Editions | Where-Object { $_.Id -eq $Entry.EditionId }).Count -gt 0) { $res.Hashes = $info.Hashes }
+        $sk = Get-MsSkuList -EditionId $Entry.EditionId -Referer $Entry.PageUrl
+        $res.Skus = $sk.Skus; $res.SessionId = $sk.SessionId; $res.SessionState = $sk.SessionState; $res.Display = $sk.Display; $res.Ok = $true
+        $h = 'no SHA256 table for this release on the page (older release; the hash is logged for manual comparison)'
+        if ($res.Hashes.Count -gt 0) { $h = "$($res.Hashes.Count) published SHA256 values" }
+        Write-W11Log -Level OK -En "$($Entry.Release): $(@($res.Skus).Count) languages, $h" -Vi "Đã lấy $(@($res.Skus).Count) ngôn ngữ"
+    } catch {
+        $res.Error = $_.Exception.Message
+        # a withdrawn edition answers without languages and without a Sentinel error
+        if ($res.Error -match 'no SKUs returned' -or $res.Error -match '(?i)\binvalid\b|not (be )?found') { $res.NotOffered = $true }
+        Write-W11Log -Level WARN -En "$($Entry.Release) [$($Entry.Arch)]: $($res.Error)" -Vi 'Không lấy được danh sách ngôn ngữ'
+    }
+    Set-W11Progress -Percent 100 -Status ''
+    return $res
+}
+
+function Set-MsEntryLanguages {
+    # Applies an Update-MsEntryLanguages result to every catalog entry of that edition (Win10 x64/x86 share one)
+    param([object[]]$Catalog, $Result)
+    foreach ($e in @($Catalog)) {
+        if ($e.EditionId -ne $Result.EditionId) { continue }
+        if ($Result.Ok) {
+            $e.Skus = $Result.Skus; $e.SessionId = $Result.SessionId; $e.SessionState = $Result.SessionState
+            $e.Hashes = $Result.Hashes; $e.Static = $false; $e.Available = $true; $e.Note = ''
+        } elseif ($Result.NotOffered) {
+            $e.Available = $false; $e.Note = 'Microsoft no longer offers this - use a local ISO / Microsoft không còn cung cấp bản này, hãy dùng file ISO có sẵn'
+        } else { $e.Note = $Result.Error }
+    }
+}
+
 function Get-MsWinCatalog {
     <# One entry per (OS, edition, architecture) Microsoft currently offers:
        Os, Arch, DownloadType, EditionId, EditionName, Release, SessionId, PageUrl, Hashes, Skus (Id, Language, LocalizedLanguage) #>
@@ -199,29 +331,11 @@ function Get-MsWinCatalog {
         $info = Get-MsDlPageInfo -Url $prod.Page -Fallback $prod.Fallback -Label $osName
         foreach ($ed in $info.Editions) {
             try {
-                $sid = New-MsDlSession   # one session per edition: Microsoft only honours the last SKU list of a session
-                $u = 'https://www.microsoft.com/software-download-connector/api/getskuinformationbyproductedition?profile={0}&productEditionId={1}&SKU=undefined&friendlyFileName=undefined&Locale={2}&sessionID={3}' -f $script:MsDl.ProfileId, $ed.Id, $script:MsDl.Locale, $sid
-                $resp = $null
-                for ($try = 0; $try -lt 3; $try++) {
-                    $resp = ConvertFrom-MsJson (Invoke-MsDlRequest -Uri $u -Referer $prod.Page)
-                    if ((Get-MsCount (Get-MsVal $resp 'Skus')) -gt 0) { break }
-                    if ($try -lt 2 -and $script:MsDl.RetryDelaySec -gt 0) { Start-Sleep -Seconds $script:MsDl.RetryDelaySec }
-                }
-                $skuList = @(); if ((Get-MsCount (Get-MsVal $resp 'Skus')) -gt 0) { $skuList = @(Get-MsVal $resp 'Skus') }
-                if ($skuList.Count -eq 0) {
-                    $msg = 'no SKUs returned'
-                    $errs = @(); if ((Get-MsCount (Get-MsVal $resp 'Errors')) -gt 0) { $errs = @(Get-MsVal $resp 'Errors') }
-                    if ($errs.Count -gt 0) {
-                        $msg = [string](Get-MsVal $errs[0] 'Value')
-                        if (@('8', '9') -contains [string](Get-MsVal $errs[0] 'Type') -or $msg -match '715-123130|[Ss]entinel') { $msg = "$msg`n" + (Get-MsBlockedHint (Get-MsSessionState $sid)) }
-                    }
-                    throw "Microsoft refused the language list ($msg)"
-                }
-                $display = [string](Get-MsVal $skuList[0] 'ProductDisplayName')
-                $release = Get-MsReleaseLabel -Display $display -OsName $osName
-                $skus = @()
-                Write-W11Log -Level OK -En "$what`: $release, $($skuList.Count) languages" -Vi "$what`: $($skuList.Count) ngôn ngữ"
-                foreach ($sk in $skuList) { $skus += (New-Object PSObject -Property @{ Id = [string](Get-MsVal $sk 'Id'); Language = [string](Get-MsVal $sk 'Language'); LocalizedLanguage = [string](Get-MsVal $sk 'LocalizedLanguage') }) }
+                $sk = Get-MsSkuList -EditionId $ed.Id -Referer $prod.Page
+                $sid = $sk.SessionId
+                $skus = @($sk.Skus)
+                $release = Get-MsReleaseLabel -Display $sk.Display -OsName $osName
+                Write-W11Log -Level OK -En "$what`: $release, $($skus.Count) languages" -Vi "$what`: $($skus.Count) ngôn ngữ"
                 foreach ($a in $prod.Archs) {
                     $out += (New-Object PSObject -Property @{
                             Os = $prod.Os; Arch = $a; DownloadType = $script:MsDl.DownloadTypes[$a]
@@ -291,27 +405,44 @@ function Get-MsReleaseLabel {
 }
 
 function Get-MsIsoDownloadLink {
+    <# Signed ISO URL for one language. On a Sentinel / 715-123130 rejection (often intermittent rate
+       limiting) it retries up to twice with a fresh session (new SKU list + link), then explains. #>
     param([Parameter(Mandatory = $true)]$Entry, [Parameter(Mandatory = $true)][string]$SkuId)
     Initialize-MsDl
-    $u = 'https://www.microsoft.com/software-download-connector/api/GetProductDownloadLinksBySku?profile={0}&productEditionId=undefined&SKU={1}&friendlyFileName=undefined&Locale={2}&sessionID={3}' -f $script:MsDl.ProfileId, $SkuId, $script:MsDl.Locale, $Entry.SessionId
-    $resp = ConvertFrom-MsJson (Invoke-MsDlRequest -Uri $u -Referer $Entry.PageUrl)
-    $errs = @(); if ((Get-MsCount (Get-MsVal $resp 'Errors')) -gt 0) { $errs = @(Get-MsVal $resp 'Errors') }
-    if ($errs.Count -gt 0) {
-        $e = $errs[0]
-        $etype = [string](Get-MsVal $e 'Type'); $eval = [string](Get-MsVal $e 'Value')
-        if (@('8', '9') -contains $etype -or $eval -match '715-123130|[Ss]entinel') {
-            $state = $Entry.SessionState; if (-not $state) { $state = Get-MsSessionState $Entry.SessionId }
-            throw ("Microsoft: $eval (session $($Entry.SessionId))`n" + (Get-MsBlockedHint $state))
+    $sid = $Entry.SessionId; $state = $Entry.SessionState
+    $lastErr = $null
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        if ($attempt -gt 0) {
+            if (-not $Entry.EditionId) { break }
+            if ($script:MsDl.RetryDelaySec -gt 0) { Start-Sleep -Seconds ($script:MsDl.RetryDelaySec * 2) }
+            Write-W11Log -Level WARN -En "Microsoft rejected the link request - retrying with a new session ($attempt/2)" -Vi 'Microsoft từ chối, đang thử lại với phiên mới'
+            $sk = Get-MsSkuList -EditionId $Entry.EditionId -Referer $Entry.PageUrl
+            $sid = $sk.SessionId; $state = $sk.SessionState
+            if (@($sk.Skus | Where-Object { $_.Id -eq $SkuId }).Count -eq 0) { break }   # SKU ids are fixed per edition + language
         }
-        throw ('Microsoft refused the download link: ' + (Get-MsVal $e 'Value'))
+        $u = 'https://www.microsoft.com/software-download-connector/api/GetProductDownloadLinksBySku?profile={0}&productEditionId=undefined&SKU={1}&friendlyFileName=undefined&Locale={2}&sessionID={3}' -f $script:MsDl.ProfileId, $SkuId, $script:MsDl.Locale, $sid
+        $resp = ConvertFrom-MsJson (Invoke-MsDlRequest -Uri $u -Referer $Entry.PageUrl)
+        $errs = @(); if ((Get-MsCount (Get-MsVal $resp 'Errors')) -gt 0) { $errs = @(Get-MsVal $resp 'Errors') }
+        if ($errs.Count -gt 0) {
+            $e = $errs[0]
+            $etype = [string](Get-MsVal $e 'Type'); $eval = [string](Get-MsVal $e 'Value')
+            if (@('8', '9') -contains $etype -or $eval -match '715-123130|[Ss]entinel') {
+                if (-not $state) { $state = Get-MsSessionState $sid }
+                $lastErr = "Microsoft: $eval (session $sid)`n" + (Get-MsBlockedHint $state)
+                continue
+            }
+            throw ('Microsoft refused the download link: ' + $eval)
+        }
+        $want = [int]$Entry.DownloadType
+        $uri = $null
+        $opts = @(); if ((Get-MsCount (Get-MsVal $resp 'ProductDownloadOptions')) -gt 0) { $opts = @(Get-MsVal $resp 'ProductDownloadOptions') }
+        foreach ($o in $opts) { if ([int](Get-MsVal $o 'DownloadType') -eq $want) { $uri = [string](Get-MsVal $o 'Uri'); break } }
+        if (-not $uri -and $opts.Count -gt 0) { $uri = [string](Get-MsVal $opts[0] 'Uri') }
+        if (-not $uri) { throw 'No ISO link in Microsoft response' }
+        return $uri
     }
-    $want = [int]$Entry.DownloadType
-    $uri = $null
-    $opts = @(); if ((Get-MsCount (Get-MsVal $resp 'ProductDownloadOptions')) -gt 0) { $opts = @(Get-MsVal $resp 'ProductDownloadOptions') }
-    foreach ($o in $opts) { if ([int](Get-MsVal $o 'DownloadType') -eq $want) { $uri = [string](Get-MsVal $o 'Uri'); break } }
-    if (-not $uri -and $opts.Count -gt 0) { $uri = [string](Get-MsVal $opts[0] 'Uri') }
-    if (-not $uri) { throw 'No ISO link in Microsoft response' }
-    return $uri
+    if ($lastErr) { throw $lastErr }
+    throw 'Microsoft refused the download link'
 }
 
 function Find-MsPublishedHash {
@@ -375,6 +506,199 @@ function Save-MsFile {
     return $Destination
 }
 
+#region ---------- aria2 (multi-connection download) ----------
+$script:MsAria2Defaults = @{
+    UseAria2 = $true; Aria2Connections = 16; Aria2Split = 16; Aria2MinSplitSize = '1M'; Aria2FileAllocation = 'none'
+    Aria2MaxTries = 5; Aria2RetryWait = 5; Aria2Timeout = 60
+}
+$script:MsAria2ExitText = @{
+    1 = 'unknown error / lỗi không xác định'; 2 = 'timeout / hết thời gian chờ'; 3 = 'file not found (404) / không tìm thấy file'
+    5 = 'too slow / tốc độ quá chậm'; 6 = 'network problem / lỗi mạng'; 7 = 'unfinished downloads / chưa tải xong'
+    8 = 'server does not support resume / máy chủ không hỗ trợ tải tiếp'; 9 = 'not enough disk space / không đủ dung lượng ổ đĩa'
+    13 = 'file already exists / file đã tồn tại'; 16 = 'could not create file / không tạo được file'; 17 = 'I/O error / lỗi đọc ghi'
+    19 = 'name resolution failed (DNS) / lỗi phân giải tên miền'; 22 = 'bad HTTP response, e.g. 403 / link hết hạn hoặc bị từ chối (vd. 403)'
+    23 = 'too many redirects / chuyển hướng quá nhiều'; 24 = 'HTTP authorization failed / bị từ chối truy cập'; 28 = 'bad option / tham số sai'
+}
+
+function Get-MsOsIs64 {
+    if ([IntPtr]::Size -eq 8) { return $true }
+    if ($env:PROCESSOR_ARCHITEW6432) { return $true }
+    return ($env:PROCESSOR_ARCHITECTURE -match '64')
+}
+
+function Find-MsAria2 {
+    <# aria2c.exe search order: explicit hint, tools\aria2c.exe (user override / newer build), next to the
+       script, the bundled tools\aria2\<x64|x86>\aria2c.exe for this Windows, then PATH. #>
+    param([string]$Hint)
+    $root = $script:W11Root
+    $c = @()
+    if ($Hint) { $c += $Hint }
+    if ($root) {
+        $c += (Join-Path (Join-Path $root 'tools') 'aria2c.exe')
+        $c += (Join-Path $root 'aria2c.exe')
+        $bundled = Join-Path (Join-Path $root 'tools') 'aria2'
+        $useX64 = Get-MsOsIs64
+        # Windows 10 on ARM cannot run x64 programs (Windows 11 on ARM can); it runs x86 ones
+        if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64' -or $env:PROCESSOR_ARCHITEW6432 -eq 'ARM64') { $useX64 = ([Environment]::OSVersion.Version.Build -ge 22000) }
+        if ($useX64) { $c += (Join-Path (Join-Path $bundled 'x64') 'aria2c.exe') }
+        $c += (Join-Path (Join-Path $bundled 'x86') 'aria2c.exe')
+    }
+    foreach ($x in $c) { if ($x -and (Test-Path -LiteralPath $x -PathType Leaf)) { return $x } }
+    foreach ($n in @('aria2c.exe', 'aria2c')) {
+        $cmd = Get-Command $n -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($cmd) { return $cmd.Definition }
+    }
+    return $null
+}
+
+function Get-MsAria2Options {
+    # Defaults merged with the Download section of DebloatConfig.psd1 (and/or an explicit hashtable)
+    param($Config, [hashtable]$Override)
+    $o = @{}
+    foreach ($k in $script:MsAria2Defaults.Keys) { $o[$k] = $script:MsAria2Defaults[$k] }
+    if ($Config -and $Config.Download) { foreach ($k in $Config.Download.Keys) { $o[$k] = $Config.Download[$k] } }
+    if ($Override) { foreach ($k in $Override.Keys) { $o[$k] = $Override[$k] } }
+    foreach ($k in @('Aria2Connections', 'Aria2Split')) { $v = [int]$o[$k]; if ($v -lt 1) { $v = 1 }; if ($v -gt 16) { $v = 16 }; $o[$k] = $v }
+    if (@('none', 'prealloc', 'falloc', 'trunc') -notcontains [string]$o.Aria2FileAllocation) { $o.Aria2FileAllocation = 'none' }
+    if ([string]$o.Aria2MinSplitSize -notmatch '^\d+[KM]?$') { $o.Aria2MinSplitSize = '1M' }
+    return $o
+}
+
+function ConvertTo-MsCmdArg([string]$a) {
+    # Quote one argument for the Windows command line (MSVCRT rules: double trailing backslashes)
+    if ($a -notmatch '[\s"&|<>^]' -and $a.Length -gt 0) { return $a }
+    $t = $a -replace '(\\*)"', '$1$1\"'
+    $t = $t -replace '(\\+)$', '$1$1'
+    return '"' + $t + '"'
+}
+
+function Get-MsAria2Arguments {
+    <# Argument list for one ISO download. Sizes are printed raw (--human-readable=false) for parsing. #>
+    param([Parameter(Mandatory = $true)][string]$Uri, [Parameter(Mandatory = $true)][string]$Destination,
+        [hashtable]$Options, [string]$LogFile, [int]$ParentPid = 0)
+    $o = Get-MsAria2Options -Override $Options
+    $dir = Split-Path -Parent $Destination
+    $name = Split-Path -Leaf $Destination
+    $a = @(
+        "--dir=$dir", "--out=$name",
+        "--max-connection-per-server=$($o.Aria2Connections)", "--split=$($o.Aria2Split)", "--min-split-size=$($o.Aria2MinSplitSize)",
+        '--continue=true', '--always-resume=true', '--auto-file-renaming=false', '--allow-overwrite=false',
+        "--file-allocation=$($o.Aria2FileAllocation)", '--check-certificate=true',
+        "--max-tries=$([int]$o.Aria2MaxTries)", "--retry-wait=$([int]$o.Aria2RetryWait)", "--timeout=$([int]$o.Aria2Timeout)", '--connect-timeout=30',
+        '--summary-interval=1', '--console-log-level=warn', '--human-readable=false', '--enable-color=false', '--show-console-readout=true',
+        '--remote-time=false', '--enable-rpc=false', '--follow-torrent=false', '--follow-metalink=false',
+        "--user-agent=$($script:MsDl.UserAgent)"
+    )
+    if ($LogFile) { $a += "--log=$LogFile"; $a += '--log-level=notice' }
+    if ($ParentPid -gt 0) { $a += "--stop-with-process=$ParentPid" }   # aria2 stops if the tool is killed
+    $a += $Uri
+    return $a
+}
+
+function ConvertFrom-MsAria2Size([string]$v) {
+    if ($v -notmatch '^([\d.]+)([KMGT]i)?B$') { return $null }
+    $n = [double]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture)
+    switch ($Matches[2]) { 'Ki' { $n *= 1KB } 'Mi' { $n *= 1MB } 'Gi' { $n *= 1GB } 'Ti' { $n *= 1TB } }
+    return [long]$n
+}
+
+function ConvertFrom-MsAria2Line {
+    <# Parses a console readout line, e.g. "[#847d8f 52428800B/6140975104B(0%) CN:16 DL:85983232B ETA:1m10s]"
+       (also the human-readable form "52MiB/5.7GiB"). Returns $null for any other line. #>
+    param([string]$Line)
+    $m = [regex]::Match($Line, '\[#\w+\s+(?<done>[\d.]+(?:[KMGT]i)?B)/(?<total>[\d.]+(?:[KMGT]i)?B)(?:\((?<pct>\d+)%\))?(?:\s+CN:(?<cn>\d+))?(?:\s+SD:\d+)?(?:\s+DL:(?<dl>[\d.]+(?:[KMGT]i)?B))?(?:\s+UL:\S+)?(?:\s+ETA:(?<eta>\w+))?\]')
+    if (-not $m.Success) { return $null }
+    $done = ConvertFrom-MsAria2Size $m.Groups['done'].Value
+    $total = ConvertFrom-MsAria2Size $m.Groups['total'].Value
+    $pct = 0.0
+    if ($total -gt 0) { $pct = 100.0 * $done / $total } elseif ($m.Groups['pct'].Success) { $pct = [double]$m.Groups['pct'].Value }
+    $speed = [long]0; if ($m.Groups['dl'].Success) { $speed = ConvertFrom-MsAria2Size $m.Groups['dl'].Value }
+    $cn = 0; if ($m.Groups['cn'].Success) { $cn = [int]$m.Groups['cn'].Value }
+    $eta = ''; if ($m.Groups['eta'].Success) { $eta = $m.Groups['eta'].Value }
+    return (New-Object PSObject -Property @{ Done = $done; Total = $total; Percent = $pct; Connections = $cn; Speed = $speed; Eta = $eta })
+}
+
+function Format-MsAria2Status($p) {
+    $s = 'aria2: {0:N2} / {1:N2} GB ({2:N1}%)  {3:N1} MB/s  {4} connections / luồng' -f ($p.Done / 1GB), ($p.Total / 1GB), $p.Percent, ($p.Speed / 1MB), $p.Connections
+    if ($p.Eta) { $s += "  ETA $($p.Eta)" }
+    return $s
+}
+
+function Start-MsAria2Process {
+    # Separate function so the tests can replace the process with a fake one.
+    param([string]$Exe, [string]$Arguments)
+    $psi = New-Object Diagnostics.ProcessStartInfo
+    $psi.FileName = $Exe
+    $psi.Arguments = $Arguments
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $false   # aria2 writes its console output to stdout; details go to --log
+    $psi.WorkingDirectory = Split-Path -Parent $Exe
+    return [Diagnostics.Process]::Start($psi)
+}
+
+function Invoke-MsAria2Download {
+    <# Runs aria2c and feeds its progress to $Sync (GUI) or Write-Progress. Cancel kills aria2 (the
+       .aria2 control file stays, so the next start resumes). Throws on failure with exit code meaning. #>
+    param([Parameter(Mandatory = $true)][string]$Exe, [Parameter(Mandatory = $true)][string]$Uri,
+        [Parameter(Mandatory = $true)][string]$Destination, [hashtable]$Options, [hashtable]$Sync)
+    $log = "$Destination.aria2.log"
+    if (Test-Path -LiteralPath $log) { Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue }
+    $argList = Get-MsAria2Arguments -Uri $Uri -Destination $Destination -Options $Options -LogFile $log -ParentPid $PID
+    $argText = ($argList | ForEach-Object { ConvertTo-MsCmdArg $_ }) -join ' '
+    $shown = $argText -replace '\?[^"\s]*', '?<signed>'
+    Write-W11Log -En "aria2: $Exe $shown"
+    $p = Start-MsAria2Process -Exe $Exe -Arguments $argText
+    $cancelled = $false; $last = $null
+    try {
+        while ($true) {
+            $line = $p.StandardOutput.ReadLine()
+            if ($null -eq $line) { break }
+            $pr = ConvertFrom-MsAria2Line $line
+            if ($pr) {
+                $last = $pr
+                $st = Format-MsAria2Status $pr
+                if ($Sync) { $Sync.Percent = $pr.Percent; $Sync.Status = $st }
+                else { Write-Progress -Activity 'Downloading ISO (aria2) / Đang tải ISO' -Status $st -PercentComplete ([int]$pr.Percent) }
+            } elseif ($line -match '(?i)\b(error|errorCode|exception)\b') {
+                Write-W11Log -Level WARN -En "aria2: $($line.Trim())"
+            }
+            if ($Sync -and $Sync.Cancel) { $cancelled = $true; break }
+        }
+    } finally {
+        # normal end: stdout closed, give aria2 time to write its results and exit; kill only on cancel / error / hang
+        if (-not $cancelled) { try { [void]$p.WaitForExit(30000) } catch { $null = $_ } }
+        if (-not $p.HasExited) {
+            try { $p.Kill() } catch { $null = $_ }
+        }
+        try { [void]$p.WaitForExit(15000) } catch { $null = $_ }
+    }
+    if ($cancelled) { throw (New-Object System.OperationCanceledException 'Download cancelled - aria2 stopped; start the download again to resume / Đã huỷ tải; bấm Tải lại để tải tiếp') }
+    $code = [int]$p.ExitCode
+    if ($code -ne 0) {
+        $why = $script:MsAria2ExitText[$code]; if (-not $why) { $why = 'see aria2 log / xem log aria2' }
+        $tail = ''
+        if (Test-Path -LiteralPath $log) {
+            $errLines = @(Get-Content -LiteralPath $log -ErrorAction SilentlyContinue | Where-Object { $_ -match '\[(ERROR|WARN)\]' } | Select-Object -Last 3)
+            if ($errLines.Count -gt 0) { $tail = ' | ' + ($errLines -join ' | ') }
+        }
+        $ex = New-Object System.Exception ("aria2 failed (exit code $code): $why$tail")
+        $ex.Data['Aria2ExitCode'] = $code
+        throw $ex
+    }
+    if ($last) { Write-W11Log -Level OK -En ('aria2 finished: {0:N2} GB' -f ($last.Total / 1GB)) -Vi 'aria2 đã tải xong' }
+    return $Destination
+}
+
+function Clear-MsAria2Files([string]$Destination) {
+    # aria2 writes segments out of order; such a file cannot be resumed by the single-stream downloader
+    foreach ($f in @($Destination, "$Destination.aria2")) {
+        if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
+    }
+}
+#endregion
+
 function Get-MsIsoFileName([string]$Uri) {
     $m = [regex]::Match($Uri, '/([^/?]+\.iso)(\?|$)')
     if ($m.Success) { return $m.Groups[1].Value }
@@ -382,13 +706,46 @@ function Get-MsIsoFileName([string]$Uri) {
 }
 
 function Invoke-MsIsoDownload {
-    <# Full download: link -> stream -> SHA256 check against Microsoft's published table. #>
-    param([Parameter(Mandatory = $true)]$Entry, [Parameter(Mandatory = $true)]$Sku, [Parameter(Mandatory = $true)][string]$Folder, [hashtable]$Sync)
+    <# Full download: link -> aria2 (multi-connection) or built-in stream -> SHA256 check against
+       Microsoft's published table. aria2 failure (not cancel) falls back to the built-in downloader. #>
+    param([Parameter(Mandatory = $true)]$Entry, [Parameter(Mandatory = $true)]$Sku, [Parameter(Mandatory = $true)][string]$Folder,
+        [hashtable]$Sync, [hashtable]$Options)
+    $opt = Get-MsAria2Options -Override $Options
     Write-W11Log -Level STEP -En "Requesting download link: $($Entry.Release) $($Sku.Language) $($Entry.Arch)" -Vi 'Đang lấy link tải từ Microsoft...'
     $uri = Get-MsIsoDownloadLink -Entry $Entry -SkuId $Sku.Id
     $dest = Join-Path $Folder (Get-MsIsoFileName $uri)
-    Write-W11Log -En "Downloading to $dest" -Vi 'Đang tải về'
-    $null = Save-MsFile -Uri $uri -Destination $dest -Sync $Sync
+    $aria = $null
+    if ($opt.UseAria2) {
+        $aria = Find-MsAria2 -Hint ([string]$opt.Aria2Path)
+        if (-not $aria) { Write-W11Log -Level WARN -En 'aria2c.exe not found - using the built-in downloader (single connection)' -Vi 'Không tìm thấy aria2c.exe, dùng bộ tải có sẵn (1 luồng)' }
+    }
+    $done = $false
+    if ($aria) {
+        # a file started by the built-in downloader is sequential, so aria2 can continue it
+        if ((Test-Path -LiteralPath "$dest.partial") -and -not (Test-Path -LiteralPath $dest) -and -not (Test-Path -LiteralPath "$dest.aria2")) {
+            Move-Item -LiteralPath "$dest.partial" -Destination $dest
+            Write-W11Log -En 'Continuing the earlier partial download with aria2' -Vi 'Tải tiếp phần đã tải dở bằng aria2'
+        }
+        Write-W11Log -En "Downloading with aria2 ($($opt.Aria2Connections) connections) to $dest" -Vi "Đang tải bằng aria2 ($($opt.Aria2Connections) luồng)"
+        try {
+            $null = Invoke-MsAria2Download -Exe $aria -Uri $uri -Destination $dest -Options $opt -Sync $Sync
+            $done = $true
+        } catch [System.OperationCanceledException] {
+            throw
+        } catch {
+            Write-W11Log -Level WARN -En "$($_.Exception.Message) - switching to the built-in downloader" -Vi 'aria2 lỗi, chuyển sang bộ tải có sẵn (1 luồng)'
+            if ($Sync -and $Sync.Cancel) { throw (New-Object System.OperationCanceledException 'Download cancelled / Đã huỷ tải') }
+            if ((Test-Path -LiteralPath $dest) -and -not (Test-Path -LiteralPath "$dest.aria2") -and -not (Test-Path -LiteralPath "$dest.partial")) {
+                # no control file = sequential data from the start (e.g. the moved .partial): keep it for resume
+                Move-Item -LiteralPath $dest -Destination "$dest.partial"
+            } else { Clear-MsAria2Files $dest }   # multi-segment file without a usable control file cannot be resumed
+            try { $uri = Get-MsIsoDownloadLink -Entry $Entry -SkuId $Sku.Id } catch { Write-W11Log -Level WARN -En "Could not get a fresh link, reusing the first one: $($_.Exception.Message)" }
+        }
+    }
+    if (-not $done) {
+        Write-W11Log -En "Downloading to $dest" -Vi 'Đang tải về'
+        $null = Save-MsFile -Uri $uri -Destination $dest -Sync $Sync
+    }
     Write-W11Log -Level STEP -En 'Verifying SHA256...' -Vi 'Đang kiểm tra SHA256...'
     if ($Sync) { $Sync.Status = 'SHA256...' }
     $hash = Get-W11Sha256 -Path $dest

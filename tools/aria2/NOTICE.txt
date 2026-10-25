@@ -1,0 +1,41 @@
+aria2 - bundled third-party program
+===================================
+
+This folder contains UNMODIFIED official Windows builds of aria2, a separate program
+used by WinDebloat Tool (via its command line) for multi-connection downloads.
+WinDebloat Tool's own code is MIT licensed; aria2 is licensed under the GNU General
+Public License version 2 or later (see COPYING), with an OpenSSL linking exception
+(see LICENSE.OpenSSL). Shipping both in one archive is "mere aggregation" (GPLv2 sec. 2):
+the MIT code does not link to aria2 and aria2 is not modified.
+
+Version     : aria2 1.37.0 (release-1.37.0, "build1" Windows binaries, published 2023-11-15)
+Project     : https://aria2.github.io/  -  https://github.com/aria2/aria2
+Release page: https://github.com/aria2/aria2/releases/tag/release-1.37.0
+
+x64\aria2c.exe  (64-bit Windows)
+  from      : https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip
+  zip SHA256: 67d015301eef0b612191212d564c5bb0a14b5b9c4796b76454276a4d28d9b288
+  exe SHA256: be2099c214f63a3cb4954b09a0becd6e2e34660b886d4c898d260febfe9d70c2
+
+x86\aria2c.exe  (32-bit Windows)
+  from      : https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-32bit-build1.zip
+  zip SHA256: 35f6514cc5dd7e98a87b3c4c2d25a0754b9b063dbe59bc0f22d483464f61e5b6
+  exe SHA256: b9cd71b275af11b63c33457b0f43f2f2675937070c563e195f223efd7fa4c74b
+
+The zip hashes were checked against the independent Scoop manifest (ScoopInstaller/Main,
+bucket/aria2.json, version 1.37.0-1) on 2026-10-25. GitHub does not publish signatures
+for these assets and the executables are not Authenticode-signed.
+
+Corresponding source code (GPLv2 sec. 3):
+  https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0.tar.xz
+  SHA256: 60a420ad7085eb616cb6e2bdf0a7206d68ff3d37fb5a956dc44242eb2f79b66b
+  (also .tar.gz / .tar.bz2 on the release page; git tag release-1.37.0)
+  The Windows builds were produced by the aria2 project with mingw-w64 (see README.mingw;
+  statically linked: gmp 6.3.0, expat 2.5.0, sqlite 3.43.1, zlib 1.3, c-ares 1.19.1, libssh2 1.11.0).
+  If these links ever disappear, ask the maintainers of WinDebloat Tool for a copy of the source.
+
+Other files here are copied unchanged from the release zip:
+  COPYING, LICENSE.OpenSSL, AUTHORS, NEWS, ChangeLog, README.html, README.mingw
+
+To update: replace x64\aria2c.exe / x86\aria2c.exe with a newer official release and update
+this file. The tool also uses an aria2c.exe found in tools\, next to the script, or on PATH.
