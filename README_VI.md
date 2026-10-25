@@ -1,4 +1,4 @@
-# WinDebloat Tool (Windows 10 / 11) – Hướng dẫn tiếng Việt
+﻿# WinDebloat Tool (Windows 10 / 11) – Hướng dẫn tiếng Việt
 
 Công cụ biến **ISO Windows 10 hoặc Windows 11 gốc của Microsoft** thành **ISO gọn nhẹ** (đã gỡ app rác, tắt quảng cáo/gợi ý),
 chạy trên Windows, có giao diện, chỉ dùng công cụ của Microsoft (DISM, reg.exe, oscdimg trong Windows ADK).
@@ -18,7 +18,7 @@ vẫn giữ để chạy được như cũ, `run.bat` dùng y như trước.
 2. **Nguồn ISO**:
    - Đã có ISO: bấm **Chọn...** và chọn file.
    - Chưa có: chọn bản (mọi bản Windows 11 21H2…26H2 và Windows 10 1507…22H2 Microsoft còn cung cấp), kiến trúc
-     (x64/arm64/x86) → bấm **Lấy ngôn ngữ** → chọn ngôn ngữ (mặc định English US) → **Tải**. File tải thẳng từ máy chủ Microsoft và được kiểm tra SHA256 với bảng hash Microsoft công bố.
+     (x64/arm64/x86) → bấm **Lấy ngôn ngữ** → chọn ngôn ngữ (mặc định English US) → **Tải về**. File tải thẳng từ máy chủ Microsoft và được kiểm tra SHA256 với bảng hash Microsoft công bố.
    - Nếu Microsoft chặn tải trong app: bấm **Mở trang Microsoft**, tải bằng trình duyệt rồi **Chọn...** file đó.
    - Ô **Hệ điều hành** tự nhận Windows 10 hay 11 (xem bên dưới); có thể chọn tay.
 3. Tick các app muốn gỡ (mặc định đã chọn sẵn), tinh chỉnh registry, phiên bản (Tất cả / Home+Pro / nhập index).
@@ -27,8 +27,22 @@ vẫn giữ để chạy được như cũ, `run.bat` dùng y như trước.
 5. Kết quả: file `.iso`, `.iso.sha256`, file log, và `kept_indexN.txt` (danh sách app còn lại).
 6. Ghi ra USB bằng **Rufus** hoặc **Ventoy** (install.wim lớn hơn 4 GB nên chép thẳng vào USB FAT32 sẽ lỗi).
 
-Lần đầu nếu thiếu **oscdimg.exe**, tool sẽ hỏi: cài *Deployment Tools* của Windows ADK từ Microsoft
-(chỉ phần đó, có kiểm tra chữ ký số) hoặc cài qua winget.
+Nếu thiếu **oscdimg.exe**, bấm **Cài oscdimg** (hoặc **BẮT ĐẦU**, tool cũng kiểm tra): tool chỉ cài phần
+*Deployment Tools* của Windows ADK chính thức (`adksetup.exe /features OptionId.DeploymentTools /quiet`, có
+kiểm tra chữ ký số) hoặc cài qua winget. Tự tải: <https://learn.microsoft.com/windows-hardware/get-started/adk-install>.
+
+Nút **Tải về** chỉ hỏi thư mục lưu (mặc định là thư mục dùng lần trước, nếu không có thì `%USERPROFILE%\Downloads`),
+không cần ô ISO đầu ra. Ô ISO đầu ra để trống thì **BẮT ĐẦU** tự dùng `<tên ISO nguồn>_debloated.iso` cạnh
+file nguồn. Đường dẫn trống hoặc sai sẽ có thông báo ngắn thay vì báo lỗi.
+
+### Ngôn ngữ giao diện
+Tiếng Việt (mặc định), English, 简体中文 và ភាសាខ្មែរ – chọn ở ô cạnh **Mở thư mục nhật ký**, đổi ngay lập tức
+và được nhớ trong `settings.psd1` (trong thư mục tool, nếu không ghi được thì `%APPDATA%\WinDebloatTool`).
+Chữ nằm trong `lang\*.psd1` (UTF-8 có BOM). Phông: Segoe UI; tiếng Trung dùng Microsoft YaHei UI →
+Microsoft YaHei; tiếng Khmer dùng Leelawadee UI (Windows 8+) → Khmer UI (Windows 7) → DaunPenh. Khung nhật ký
+hiện tiếng Anh kèm tiếng Việt khi giao diện là tiếng Việt; file nhật ký luôn có cả hai.
+**Bản tiếng Trung và tiếng Khmer được dịch với sự hỗ trợ của máy** – rất mong người bản ngữ góp ý, sửa
+(sửa `lang\zh-CN.psd1` / `lang\km.psd1`, giữ nguyên `{0}`; `tests/Test-Offline.ps1` kiểm tra đủ khoá).
 
 Chạy dòng lệnh (không giao diện):
 ```
@@ -49,10 +63,31 @@ run.bat -Check                                                  (kiểm tra máy
 - **aria2** (có sẵn trong `tools\aria2\x64|x86\aria2c.exe`; hoặc `tools\aria2c.exe`, cạnh script, hoặc trong PATH):
   tải 16 luồng (`-x16 -s16 -k1M`), tải tiếp được, luôn kiểm tra chứng chỉ; chỉnh trong mục `Download` của
   `config\DebloatConfig.psd1`. Ô **Dùng aria2 (tải đa luồng)** bật sẵn khi tìm thấy aria2; tốc độ và số luồng
-  hiện ở dòng trạng thái; bấm **Huỷ** sẽ dừng aria2c ngay (bấm **Tải** lại để tải tiếp).
+  hiện ở dòng trạng thái; bấm **Huỷ** sẽ dừng aria2c ngay (bấm **Tải về** lại để tải tiếp).
   Nếu aria2 lỗi (ví dụ 403), tool ghi cảnh báo và tự chuyển sang bộ tải một luồng có sẵn (cũng tải tiếp được).
 - **Windows 7:** aria2 1.37 dùng TLS của Windows; thiếu bản cập nhật TLS 1.2 (KB3140245) thì aria2 lỗi và tool
   tự chuyển sang bộ tải có sẵn (chưa thử trên Win7).
+
+## Nguồn dự phòng (không phải Microsoft, chỉ dùng khi đồng ý)
+Tool luôn tải từ Microsoft trước. Chỉ khi Microsoft không cung cấp được (bản đã bị gỡ, bị chặn *Sentinel* /
+715-123130, máy chủ tải lỗi), thông báo lỗi mới hỏi thêm: **Yes = thử bản sao file gốc của Microsoft
+được liệt kê trên [massgrave.dev](https://massgrave.dev/genuine-installation-media)**, No = mở trang
+Microsoft, Cancel = đóng.
+- Hộp thoại tiếp theo ghi rõ tên file, máy chủ tải và mã SHA256 mong đợi, kèm lời nhắc máy chủ đó **không
+  phải của Microsoft**. Không bấm *Yes* thì không có gì xảy ra. Tên máy chủ được ghi vào nhật ký.
+- Các trang lưu file (buzzheavier.com, zerofs.link) chỉ có trang tải, nên tool mở trang đó trong trình
+  duyệt. Tải xong, hãy chọn file trong hộp thoại vừa hiện ra.
+- **Bắt buộc kiểm tra SHA256.** File chỉ được nhận khi SHA256 trùng với mã của file gốc Microsoft (MSDN).
+  Không trùng thì file **bị xoá** và tool báo cả hai mã. Tool không bao giờ chạy file đã tải; ISO chỉ được
+  DISM đọc như khi tạo ISO bình thường.
+- Danh sách có sẵn (chỉ tiếng Anh Mỹ; 10 mục `Mirrors` trong `config\DebloatConfig.psd1`): Windows 11 26H2
+  consumer / business x64, Windows 10 22H2 (bản 10/2025) consumer / business x64 + x86, Windows 11
+  Enterprise LTSC 2024 và IoT Enterprise LTSC 2024 x64, Windows 10 Enterprise LTSC 2021 x64 + x86.
+  Trang link của massgrave.dev không công bố mã hash, nên mỗi mã SHA256 được lấy từ hai danh sách độc lập
+  (msnews.ru, và ntriver.org / macrohard0.github.io) và hai bên khớp nhau (25/10/2026). Mã của bản 26H2
+  consumer cũng trùng với mã Microsoft công bố. File nào chưa xác nhận được mã thì không đưa vào.
+- Muốn thêm: chép một mục rồi sửa `FileName`, `Url`, `Sha256` (mã của file gốc Microsoft), `Os`, `Arch`,
+  `Release`, `Kind`. Mục không có SHA256 hợp lệ (64 ký tự) sẽ không bao giờ được đề xuất.
 
 ## Windows 10 hay Windows 11? (tự nhận hệ điều hành)
 Khi chạy, tool đọc số build của image bằng DISM: **10240–21999 là Windows 10** (22H2 = 19045),
@@ -122,14 +157,14 @@ Muốn sửa danh sách: mở `config\DebloatConfig.psd1` bằng Notepad (`Apps`
 
 ## Khi gặp lỗi
 - **File log:** giao diện ghi log vào `logs\WinDebloat_gui_<ngày>_<giờ>.log` trong thư mục tool (nếu thư mục
-  không ghi được thì vào `%TEMP%`). Bấm **Mở thư mục log** trong cửa sổ để mở. Khi tạo ISO, tool còn ghi
+  không ghi được thì vào `%TEMP%`). Bấm **Mở thư mục nhật ký** trong cửa sổ để mở. Khi tạo ISO, tool còn ghi
   `WinDebloat_<giờ>.log` cạnh file ISO đầu ra. Gặp lỗi thì gửi các file này.
 - **Bấm "Lấy ngôn ngữ" không ra / lỗi "remote name could not be resolved: vlscppe.microsoft.com":**
   DNS, phần mềm chặn quảng cáo, file hosts hoặc nhà mạng đang chặn hai tên miền `vlscppe.microsoft.com`
   và `ov-df.microsoft.com` mà Microsoft dùng để chống tải tự động. Từ bản 0.2.1 danh sách vẫn hiện bình
   thường. Nếu đến lúc tải Microsoft báo từ chối (*Sentinel* / 715-123130) thì đổi DNS sang 1.1.1.1 hoặc
   8.8.8.8 (hoặc bỏ chặn hai tên miền trên), tắt VPN, hoặc bấm **Mở trang Microsoft** để tải bằng trình duyệt.
-- Nếu hoàn toàn không có mạng, danh sách phiên bản Windows 11 / Windows 10 vẫn hiện; bấm **Tải** sẽ mở
+- Nếu hoàn toàn không có mạng, danh sách phiên bản Windows 11 / Windows 10 vẫn hiện; bấm **Tải về** sẽ mở
   trang tải chính thức của Microsoft.
 
 ## Hỗ trợ phiên bản Windows (máy chạy tool)

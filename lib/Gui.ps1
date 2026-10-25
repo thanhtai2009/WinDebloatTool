@@ -5,9 +5,11 @@
 #>
 
 function New-W11Ctl {
+    # Text '@key' = localized string; the key stays in .Tag so Set-W11UiTexts can switch the language live
     param([string]$Type, [string]$Text, [int]$X, [int]$Y, [int]$W, [int]$H)
     $c = New-Object ("System.Windows.Forms.$Type")
-    if ($Text) { $c.Text = $Text }
+    if ($Text -and $Text.StartsWith('@')) { $c.Tag = $Text; $c.Text = T $Text.Substring(1) }
+    elseif ($Text) { $c.Text = $Text }
     $c.Location = New-Object Drawing.Point $X, $Y
     $c.Size = New-Object Drawing.Size $W, $H
     return $c
@@ -54,7 +56,7 @@ function Start-W11Job {
         if ($Background) { return $false }
         $script:PendingJob = @{ Script = $Script; JobArgs = $JobArgs; OnDone = $OnDone; Name = $Name }
         Write-W11Log -En "'$Name' will start when the running '$($script:Job.Name)' finishes..." -Vi "'$Name' sẽ chạy ngay sau khi '$($script:Job.Name)' xong..."
-        $script:ui.lblStatus.Text = "Waiting for $($script:Job.Name)... / Đang chờ tác vụ trước..."
+        $script:ui.lblStatus.Text = T 'status.waiting' $script:Job.Name
         return $false
     }
     $script:Sync.Cancel = $false; $script:Sync.Error = $null; $script:Sync.Result = $null
@@ -111,6 +113,121 @@ function Invoke-W11Tick {
     }
 }
 
+#region ---------- languages, settings, fonts ----------
+$script:W11Langs = @(
+    @{ Code = 'vi'; Name = 'Tiếng Việt' }
+    @{ Code = 'en'; Name = 'English' }
+    @{ Code = 'zh-CN'; Name = '简体中文' }
+    @{ Code = 'km'; Name = 'ភាសាខ្មែរ' }
+)
+$script:AdkUrl = 'https://learn.microsoft.com/windows-hardware/get-started/adk-install'
+
+function Import-W11Lang {
+    # lang\<code>.psd1 (UTF-8 BOM, data only) -> hashtable; empty table when missing/broken
+    param([string]$Code)
+    $dir = Join-Path $script:W11Root 'lang'
+    if (-not $Code -or -not (Test-W11PathText (Join-Path $dir "$Code.psd1") -Leaf)) { return @{} }
+    try {
+        $t = $null
+        Import-LocalizedData -BaseDirectory $dir -FileName $Code -BindingVariable t -UICulture 'en-US' -ErrorAction Stop
+        if ($t -is [hashtable]) { return $t }
+    } catch { $null = $_ }
+    return @{}
+}
+
+function Set-W11Language {
+    param([string]$Code)
+    if (-not (@($script:W11Langs | ForEach-Object { $_.Code }) -contains $Code)) { $Code = 'vi' }
+    $script:UiLang = $Code
+    $script:LEn = Import-W11Lang 'en'
+    if ($Code -eq 'en') { $script:L = $script:LEn } else { $script:L = Import-W11Lang $Code }
+    if ($script:Sync) { $script:Sync.UiLang = $Code }
+    if ($script:W11D -and $script:W11D.Sync) { $script:W11D.Sync.UiLang = $Code }
+}
+
+function T {
+    # T 'key' [arg0 arg1 ...] -> text in the chosen language (fallback English, then the key itself)
+    param([string]$Key)
+    $s = $null
+    if ($script:L -and $script:L.ContainsKey($Key)) { $s = [string]$script:L[$Key] }
+    if (-not $s -and $script:LEn -and $script:LEn.ContainsKey($Key)) { $s = [string]$script:LEn[$Key] }
+    if (-not $s) { $s = $Key }
+    $s = $s.Replace('\n', "`n")
+    if ($args.Count -gt 0) { try { $s = $s -f $args } catch { $s = $s + ' ' + ($args -join ' ') } }
+    return $s
+}
+
+function Get-W11FontFor {
+    # first installed font that can show the language (Khmer / Chinese need special fonts)
+    param([string]$Code, [string[]]$Installed)
+    switch ($Code) {
+        'zh-CN' { $c = @('Microsoft YaHei UI', 'Microsoft YaHei', 'SimSun', 'Segoe UI') }
+        'km' { $c = @('Leelawadee UI', 'Khmer UI', 'DaunPenh', 'Khmer OS System', 'Segoe UI') }
+        default { $c = @('Segoe UI', 'Tahoma', 'Microsoft Sans Serif') }
+    }
+    foreach ($n in $c) { if (@($Installed) -contains $n) { return $n } }
+    return $c[$c.Count - 1]
+}
+
+function Get-W11InstalledFonts {
+    try { return @((New-Object Drawing.Text.InstalledFontCollection).Families | ForEach-Object { $_.Name }) } catch { return @() }
+}
+
+function Get-W11SettingsPath {
+    # <tool>\settings.psd1 when the tool folder is writable, else %APPDATA%\WinDebloatTool\settings.psd1
+    param([switch]$ForWrite)
+    $p1 = Join-Path $script:W11Root 'settings.psd1'
+    $p2 = $null; if ($env:APPDATA) { $p2 = Join-Path (Join-Path $env:APPDATA 'WinDebloatTool') 'settings.psd1' }
+    if (-not $ForWrite) {
+        if (Test-W11PathText $p1 -Leaf) { return $p1 }
+        if ($p2 -and (Test-W11PathText $p2 -Leaf)) { return $p2 }
+        return $null
+    }
+    try { $probe = Join-Path $script:W11Root ('.w11w' + [guid]::NewGuid().ToString('N')); [IO.File]::WriteAllText($probe, ''); Remove-Item -LiteralPath $probe -Force; return $p1 } catch { $null = $_ }
+    return $p2
+}
+
+function Read-W11Settings {
+    $p = Get-W11SettingsPath
+    if (-not $p) { return @{} }
+    try {
+        $t = $null
+        Import-LocalizedData -BaseDirectory (Split-Path -Parent $p) -FileName 'settings' -BindingVariable t -UICulture 'en-US' -ErrorAction Stop
+        if ($t -is [hashtable]) { return $t }
+    } catch { $null = $_ }
+    return @{}
+}
+
+function Save-W11Settings {
+    param([hashtable]$Settings)
+    $p = Get-W11SettingsPath -ForWrite
+    if (-not $p) { return $null }
+    $sb = New-Object Text.StringBuilder
+    [void]$sb.Append("# WinDebloat Tool settings (written by the tool)`r`n@{`r`n")
+    foreach ($k in @($Settings.Keys | Sort-Object)) {
+        if ($k -notmatch '^[A-Za-z][A-Za-z0-9]*$') { continue }
+        [void]$sb.Append(("    {0} = '{1}'`r`n" -f $k, ([string]$Settings[$k]).Replace("'", "''")))
+    }
+    [void]$sb.Append("}`r`n")
+    try {
+        $d = Split-Path -Parent $p
+        if (-not (Test-W11PathText $d -Container)) { $null = New-Item -ItemType Directory -Path $d -Force -ErrorAction Stop }
+        [IO.File]::WriteAllText($p, $sb.ToString(), (New-Object Text.UTF8Encoding $true))
+        return $p
+    } catch { return $null }
+}
+
+function Get-W11DownloadFolder {
+    # last used folder -> %USERPROFILE%\Downloads -> <tool>\downloads (created)
+    param([hashtable]$Settings)
+    if ($Settings -and $Settings.DownloadFolder -and (Test-W11PathText ([string]$Settings.DownloadFolder) -Container)) { return [string]$Settings.DownloadFolder }
+    if ($env:USERPROFILE) { $d = Join-Path $env:USERPROFILE 'Downloads'; if (Test-W11PathText $d -Container) { return $d } }
+    $d = Join-Path $script:W11Root 'downloads'
+    try { if (-not (Test-W11PathText $d -Container)) { $null = New-Item -ItemType Directory -Path $d -Force -ErrorAction Stop } } catch { $null = $_ }
+    return $d
+}
+#endregion
+
 function Get-W11GuiLogPath {
     # GUI session log: <tool folder>\logs\WinDebloat_gui_<time>.log, or %TEMP% if the tool folder is read-only.
     $name = 'WinDebloat_gui_' + (Get-Date -Format 'yyyyMMdd_HHmmss') + '.log'
@@ -139,13 +256,13 @@ function Show-W11Error {
         if ($script:W11D.LogPath) { try { Add-Content -LiteralPath $script:W11D.LogPath -Value ('    ' + $detail) -Encoding UTF8 } catch { $null = $_ } }
     }
     try {
-        if ($script:ui -and $script:ui.lblStatus) { $script:ui.lblStatus.Text = "Error / Lỗi: $msg" }
+        if ($script:ui -and $script:ui.lblStatus) { $script:ui.lblStatus.Text = T 'status.error' $msg }
         if ($script:ui -and $script:ui.btnCancel -and -not $script:Job) { Set-W11Busy $false }
     } catch { $null = $_ }
     $logTxt = ''
-    if ($script:W11D.LogPath) { $logTxt = "`n`nLog / Nhật ký:`n$($script:W11D.LogPath)" }
+    if ($script:W11D.LogPath) { $logTxt = "`n`n" + (T 'msg.logFile' $script:W11D.LogPath) }
     try {
-        [void][Windows.Forms.MessageBox]::Show($script:ui.form, "Unexpected error in '$Context':`n$msg`n`nLỗi không mong muốn ở '$Context'. Hãy gửi file log cho người hỗ trợ.$logTxt", 'WinDebloat Tool', 'OK', 'Error')
+        [void][Windows.Forms.MessageBox]::Show($script:ui.form, (T 'msg.error' $Context $msg) + $logTxt, 'WinDebloat Tool', 'OK', 'Error')
     } catch { $null = $_ }
 }
 
@@ -163,7 +280,7 @@ function Show-W11Msg {
 }
 
 function Get-W11ReleaseItemText($e) {
-    if ($e.Available -eq $false) { return "$($e.Release)  [not offered / không còn]" }
+    if ($e.Available -eq $false) { return (T 'item.notOffered' $e.Release) }
     return $e.Release
 }
 
@@ -202,16 +319,17 @@ function Update-W11DownloadLists {
         return
     }
     if ($Level -eq 'lang') {
+        $keep = $ui.cbLang.SelectedIndex
         $ui.cbLang.Items.Clear()
         $e = Get-W11SelectedEntry
         if (-not $e) { return }
         if ($e.Available -eq $false) {
-            [void]$ui.cbLang.Items.Add('(not offered - use a local ISO / không còn, dùng ISO có sẵn)')
+            [void]$ui.cbLang.Items.Add((T 'lang.notOffered'))
             $ui.cbLang.SelectedIndex = 0
             return
         }
         if ($e.Static -or @($e.Skus).Count -eq 0) {
-            [void]$ui.cbLang.Items.Add('(press Load languages / bấm Lấy ngôn ngữ)')
+            [void]$ui.cbLang.Items.Add((T 'lang.pressLoad'))
             $ui.cbLang.SelectedIndex = 0
             return
         }
@@ -222,6 +340,7 @@ function Update-W11DownloadLists {
             $i++
         }
         if ($def -lt 0) { $def = 0 }
+        if ($script:KeepLangIndex -and $keep -ge 0 -and $keep -lt $ui.cbLang.Items.Count) { $def = $keep }
         if ($ui.cbLang.Items.Count -gt 0) { $ui.cbLang.SelectedIndex = $def }
     }
 }
@@ -232,23 +351,132 @@ function Get-W11SelectedRelease {
     return $script:ReleaseItems[$i]
 }
 
-function Show-W11NotOffered($e) {
-    $name = ''; if ($e) { $name = $e.Release }
-    $ans = Show-W11Msg ("Microsoft no longer offers $name for download. Use a local ISO (Browse...) instead.`n`nMicrosoft không còn cung cấp bản này. Hãy dùng file ISO có sẵn trên máy (bấm Chọn...).`n`nOpen the Microsoft page? / Mở trang Microsoft?") 'Information' 'YesNo'
-    if ([string]$ans -eq 'Yes') { & $script:H['lnkMs.LinkClicked'] }
-}
-
 function Get-W11SelectedEntry {
     $rel = Get-W11SelectedRelease
     $arch = [string]$script:ui.cbArch.SelectedItem
     return (@($script:Catalog | Where-Object { $_.Release -eq $rel -and $_.Arch -eq $arch }) | Select-Object -First 1)
 }
 
+#region ---------- Microsoft failure -> optional mirror fallback ----------
+function Get-W11MirrorChoices {
+    # mirror entries that fit the selected (failed) Microsoft download: same OS + architecture
+    param($Entry)
+    $os = Get-W11EffectiveOs; $arch = ((Get-W11HostArch) -replace 'amd64', 'x64'); $rel = ''
+    if ($Entry) { $os = $Entry.Os; $arch = $Entry.Arch; $rel = $Entry.Name }
+    return @(Get-MsMirrorCandidates -Config $script:Cfg -Os $os -Arch $arch -ReleaseName $rel)
+}
+
+function Show-W11MsFailure {
+    # Microsoft could not deliver (withdrawn release, Sentinel / Type 9 block, CDN error).
+    # Mirror fallback is offered only here, only on request, and only for entries with a known SHA256.
+    param($Entry, [string]$Text, [string]$Icon = 'Warning')
+    $logTxt = ''; if ($script:W11D.LogPath) { $logTxt = "`n`n" + (T 'msg.logFile' $script:W11D.LogPath) }
+    $choices = @(Get-W11MirrorChoices $Entry)
+    if ($choices.Count -gt 0) {
+        $ans = [string](Show-W11Msg ($Text + "`n`n" + (T 'q.tryMirror') + $logTxt) $Icon 'YesNoCancel')
+        if ($ans -eq 'Yes') { Invoke-W11MirrorOffer $choices }
+        elseif ($ans -eq 'No') { & $script:H['lnkMs.LinkClicked'] }
+        return
+    }
+    $ans = [string](Show-W11Msg ($Text + "`n`n" + (T 'q.openMs') + $logTxt) $Icon 'YesNo')
+    if ($ans -eq 'Yes') { & $script:H['lnkMs.LinkClicked'] }
+}
+
+function Show-W11NotOffered($e) {
+    $name = ''; if ($e) { $name = $e.Release }
+    Show-W11MsFailure -Entry $e -Text (T 'msg.notOffered' $name) -Icon 'Information'
+}
+
+function Select-W11Mirror {
+    # small picker when several mirror entries fit; returns the chosen entry or $null
+    param([object[]]$Choices)
+    if (@($Choices).Count -eq 1) { return $Choices[0] }
+    $d = New-Object Windows.Forms.Form
+    $d.Text = 'WinDebloat Tool'; $d.ClientSize = New-Object Drawing.Size 640, 250
+    $d.StartPosition = 'CenterParent'; $d.FormBorderStyle = 'FixedDialog'; $d.MinimizeBox = $false; $d.MaximizeBox = $false
+    $d.Font = $script:ui.form.Font
+    $lb = New-W11Ctl Label (T 'dlg.mirrorPick') 12 10 616 40
+    $list = New-W11Ctl ListBox '' 12 52 616 150
+    foreach ($m in $Choices) { [void]$list.Items.Add(('{0}   ({1})' -f $m.FileName, (Get-MsUrlHost $m.Url))) }
+    $list.SelectedIndex = 0
+    $ok = New-W11Ctl Button (T 'btn.ok') 432 212 94 28; $ok.DialogResult = 'OK'
+    $no = New-W11Ctl Button (T 'btn.cancel') 534 212 94 28; $no.DialogResult = 'Cancel'
+    $d.AcceptButton = $ok; $d.CancelButton = $no
+    $d.Controls.AddRange(@($lb, $list, $ok, $no))
+    $r = $d.ShowDialog($script:ui.form)
+    $i = $list.SelectedIndex
+    $d.Dispose()
+    if ([string]$r -ne 'OK' -or $i -lt 0) { return $null }
+    return $Choices[$i]
+}
+
+function Invoke-W11MirrorOffer {
+    param([object[]]$Choices)
+    $m = Select-W11Mirror $Choices
+    if (-not $m) { return }
+    $hostName = Get-MsUrlHost $m.Url
+    $ans = [string](Show-W11Msg (T 'msg.mirrorOffer' $m.FileName $hostName $m.Sha256) 'Warning' 'YesNo')
+    if ($ans -ne 'Yes') { Write-W11Log -En 'Mirror fallback declined.' -Vi 'Đã từ chối dùng mirror.'; return }
+    Write-W11Log -Level WARN -En "Mirror fallback chosen by the user: $($m.FileName) from host $hostName (NOT a Microsoft server; listed on $($m.Page)). The file will be accepted only if its SHA256 is $($m.Sha256)." -Vi "Đã chọn tải từ mirror $hostName (không phải máy chủ Microsoft); chỉ chấp nhận khi SHA256 khớp."
+    Start-Process $m.Url
+    $d = New-Object Windows.Forms.OpenFileDialog
+    $d.Filter = T 'dlg.isoFilter'
+    $d.Title = T 'dlg.pickMirror' $m.FileName
+    $d.FileName = $m.FileName
+    $dir = Get-W11DownloadFolder $script:Settings
+    if (Test-W11PathText $dir -Container) { $d.InitialDirectory = $dir }
+    if ($d.ShowDialog($script:ui.form) -ne 'OK') { return }
+    Start-W11MirrorVerify -Path $d.FileName -Mirror $m
+}
+
+function Start-W11MirrorVerify {
+    param([string]$Path, $Mirror)
+    $script:ui.lblStatus.Text = T 'status.verifying'
+    [void](Start-W11Job -Name 'Verify mirror ISO' -Script '$sync.Result = Test-MsMirrorFile -Path $JobArgs.Path -Mirror $JobArgs.Mirror' -JobArgs @{ Path = $Path; Mirror = $Mirror } -OnDone {
+            $r = $script:Sync.Result
+            if ($r -and $r.Ok) {
+                $script:ui.tbIso.Text = $r.Path
+                $script:ui.rbLocal.Checked = $true
+                if (-not $script:ui.tbOut.Text.Trim()) { $script:ui.tbOut.Text = Get-W11SuggestedOutput $r.Path }
+                Start-W11Detect $r.Path
+                $script:ui.lblStatus.Text = T 'status.ready'
+                Show-W11Msg (T 'msg.mirrorOk' $r.Path) | Out-Null
+                return
+            }
+            $script:ui.lblStatus.Text = T 'status.dlFailed'
+            if ($r -and $r.Deleted) { Show-W11Msg (T 'msg.mirrorBad' $r.Path $r.Hash $r.Expected) 'Error' | Out-Null; return }
+            $why = $script:Sync.Error; if ($r -and $r.Error) { $why = $r.Error }
+            $pth = ''; if ($r) { $pth = $r.Path }
+            Show-W11Msg (T 'msg.mirrorBadKept' $pth $why) 'Error' | Out-Null
+        })
+}
+#endregion
+
 function Get-W11SuggestedOutput {
+    # <source>_debloated.iso next to the source; '' when there is no usable source path (never throws)
     param([string]$Iso)
-    $dir = Split-Path -Parent $Iso
-    $name = [IO.Path]::GetFileNameWithoutExtension($Iso) + '_debloated.iso'
-    return (Join-Path $dir $name)
+    if (-not $Iso -or -not $Iso.Trim()) { return '' }
+    $Iso = $Iso.Trim().Trim('"')
+    try {
+        $dir = Split-Path -Parent $Iso
+        $name = [IO.Path]::GetFileNameWithoutExtension($Iso)
+        if (-not $name) { return '' }
+        $name += '_debloated.iso'
+        if (-not $dir) { return $name }
+        return (Join-Path $dir $name)
+    } catch { return '' }
+}
+
+function Test-W11OutputPath {
+    # $null when the output ISO path is usable, otherwise the message to show
+    param([string]$Out, [string]$Iso)
+    if (-not $Out -or -not $Out.Trim()) { return (T 'msg.outInvalid' '') }
+    try { $full = [IO.Path]::GetFullPath($Out) } catch { return (T 'msg.outInvalid' $Out) }
+    if (-not [IO.Path]::GetFileName($full)) { return (T 'msg.outInvalid' $Out) }
+    $dir = Split-Path -Parent $full
+    if (-not (Test-W11PathText $dir -Container)) { return (T 'msg.outDirMissing' $dir) }
+    if ($Iso) { try { if ([IO.Path]::GetFullPath($Iso) -eq $full) { return (T 'msg.outSameAsIso') } } catch { $null = $_ } }
+    return $null
 }
 
 function Get-W11EffectiveOs {
@@ -260,53 +488,78 @@ function Get-W11EffectiveOs {
     return 'Win11'
 }
 
+function Get-W11AppText($a) {
+    # app list entry: product names stay English, the notes in brackets are translated
+    $n = [string]$a.Name
+    $n = $n.Replace('(older builds)', '(' + (T 'app.older') + ')').Replace('(optional)', '(' + (T 'app.optional') + ')').Replace('(if present)', '(' + (T 'app.ifPresent') + ')').Replace('(unsafe:', '(' + (T 'app.unsafe') + ':')
+    return ('{0}   [{1}]' -f $n, $a.Id)
+}
+
+function Get-W11TweakText($t) {
+    $k = 'tweak.' + $t.Id
+    if (($script:L -and $script:L.ContainsKey($k)) -or ($script:LEn -and $script:LEn.ContainsKey($k))) { return (T $k) }
+    return [string]$t.Name
+}
+
 function Set-W11ProfileLists {
     # (Re)fills the app and tweak lists for the effective target OS and, when known, the image build
-    # (entries outside their MinBuild/MaxBuild are hidden).
-    param([switch]$Force)
+    # (entries outside their MinBuild/MaxBuild are hidden). -KeepChecks keeps the user's ticks (language switch).
+    param([switch]$Force, [switch]$KeepChecks)
     $os = Get-W11EffectiveOs
     $build = 0; if ($script:DetectedOs -and $script:DetectedOs -eq $os) { $build = [int]$script:DetectedBuild }
     $key = "$os/$build"
     if (-not $Force -and $script:ShownOs -eq $key) { return }
+    $ui = $script:ui
+    $keepA = $null; $keepT = $null
+    if ($KeepChecks -and $script:ShownOs -eq $key) {
+        $keepA = @(); foreach ($i in $ui.clbApps.CheckedIndices) { $keepA += $script:AppIds[$i] }
+        $keepT = @(); foreach ($i in $ui.clbTweaks.CheckedIndices) { $keepT += $script:TweakIds[$i] }
+    }
     $script:ShownOs = $key
     $prof = Get-W11Profile -Config $script:Cfg -Os $os -Build $build
     $script:ProfileApps = @($prof.Apps)
-    $ui = $script:ui
     $ui.clbApps.Items.Clear(); $script:AppIds = @()
     foreach ($a in $prof.Apps) {
-        $i = $ui.clbApps.Items.Add(('{0}   [{1}]' -f $a.Name, $a.Id))
-        $ui.clbApps.SetItemChecked($i, [bool]$a.Default)
+        $i = $ui.clbApps.Items.Add((Get-W11AppText $a))
+        $on = [bool]$a.Default; if ($null -ne $keepA) { $on = ($keepA -contains $a.Id) }
+        $ui.clbApps.SetItemChecked($i, $on)
         $script:AppIds += $a.Id
     }
     $ui.clbTweaks.Items.Clear(); $script:TweakIds = @()
     foreach ($t in $prof.Tweaks) {
-        $i = $ui.clbTweaks.Items.Add(('{0} / {1}' -f $t.Name, $t.NameVi))
-        $ui.clbTweaks.SetItemChecked($i, [bool]$t.Default)
+        $i = $ui.clbTweaks.Items.Add((Get-W11TweakText $t))
+        $on = [bool]$t.Default; if ($null -ne $keepT) { $on = ($keepT -contains $t.Id) }
+        $ui.clbTweaks.SetItemChecked($i, $on)
         $script:TweakIds += $t.Id
     }
     $title = Get-W11OsLabel $os
     if ($build -gt 0) { $title = Get-W11ReleaseLabel -Build $build -Os $os }
-    $ui.grpApps.Text = ('2. Apps to remove / App sẽ gỡ  -  {0}' -f $title)
+    $ui.grpApps.Text = T 'grp.apps' $title
     $hidden = @($prof.SkippedApps).Count + @($prof.SkippedTweaks).Count
-    if ($build -gt 0 -and $hidden -gt 0) { Write-W11Log -En "$hidden list entries do not apply to $title and are hidden" -Vi "$hidden mục không áp dụng cho bản này nên được ẩn" }
+    if (-not $KeepChecks -and $build -gt 0 -and $hidden -gt 0) { Write-W11Log -En "$hidden list entries do not apply to $title and are hidden" -Vi "$hidden mục không áp dụng cho bản này nên được ẩn" }
+}
+
+function Update-W11DetectedLabel {
+    $src = [string]$script:DetectedSource
+    if ($src -eq 'filename') { $src = T 'src.filename' } elseif ($src -eq 'download') { $src = T 'src.download' }
+    if (-not $script:DetectedSource -and -not $script:DetectedOs) { $script:ui.lblOs.Text = T 'lbl.detectedNone'; return }
+    if ($script:DetectedOs) { $script:ui.lblOs.Text = T 'lbl.detected' (Get-W11ReleaseLabel -Build $script:DetectedBuild -Os $script:DetectedOs) $src }
+    else { $script:ui.lblOs.Text = T 'lbl.detectedUnknown' }
 }
 
 function Set-W11Detected {
     param([string]$Os, [string]$Source, [int]$Build = 0)
     $script:DetectedOs = $Os
     $script:DetectedBuild = $Build
-    $txt = 'Detected / Nhận diện: '
-    if ($Os) {
-        $txt += (Get-W11ReleaseLabel -Build $Build -Os $Os)
-        $txt += " [$Source]"
-    } else { $txt += 'unknown - choose manually / chưa rõ, hãy chọn tay' }
-    $script:ui.lblOs.Text = $txt
+    $script:DetectedSource = $Source
+    Update-W11DetectedLabel
     Set-W11ProfileLists
 }
 
 function Start-W11Detect {
     # quick guess from the file name, then (Win8+) read the WIM header inside the ISO in the background
     param([string]$Iso)
+    if (-not (Test-W11PathText $Iso -Leaf)) { return }
     $g = Get-W11OsFromName $Iso
     $gb = 0; if ([IO.Path]::GetFileName($Iso) -match '(?<!\d)(1\d{4}|2\d{4})(?!\d)') { $gb = [int]$Matches[1]; if ((Resolve-W11OsFromBuild $gb) -ne $g) { $gb = 0 } }
     Set-W11Detected -Os $g -Source 'filename' -Build $gb
@@ -320,6 +573,51 @@ function Start-W11Detect {
     })
 }
 
+function Set-W11UiTexts {
+    # applies the chosen language to every control (live switch) + a font that can show it
+    $ui = $script:ui
+    $fam = Get-W11FontFor -Code $script:UiLang -Installed $script:InstalledFonts
+    $ui.form.Font = New-Object Drawing.Font $fam, 9
+    $ui.btnStart.Font = New-Object Drawing.Font $fam, 9, ([Drawing.FontStyle]::Bold)
+    $ui.note.Font = New-Object Drawing.Font $fam, 7.5
+    $ui.form.Text = T 'app.title' $script:W11D.Version
+    $stack = New-Object Collections.Stack
+    $stack.Push($ui.form)
+    while ($stack.Count -gt 0) {
+        $c = $stack.Pop()
+        if ($c.Tag -is [string] -and ([string]$c.Tag).StartsWith('@')) { $c.Text = T ([string]$c.Tag).Substring(1) }
+        foreach ($ch in $c.Controls) { $stack.Push($ch) }
+    }
+    $i = $ui.cbOs.SelectedIndex
+    $ui.cbOs.Items[0] = T 'os.auto'
+    $ui.cbOs.SelectedIndex = $i
+    if ($script:Aria2Exe) { $ui.lblAria2.Text = 'aria2: ' + $script:Aria2Exe } else { $ui.lblAria2.Text = T 'lbl.aria2Missing' }
+    if ($ui.tip) { $ui.tip.SetToolTip($ui.cbUiLang, (T 'tip.uiLang')) }
+    Update-W11DetectedLabel
+    $script:KeepLangIndex = $true
+    try { if ($ui.cbRelease.Items.Count -gt 0) { Update-W11DownloadLists 'release' } } finally { $script:KeepLangIndex = $false }
+    Set-W11ProfileLists -Force -KeepChecks
+    if (-not $script:Job) { $ui.lblStatus.Text = T 'status.ready' }
+}
+
+function Invoke-W11OscInstall {
+    # official Microsoft source only: adksetup.exe /features OptionId.DeploymentTools, or winget Microsoft.WindowsADK
+    param([switch]$ThenStart)
+    if ((Get-W11OsBuild) -lt 10240) { Show-W11Msg (T 'msg.oscWin7' (Join-Path $script:W11Root 'tools')) 'Warning' | Out-Null; return }
+    $ans = [string](Show-W11Msg (T 'msg.oscPrompt' $script:AdkUrl) 'Question' 'YesNoCancel')
+    if ($ans -eq 'Cancel') { return }
+    $m = 'AdkSetup'; if ($ans -eq 'No') { $m = 'Winget' }
+    $script:AfterOsc = [bool]$ThenStart
+    $script:ui.lblStatus.Text = T 'status.oscInstalling'
+    [void](Start-W11Job -Name 'Install ADK' -Script '$null = Install-W11Oscdimg -Method $JobArgs.Method' -JobArgs @{ Method = $m } -OnDone {
+            if ($script:Sync.Error) { $script:ui.lblStatus.Text = T 'status.error' $script:Sync.Error; Show-W11Msg (T 'msg.oscFailed' $script:Sync.Error $script:AdkUrl) 'Error' | Out-Null; return }
+            $script:ui.lblStatus.Text = T 'status.ready'
+            $p = Find-W11Oscdimg
+            if ($p -and $script:AfterOsc) { Write-W11Log -Level OK -En "oscdimg ready: $p" -Vi 'Đã có oscdimg'; & $script:StartRun; return }
+            if ($p) { Show-W11Msg (T 'msg.oscReady' $p) | Out-Null } else { Show-W11Msg (T 'msg.oscFailed' 'oscdimg.exe not found after the install' $script:AdkUrl) 'Error' | Out-Null }
+        })
+}
+
 function Show-W11Gui {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
@@ -331,10 +629,13 @@ function Show-W11Gui {
 
     $script:Sync = [hashtable]::Synchronized(@{
             LogQueue = [Collections.Queue]::Synchronized((New-Object Collections.Queue))
-            Percent = 0; Status = ''; Cancel = $false; Result = $null; Error = $null
+            Percent = 0; Status = ''; Cancel = $false; Result = $null; Error = $null; UiLang = 'vi'
         })
     $script:W11D.Sync = $script:Sync
     $script:Job = $null
+    $script:Settings = Read-W11Settings
+    Set-W11Language ([string]$script:Settings.Language)
+    $script:InstalledFonts = Get-W11InstalledFonts
     $script:Catalog = @(Get-MsReleaseCatalog)
     $script:ReleaseItems = @()
     $cfg = Get-W11Config
@@ -343,40 +644,40 @@ function Show-W11Gui {
     $ui = @{}
     $script:ui = $ui
     $f = New-Object Windows.Forms.Form
-    $f.Text = "WinDebloat Tool $($script:W11D.Version) - tạo ISO Windows 10 / 11 gọn nhẹ"
     $f.ClientSize = New-Object Drawing.Size 980, 816
     $f.StartPosition = 'CenterScreen'
     $f.Font = New-Object Drawing.Font 'Segoe UI', 9
     $f.MinimumSize = New-Object Drawing.Size 1000, 856
     $ui.form = $f
+    $ui.tip = New-Object Windows.Forms.ToolTip
 
     # ---------- 1. source ----------
-    $g1 = New-W11Ctl GroupBox '1. Source ISO / Nguồn ISO' 10 8 960 166
-    $ui.rbLocal = New-W11Ctl RadioButton 'Local ISO file / File ISO có sẵn trên máy' 12 20 400 22
+    $g1 = New-W11Ctl GroupBox '@grp.source' 10 8 960 166
+    $ui.rbLocal = New-W11Ctl RadioButton '@rb.local' 12 20 400 22
     $ui.rbLocal.Checked = $true
-    $lo = New-W11Ctl Label 'Target OS / Hệ điều hành:' 418 23 150 20
+    $lo = New-W11Ctl Label '@lbl.targetOs' 418 23 150 20
     $ui.cbOs = New-W11Ctl ComboBox '' 570 19 170 23
     $ui.cbOs.DropDownStyle = 'DropDownList'
-    [void]$ui.cbOs.Items.Add('Auto (detect) / Tự nhận')
+    [void]$ui.cbOs.Items.Add((T 'os.auto'))
     [void]$ui.cbOs.Items.Add('Windows 11')
     [void]$ui.cbOs.Items.Add('Windows 10')
-    $ui.lblOs = New-W11Ctl Label 'Detected / Nhận diện: -' 746 23 210 20
+    $ui.lblOs = New-W11Ctl Label '' 746 23 210 20
     $ui.lblOs.ForeColor = [Drawing.Color]::DimGray
     $ui.tbIso = New-W11Ctl TextBox '' 32 44 790 23
-    $ui.btnIso = New-W11Ctl Button 'Browse... / Chọn...' 830 42 118 26
-    $ui.rbDl = New-W11Ctl RadioButton 'Download official ISO from Microsoft / Tải ISO gốc từ Microsoft' 12 74 520 22
-    $lr = New-W11Ctl Label 'Version / Bản:' 32 107 86 20
-    $ui.cbRelease = New-W11Ctl ComboBox '' 120 104 330 23   # every Windows 11 + Windows 10 release Microsoft serves
+    $ui.btnIso = New-W11Ctl Button '@btn.browse' 830 42 118 26
+    $ui.rbDl = New-W11Ctl RadioButton '@rb.download' 12 74 520 22
+    $lr = New-W11Ctl Label '@lbl.version' 32 107 80 20
+    $ui.cbRelease = New-W11Ctl ComboBox '' 114 104 320 23   # every Windows 11 + Windows 10 release Microsoft serves
     $ui.cbRelease.DropDownWidth = 420; $ui.cbRelease.MaxDropDownItems = 20
-    $la = New-W11Ctl Label 'Arch:' 456 107 36 20
-    $ui.cbArch = New-W11Ctl ComboBox '' 494 104 64 23
-    $ll = New-W11Ctl Label 'Lang:' 564 107 38 20
-    $ui.cbLang = New-W11Ctl ComboBox '' 604 104 150 23
-    $ui.cbLang.DropDownWidth = 220
+    $la = New-W11Ctl Label '@lbl.arch' 440 107 84 20
+    $ui.cbArch = New-W11Ctl ComboBox '' 526 104 64 23
+    $ll = New-W11Ctl Label '@lbl.lang' 596 107 64 20
+    $ui.cbLang = New-W11Ctl ComboBox '' 662 104 120 23
+    $ui.cbLang.DropDownWidth = 240
     foreach ($cb in @($ui.cbRelease, $ui.cbArch, $ui.cbLang)) { $cb.DropDownStyle = 'DropDownList' }
-    $ui.btnFetch = New-W11Ctl Button 'Languages / Lấy ngôn ngữ' 760 102 150 27
-    $ui.btnDownload = New-W11Ctl Button 'Download / Tải' 834 134 114 27
-    $ui.chkAria2 = New-W11Ctl CheckBox 'Use aria2 (multi-connection) / Dùng aria2 (tải đa luồng)' 32 136 360 22
+    $ui.btnFetch = New-W11Ctl Button '@btn.languages' 788 102 160 27
+    $ui.btnDownload = New-W11Ctl Button '@btn.download' 834 134 114 27
+    $ui.chkAria2 = New-W11Ctl CheckBox '@chk.aria2' 32 136 360 22
     $ui.lblAria2 = New-W11Ctl Label '' 396 139 432 20
     $ui.lblAria2.ForeColor = [Drawing.Color]::DimGray
     $script:Aria2Exe = $null
@@ -384,95 +685,109 @@ function Show-W11Gui {
     if ($script:Aria2Exe) {
         $useA = $true; if ($cfg.Download -and $cfg.Download.ContainsKey('UseAria2')) { $useA = [bool]$cfg.Download.UseAria2 }
         $ui.chkAria2.Checked = $useA
-        $ui.lblAria2.Text = 'aria2: ' + $script:Aria2Exe
-    } else {
-        $ui.chkAria2.Checked = $false; $ui.chkAria2.Enabled = $false
-        $ui.lblAria2.Text = 'aria2c.exe not found - single connection / Không thấy aria2c.exe, tải một luồng'
-    }
-    $ui.lnkMs = New-W11Ctl LinkLabel 'Open Microsoft page / Mở trang Microsoft' 560 76 390 20
+    } else { $ui.chkAria2.Checked = $false; $ui.chkAria2.Enabled = $false }
+    $ui.lnkMs = New-W11Ctl LinkLabel '@lnk.ms' 560 76 390 20
     $ui.lnkMs.TextAlign = 'MiddleRight'
     $g1.Controls.AddRange(@($lo, $ui.cbOs, $ui.lblOs, $ui.rbLocal, $ui.tbIso, $ui.btnIso, $ui.rbDl, $ui.btnFetch, $lr, $ui.cbRelease, $la, $ui.cbArch, $ll, $ui.cbLang, $ui.btnDownload, $ui.lnkMs, $ui.chkAria2, $ui.lblAria2))
 
     # ---------- 2. apps ----------
-    $g2 = New-W11Ctl GroupBox '2. Apps to remove / App sẽ gỡ' 10 180 560 330
+    $g2 = New-W11Ctl GroupBox '' 10 180 560 330
     $ui.grpApps = $g2
     $ui.clbApps = New-W11Ctl CheckedListBox '' 12 22 536 266
     $ui.clbApps.CheckOnClick = $true
     $script:AppIds = @()
-    $ui.btnAppDef = New-W11Ctl Button 'Defaults / Mặc định' 12 294 140 27
-    $ui.btnAppAll = New-W11Ctl Button 'All / Tất cả' 158 294 110 27
-    $ui.btnAppNone = New-W11Ctl Button 'None / Bỏ hết' 274 294 110 27
-    $note = New-W11Ctl Label 'Store, Defender, Edge, Calculator, Photos... always kept' 390 299 165 30
-    $note.ForeColor = [Drawing.Color]::DimGray
-    $note.Font = New-Object Drawing.Font 'Segoe UI', 7
-    $g2.Controls.AddRange(@($ui.clbApps, $ui.btnAppDef, $ui.btnAppAll, $ui.btnAppNone, $note))
+    $ui.btnAppDef = New-W11Ctl Button '@btn.appDef' 12 294 120 27
+    $ui.btnAppAll = New-W11Ctl Button '@btn.appAll' 138 294 100 27
+    $ui.btnAppNone = New-W11Ctl Button '@btn.appNone' 244 294 100 27
+    $ui.note = New-W11Ctl Label '@lbl.keptNote' 350 294 205 34
+    $ui.note.ForeColor = [Drawing.Color]::DimGray
+    $g2.Controls.AddRange(@($ui.clbApps, $ui.btnAppDef, $ui.btnAppAll, $ui.btnAppNone, $ui.note))
 
     # ---------- 3. options ----------
-    $g3 = New-W11Ctl GroupBox '3. Options / Tuỳ chọn' 580 180 390 330
-    $le = New-W11Ctl Label 'Editions / Phiên bản:' 12 22 140 20
-    $ui.rbEdAll = New-W11Ctl RadioButton 'All / Tất cả' 12 42 100 22
+    $g3 = New-W11Ctl GroupBox '@grp.options' 580 180 390 330
+    $le = New-W11Ctl Label '@lbl.editions' 12 22 300 20
+    $ui.rbEdAll = New-W11Ctl RadioButton '@rb.edAll' 12 42 100 22
     $ui.rbEdHP = New-W11Ctl RadioButton 'Home + Pro' 116 42 100 22
-    $ui.rbEdCustom = New-W11Ctl RadioButton 'Index:' 220 42 62 22
+    $ui.rbEdCustom = New-W11Ctl RadioButton '@rb.edIdx' 218 42 92 22
     $ui.rbEdAll.Checked = $true
-    $ui.tbIdx = New-W11Ctl TextBox '' 284 42 94 23
-    $ui.btnEd = New-W11Ctl Button 'List editions in ISO / Xem phiên bản' 12 66 366 25
-    $lt = New-W11Ctl Label 'Registry tweaks / Tinh chỉnh registry:' 12 96 300 18
+    $ui.tbIdx = New-W11Ctl TextBox '' 312 42 66 23
+    $ui.btnEd = New-W11Ctl Button '@btn.listEditions' 12 66 366 25
+    $lt = New-W11Ctl Label '@lbl.tweaks' 12 96 300 18
     $ui.clbTweaks = New-W11Ctl CheckedListBox '' 12 115 366 128
     $ui.clbTweaks.CheckOnClick = $true
     $script:TweakIds = @()
-    $ui.chkUnattend = New-W11Ctl CheckBox 'autounattend.xml: local account, skip MS-account screens (BypassNRO only for Win11) / tài khoản local' 12 246 370 34
+    $ui.chkUnattend = New-W11Ctl CheckBox '@chk.unattend' 12 246 370 34
     $ui.chkUnattend.Checked = $true
-    $ui.chkCleanup = New-W11Ctl CheckBox 'Component cleanup (slow) / Dọn WinSxS (chậm)' 12 280 370 22
-    $ui.chkDry = New-W11Ctl CheckBox 'Dry run (change nothing) / Chạy thử (không đổi gì)' 12 302 370 22
+    $ui.chkCleanup = New-W11Ctl CheckBox '@chk.cleanup' 12 280 370 22
+    $ui.chkDry = New-W11Ctl CheckBox '@chk.dry' 12 302 370 22
     $g3.Controls.AddRange(@($le, $ui.rbEdAll, $ui.rbEdHP, $ui.rbEdCustom, $ui.tbIdx, $ui.btnEd, $lt, $ui.clbTweaks, $ui.chkUnattend, $ui.chkCleanup, $ui.chkDry))
 
     # ---------- 4. output ----------
-    $g4 = New-W11Ctl GroupBox '4. Output ISO / ISO đầu ra' 10 516 960 56
+    $g4 = New-W11Ctl GroupBox '@grp.output' 10 516 960 56
     $ui.tbOut = New-W11Ctl TextBox '' 12 22 810 23
-    $ui.btnOut = New-W11Ctl Button 'Save as... / Lưu...' 830 20 118 26
+    $ui.btnOut = New-W11Ctl Button '@btn.saveAs' 830 20 118 26
     $g4.Controls.AddRange(@($ui.tbOut, $ui.btnOut))
 
     # ---------- actions / progress / log ----------
-    $ui.btnCheck = New-W11Ctl Button 'System check / Kiểm tra máy' 10 580 180 32
-    $ui.btnStart = New-W11Ctl Button 'START / BẮT ĐẦU' 196 580 150 32
-    $ui.btnStart.Font = New-Object Drawing.Font 'Segoe UI', 9, ([Drawing.FontStyle]::Bold)
-    $ui.btnCancel = New-W11Ctl Button 'Cancel / Huỷ' 352 580 110 32
+    $ui.btnCheck = New-W11Ctl Button '@btn.check' 10 580 150 32
+    $ui.btnOsc = New-W11Ctl Button '@btn.osc' 166 580 130 32
+    $ui.btnStart = New-W11Ctl Button '@btn.start' 302 580 150 32
+    $ui.btnCancel = New-W11Ctl Button '@btn.cancel' 458 580 100 32
     $ui.btnCancel.Enabled = $false
-    $ui.pb = New-W11Ctl ProgressBar '' 470 584 500 24
+    $ui.pb = New-W11Ctl ProgressBar '' 566 584 404 24
     $ui.pb.Minimum = 0; $ui.pb.Maximum = 100
-    $ui.lblStatus = New-W11Ctl Label 'Ready / Sẵn sàng' 10 618 760 20
-    $ui.lnkLog = New-W11Ctl LinkLabel 'Open log folder / Mở thư mục log' 776 618 194 20
+    $ui.lblStatus = New-W11Ctl Label '@status.ready' 10 618 560 20
+    $ui.lblStatus.AutoEllipsis = $true
+    $ui.cbUiLang = New-W11Ctl ComboBox '' 580 615 150 23
+    $ui.cbUiLang.DropDownStyle = 'DropDownList'
+    foreach ($lg in $script:W11Langs) { [void]$ui.cbUiLang.Items.Add($lg.Name) }
+    $ui.lnkLog = New-W11Ctl LinkLabel '@lnk.log' 740 618 230 20
     $ui.lnkLog.TextAlign = 'MiddleRight'
-    $ui.tbLog = New-W11Ctl TextBox '' 10 640 960 166
+    $ui.tbLog = New-W11Ctl TextBox '' 10 642 960 164
     $ui.tbLog.Multiline = $true; $ui.tbLog.ScrollBars = 'Both'; $ui.tbLog.ReadOnly = $true; $ui.tbLog.WordWrap = $false
     $ui.tbLog.MaxLength = 2147483647
     $ui.tbLog.Font = New-Object Drawing.Font 'Consolas', 8.5
     $ui.tbLog.Anchor = 'Top, Bottom, Left, Right'
-    $f.Controls.AddRange(@($g1, $g2, $g3, $g4, $ui.btnCheck, $ui.btnStart, $ui.btnCancel, $ui.pb, $ui.lblStatus, $ui.lnkLog, $ui.tbLog))
+    $f.Controls.AddRange(@($g1, $g2, $g3, $g4, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnCancel, $ui.pb, $ui.lblStatus, $ui.cbUiLang, $ui.lnkLog, $ui.tbLog))
 
-    $script:DetectedOs = $null; $script:DetectedBuild = 0; $script:ShownOs = $null; $script:LastDlEntry = $null; $script:AutoDownload = $false
+    $script:DetectedOs = $null; $script:DetectedBuild = 0; $script:DetectedSource = $null; $script:ShownOs = $null; $script:LastDlEntry = $null; $script:AutoDownload = $false
     $ui.cbOs.SelectedIndex = 0
+    for ($i = 0; $i -lt $script:W11Langs.Count; $i++) { if ($script:W11Langs[$i].Code -eq $script:UiLang) { $ui.cbUiLang.SelectedIndex = $i } }
     Set-W11ProfileLists -Force
+    Set-W11UiTexts
     $script:H['cbOs.SelectedIndexChanged'] = { Set-W11ProfileLists }
     $ui.cbOs.Add_SelectedIndexChanged({ Invoke-W11Handler 'cbOs.SelectedIndexChanged' })
+    $script:H['cbUiLang.SelectedIndexChanged'] = {
+        $i = $script:ui.cbUiLang.SelectedIndex
+        if ($i -lt 0) { return }
+        $code = $script:W11Langs[$i].Code
+        if ($code -eq $script:UiLang) { return }
+        Set-W11Language $code
+        Set-W11UiTexts
+        $script:Settings.Language = $code
+        $null = Save-W11Settings $script:Settings
+    }
+    $ui.cbUiLang.Add_SelectedIndexChanged({ Invoke-W11Handler 'cbUiLang.SelectedIndexChanged' })
     $script:H['lnkLog.LinkClicked'] = {
         $lp = $script:W11D.LogPath
-        if ($lp -and (Test-Path -LiteralPath $lp)) { Start-Process 'explorer.exe' -ArgumentList ('/select,"' + $lp + '"') }
-        else { Show-W11Msg 'No log file yet / Chưa có file log' | Out-Null }
+        if (Test-W11PathText $lp -Leaf) { Start-Process 'explorer.exe' -ArgumentList ('/select,"' + $lp + '"') }
+        else { Show-W11Msg (T 'msg.noLog') | Out-Null }
     }
     $ui.lnkLog.Add_LinkClicked({ Invoke-W11Handler 'lnkLog.LinkClicked' })
 
-    $script:BusyControls = @($ui.cbOs, $ui.btnIso, $ui.btnFetch, $ui.btnDownload, $ui.cbRelease, $ui.cbArch, $ui.chkAria2, $ui.btnEd, $ui.btnCheck, $ui.btnStart, $ui.btnOut, $ui.clbApps, $ui.clbTweaks)
+    $script:BusyControls = @($ui.cbOs, $ui.btnIso, $ui.btnFetch, $ui.btnDownload, $ui.cbRelease, $ui.cbArch, $ui.chkAria2, $ui.btnEd, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnOut, $ui.clbApps, $ui.clbTweaks)
 
     # ---------- events ----------
     $script:H['btnIso.Click'] = {
             $d = New-Object Windows.Forms.OpenFileDialog
-            $d.Filter = 'Windows ISO (*.iso)|*.iso|All files (*.*)|*.*'
-            $d.Title = 'Select the official Windows 10/11 ISO / Chọn file ISO Windows 10/11 gốc'
+            $d.Filter = T 'dlg.isoFilter'
+            $d.Title = T 'dlg.isoTitle'
+            $cur = $script:ui.tbIso.Text.Trim().Trim('"')
+            if (Test-W11PathText $cur -Leaf) { $d.InitialDirectory = Split-Path -Parent $cur }
             if ($d.ShowDialog($script:ui.form) -eq 'OK') {
                 $script:ui.tbIso.Text = $d.FileName
                 $script:ui.rbLocal.Checked = $true
-                if (-not $script:ui.tbOut.Text) { $script:ui.tbOut.Text = Get-W11SuggestedOutput $d.FileName }
+                if (-not $script:ui.tbOut.Text.Trim()) { $script:ui.tbOut.Text = Get-W11SuggestedOutput $d.FileName }
                 Start-W11Detect $d.FileName
             }
         }
@@ -480,8 +795,15 @@ function Show-W11Gui {
     $script:H['btnOut.Click'] = {
             $d = New-Object Windows.Forms.SaveFileDialog
             $d.Filter = 'ISO (*.iso)|*.iso'
-            $d.FileName = 'Win11_debloated.iso'
-            if ($script:ui.tbOut.Text) { $d.InitialDirectory = Split-Path -Parent $script:ui.tbOut.Text; $d.FileName = Split-Path -Leaf $script:ui.tbOut.Text }
+            $cur = $script:ui.tbOut.Text.Trim().Trim('"')
+            if (-not $cur) { $cur = Get-W11SuggestedOutput $script:ui.tbIso.Text }
+            $d.FileName = 'Windows_debloated.iso'
+            if ($cur) {
+                try {
+                    $leaf = [IO.Path]::GetFileName($cur); if ($leaf) { $d.FileName = $leaf }
+                    $dir = [IO.Path]::GetDirectoryName($cur); if (Test-W11PathText $dir -Container) { $d.InitialDirectory = $dir }
+                } catch { $null = $_ }
+            }
             if ($d.ShowDialog($script:ui.form) -eq 'OK') { $script:ui.tbOut.Text = $d.FileName }
         }
     $ui.btnOut.Add_Click({ Invoke-W11Handler 'btnOut.Click' })
@@ -510,24 +832,22 @@ function Show-W11Gui {
             if (-not $e) { return }
             $script:ui.rbDl.Checked = $true
             if ($e.Available -eq $false) { Show-W11NotOffered $e; return }
-            $script:ui.lblStatus.Text = "Loading languages for $($e.Release)... / Đang lấy danh sách ngôn ngữ..."
+            $script:ui.lblStatus.Text = T 'status.loadingLangs' $e.Release
             [void](Start-W11Job -Name 'Load languages' -Script '$sync.Result = Update-MsEntryLanguages -Entry $JobArgs.Entry' -JobArgs @{ Entry = $e } -OnDone {
                     $r = $script:Sync.Result
-                    if (-not $r) { $script:ui.lblStatus.Text = 'Could not load languages - see the log / Không lấy được ngôn ngữ - xem log'; return }
+                    if (-not $r) { $script:ui.lblStatus.Text = T 'status.langsFailed'; return }
                     Set-MsEntryLanguages -Catalog $script:Catalog -Result $r
                     Update-W11DownloadLists 'release'
                     if ($r.Ok) {
-                        $script:ui.lblStatus.Text = "$(@($r.Skus).Count) languages loaded / Đã lấy $(@($r.Skus).Count) ngôn ngữ"
-                        if (@($r.Hashes.Keys).Count -eq 0) { Write-W11Log -Level WARN -En 'Microsoft does not publish SHA256 values for this older release; the ISO hash will be logged so you can compare it yourself.' -Vi 'Microsoft không công bố SHA256 cho bản cũ này; mã SHA256 của ISO sẽ được ghi vào log để anh tự đối chiếu.' }
+                        $script:ui.lblStatus.Text = T 'status.langsLoaded' (@($r.Skus).Count)
+                        if (@($r.Hashes.Keys).Count -eq 0) { Write-W11Log -Level WARN -En 'Microsoft does not publish SHA256 values for this older release; the ISO hash will be logged so you can compare it yourself.' -Vi 'Microsoft không công bố SHA256 cho bản cũ này; mã SHA256 của ISO sẽ được ghi vào nhật ký để bạn tự đối chiếu.' }
                         if ($script:AutoDownload) { $script:AutoDownload = $false; & $script:H['btnDownload.Click'] }
                         return
                     }
                     $script:AutoDownload = $false
                     if ($r.NotOffered) { Show-W11NotOffered (Get-W11SelectedEntry); return }
-                    $script:ui.lblStatus.Text = 'Could not load languages - see the log / Không lấy được ngôn ngữ - xem log'
-                    $logTxt = ''; if ($script:W11D.LogPath) { $logTxt = "`n`nLog / Nhật ký: $($script:W11D.LogPath)" }
-                    $ans = Show-W11Msg ("Microsoft did not return the language list:`n$($r.Error)`n`nIf the error mentions vlscppe.microsoft.com or ov-df.microsoft.com, your DNS / ad blocker / hosts file blocks them: switch DNS to 1.1.1.1 or 8.8.8.8 and try again. Microsoft also rejects requests for a while after many tries in a row; waiting a few minutes usually helps.`n`nKhông lấy được danh sách ngôn ngữ. Nếu lỗi nhắc tới vlscppe.microsoft.com hoặc ov-df.microsoft.com thì DNS / trình chặn quảng cáo / file hosts đang chặn hai tên miền này: hãy đổi DNS sang 1.1.1.1 hoặc 8.8.8.8 rồi thử lại. Microsoft cũng tạm từ chối khi bị hỏi nhiều lần liên tiếp, đợi vài phút là được.`n`nOpen the Microsoft page now? / Mở trang Microsoft ngay?$logTxt") 'Warning' 'YesNo'
-                    if ([string]$ans -eq 'Yes') { & $script:H['lnkMs.LinkClicked'] }
+                    $script:ui.lblStatus.Text = T 'status.langsFailed'
+                    Show-W11MsFailure -Entry (Get-W11SelectedEntry) -Text (T 'msg.langsFailed' $r.Error) -Icon 'Warning'
                 })
         }
     $ui.btnFetch.Add_Click({ Invoke-W11Handler 'btnFetch.Click' })
@@ -537,6 +857,7 @@ function Show-W11Gui {
     $ui.cbArch.Add_SelectedIndexChanged({ Invoke-W11Handler 'cbArch.SelectedIndexChanged' })
 
     $script:H['btnDownload.Click'] = {
+            # needs only a download folder (never the Output ISO field)
             $e = Get-W11SelectedEntry
             if (-not $e) { return }
             if ($e.Available -eq $false) { Show-W11NotOffered $e; return }
@@ -546,46 +867,60 @@ function Show-W11Gui {
                 & $script:H['btnFetch.Click']
                 return
             }
-            if ($script:ui.cbLang.SelectedIndex -lt 0) { Show-W11Msg 'Choose a language / Hãy chọn ngôn ngữ' 'Warning' | Out-Null; return }
+            if ($script:ui.cbLang.SelectedIndex -lt 0) { Show-W11Msg (T 'msg.chooseLang') 'Warning' | Out-Null; return }
             $sku = $e.Skus[$script:ui.cbLang.SelectedIndex]
             $d = New-Object Windows.Forms.FolderBrowserDialog
-            $d.Description = 'Folder to save the ISO (~8 GB) / Thư mục lưu ISO (~8 GB)'
+            $d.Description = T 'dlg.dlFolder'
+            $d.SelectedPath = Get-W11DownloadFolder $script:Settings
             if ($d.ShowDialog($script:ui.form) -ne 'OK') { return }
-            try { $free = Get-W11FreeGB -Path $d.SelectedPath } catch { $free = 999 }
-            if ($free -lt 9) { Show-W11Msg "Only $free GB free there / Chỉ còn $free GB trống" 'Warning' | Out-Null; return }
+            $folder = [string]$d.SelectedPath
+            if (-not (Test-W11PathText $folder -Container)) { Show-W11Msg (T 'msg.badFolder' $folder) 'Warning' | Out-Null; return }
+            try { $free = Get-W11FreeGB -Path $folder } catch { $free = 999 }
+            if ($free -lt 9) { Show-W11Msg (T 'msg.lowSpace' $free) 'Warning' | Out-Null; return }
+            $script:Settings.DownloadFolder = $folder
+            $null = Save-W11Settings $script:Settings
             $script:ui.rbDl.Checked = $true
             $script:LastDlEntry = $e
-            $script:ui.lblStatus.Text = 'Requesting the download link... / Đang lấy link tải...'
+            $script:ui.lblStatus.Text = T 'status.requestLink'
             $opts = Get-MsAria2Options -Config $script:Cfg -Override @{ UseAria2 = [bool]($script:ui.chkAria2.Enabled -and $script:ui.chkAria2.Checked) }
-            [void](Start-W11Job -Name 'Download' -Script '$sync.Result = Invoke-MsIsoDownload -Entry $JobArgs.Entry -Sku $JobArgs.Sku -Folder $JobArgs.Folder -Options $JobArgs.Options -Sync $sync' -JobArgs @{ Entry = $e; Sku = $sku; Folder = $d.SelectedPath; Options = $opts } -OnDone {
+            [void](Start-W11Job -Name 'Download' -Script '$sync.Result = Invoke-MsIsoDownload -Entry $JobArgs.Entry -Sku $JobArgs.Sku -Folder $JobArgs.Folder -Options $JobArgs.Options -Sync $sync' -JobArgs @{ Entry = $e; Sku = $sku; Folder = $folder; Options = $opts } -OnDone {
                 if ($script:Sync.Error) {
-                    $script:ui.lblStatus.Text = 'Download failed - see the log / Tải thất bại - xem log'
-                    $ans = Show-W11Msg ("Download failed / Tải thất bại:`n$($script:Sync.Error)`n`nOpen the Microsoft page to download in the browser? / Mở trang Microsoft để tải bằng trình duyệt?") 'Error' 'YesNo'
-                    if ([string]$ans -eq 'Yes') { & $script:H['lnkMs.LinkClicked'] }
+                    $script:ui.lblStatus.Text = T 'status.dlFailed'
+                    Show-W11MsFailure -Entry $script:LastDlEntry -Text (T 'msg.dlFailed' $script:Sync.Error) -Icon 'Error'
                     return
                 }
                 $iso = [string]$script:Sync.Result
                 $script:ui.tbIso.Text = $iso
                 $script:ui.rbLocal.Checked = $true
-                if (-not $script:ui.tbOut.Text) { $script:ui.tbOut.Text = Get-W11SuggestedOutput $iso }
+                if (-not $script:ui.tbOut.Text.Trim()) { $script:ui.tbOut.Text = Get-W11SuggestedOutput $iso }
                 if ($script:LastDlEntry) { Set-W11Detected -Os $script:LastDlEntry.Os -Source 'download' -Build $script:LastDlEntry.Build; Start-W11Detect $iso }
-                $script:ui.lblStatus.Text = 'Download complete / Tải xong'
+                $script:ui.lblStatus.Text = T 'status.dlDone'
             })
         }
     $ui.btnDownload.Add_Click({ Invoke-W11Handler 'btnDownload.Click' })
 
     $script:H['btnEd.Click'] = {
-            if (-not (Test-Path -LiteralPath $script:ui.tbIso.Text)) { Show-W11Msg 'Choose an ISO first / Hãy chọn ISO trước' 'Warning' | Out-Null; return }
-            [void](Start-W11Job -Name 'List editions' -Script '$sync.Result = @(Get-W11IsoEditions -IsoPath $JobArgs.Iso)' -JobArgs @{ Iso = $script:ui.tbIso.Text } -OnDone { $script:ui.lblStatus.Text = 'Editions listed in the log / Danh sách phiên bản ở khung log' })
+            $iso = $script:ui.tbIso.Text.Trim().Trim('"')
+            if (-not $iso) { Show-W11Msg (T 'msg.chooseIsoFirst') 'Warning' | Out-Null; return }
+            if (-not (Test-W11PathText $iso -Leaf)) { Show-W11Msg (T 'msg.isoNotFound' $iso) 'Warning' | Out-Null; return }
+            [void](Start-W11Job -Name 'List editions' -Script '$sync.Result = @(Get-W11IsoEditions -IsoPath $JobArgs.Iso)' -JobArgs @{ Iso = $iso } -OnDone { if (-not $script:Sync.Error) { $script:ui.lblStatus.Text = T 'status.editionsListed' } })
         }
     $ui.btnEd.Add_Click({ Invoke-W11Handler 'btnEd.Click' })
 
     $script:H['btnCheck.Click'] = {
             $wp = $env:TEMP
-            if ($script:ui.tbOut.Text) { $wp = Split-Path -Parent $script:ui.tbOut.Text }
-            [void](Start-W11Job -Name 'System check' -Script '$null = Get-W11Capabilities -WorkPath $JobArgs.Work' -JobArgs @{ Work = $wp } -OnDone { $script:ui.lblStatus.Text = 'System check done (see log) / Đã kiểm tra máy (xem log)' })
+            $out = $script:ui.tbOut.Text.Trim().Trim('"')
+            if ($out) { try { $dir = [IO.Path]::GetDirectoryName($out); if (Test-W11PathText $dir -Container) { $wp = $dir } } catch { $null = $_ } }
+            [void](Start-W11Job -Name 'System check' -Script '$null = Get-W11Capabilities -WorkPath $JobArgs.Work' -JobArgs @{ Work = $wp } -OnDone { $script:ui.lblStatus.Text = T 'status.checkDone' })
         }
     $ui.btnCheck.Add_Click({ Invoke-W11Handler 'btnCheck.Click' })
+
+    $script:H['btnOsc.Click'] = {
+            $p = Find-W11Oscdimg
+            if ($p) { Show-W11Msg (T 'msg.oscReady' $p) | Out-Null; return }
+            Invoke-W11OscInstall
+        }
+    $ui.btnOsc.Add_Click({ Invoke-W11Handler 'btnOsc.Click' })
 
     $script:H['btnCancel.Click'] = {
             $script:Sync.Cancel = $true
@@ -595,38 +930,31 @@ function Show-W11Gui {
 
     $script:StartRun = {
         $ui = $script:ui
-        $iso = $ui.tbIso.Text.Trim('"', ' ')
-        $out = $ui.tbOut.Text.Trim('"', ' ')
-        if (-not $iso -or -not (Test-Path -LiteralPath $iso)) { Show-W11Msg 'Choose a valid source ISO / Hãy chọn file ISO nguồn hợp lệ' 'Warning' | Out-Null; return }
+        $iso = $ui.tbIso.Text.Trim().Trim('"')
+        $out = $ui.tbOut.Text.Trim().Trim('"')
+        if (-not $iso) { Show-W11Msg (T 'msg.chooseIsoFirst') 'Warning' | Out-Null; return }
+        if (-not (Test-W11PathText $iso -Leaf)) { Show-W11Msg (T 'msg.isoNotFound' $iso) 'Warning' | Out-Null; return }
         if (-not $out) { $out = Get-W11SuggestedOutput $iso; $ui.tbOut.Text = $out }
+        $bad = Test-W11OutputPath -Out $out -Iso $iso
+        if ($bad) { Show-W11Msg $bad 'Warning' | Out-Null; return }
+        $out = [IO.Path]::GetFullPath($out); $ui.tbOut.Text = $out
         $mode = 'All'; $idx = @()
         if ($ui.rbEdHP.Checked) { $mode = 'HomePro' }
         if ($ui.rbEdCustom.Checked) {
             $mode = 'Custom'
             foreach ($p in ($ui.tbIdx.Text -split '[,; ]+')) { if ($p -match '^\d+$') { $idx += [int]$p } }
-            if ($idx.Count -eq 0) { Show-W11Msg 'Enter index numbers, e.g. 1,6 / Nhập số index, ví dụ 1,6' 'Warning' | Out-Null; return }
+            if ($idx.Count -eq 0) { Show-W11Msg (T 'msg.idxNeeded') 'Warning' | Out-Null; return }
         }
         $apps = @(); foreach ($i in $ui.clbApps.CheckedIndices) { $apps += $script:AppIds[$i] }
         $tw = @(); foreach ($i in $ui.clbTweaks.CheckedIndices) { $tw += $script:TweakIds[$i] }
         $targetOs = Get-W11EffectiveOs
         $osNote = Get-W11OsLabel $targetOs
         $useDefaults = ($ui.cbOs.SelectedIndex -eq 0 -and -not $script:DetectedOs)
-        if ($useDefaults) { $targetOs = 'Auto'; $osNote = 'Auto: detected from the image at start, default lists of that OS / tự nhận khi chạy, dùng danh sách mặc định' }
+        if ($useDefaults) { $targetOs = 'Auto'; $osNote = T 'os.autoNote' }
         $dry = $ui.chkDry.Checked
-        if (-not $dry -and -not (Find-W11Oscdimg)) {
-            if ((Get-W11OsBuild) -ge 10240) {
-                $ans = Show-W11Msg ("oscdimg.exe (Windows ADK) is required to build the ISO.`nYes = download the official ADK installer from Microsoft and install only 'Deployment Tools'`nNo = install via winget (Microsoft.WindowsADK)`nCancel = stop`n`nCần oscdimg.exe (Windows ADK) để tạo ISO.`nYes = tải bộ cài ADK chính thức và chỉ cài 'Deployment Tools'`nNo = cài qua winget`nCancel = dừng") 'Question' 'YesNoCancel'
-                if ([string]$ans -eq 'Cancel') { return }
-                $m = 'AdkSetup'; if ([string]$ans -eq 'No') { $m = 'Winget' }
-                [void](Start-W11Job -Name 'Install ADK' -Script '$null = Install-W11Oscdimg -Method $JobArgs.Method' -JobArgs @{ Method = $m } -OnDone {
-                        if ($script:Sync.Error) { Show-W11Msg ("ADK install failed / Cài ADK lỗi:`n$($script:Sync.Error)") 'Error' | Out-Null } else { & $script:StartRun }
-                    })
-                return
-            }
-            Show-W11Msg ("oscdimg.exe not found. The current Windows ADK cannot be installed on Windows 7/8.x.`nCopy oscdimg.exe from a Windows 10/11 PC with ADK (Deployment Tools\amd64\Oscdimg) into:`n$(Join-Path $script:W11Root 'tools')`n`nKhông có oscdimg.exe. ADK mới không cài được trên Win7/8. Hãy chép oscdimg.exe từ máy Win10/11 có ADK vào thư mục tools.") 'Warning' | Out-Null
-            return
-        }
-        $summary = "Source: $iso`nOutput: $out`nTarget OS: $osNote`nEditions: $mode $($idx -join ',')`nApps: $($apps.Count)  Tweaks: $($tw.Count)`nautounattend: $($ui.chkUnattend.Checked)  Cleanup: $($ui.chkCleanup.Checked)  Dry run: $dry`n`nNeeds ~25 GB free and 20-60 minutes. Continue? / Cần ~25 GB trống, 20-60 phút. Tiếp tục?"
+        if (-not $dry -and -not (Find-W11Oscdimg)) { Invoke-W11OscInstall -ThenStart; return }
+        $yn = @{ $true = (T 'w.yes'); $false = (T 'w.no') }
+        $summary = T 'msg.summary' $iso $out $osNote ("$mode $($idx -join ',')".Trim()) $apps.Count $tw.Count $yn[[bool]$ui.chkUnattend.Checked] $yn[[bool]$ui.chkCleanup.Checked] $yn[[bool]$dry]
         if ([string](Show-W11Msg $summary 'Question' 'YesNo') -ne 'Yes') { return }
         $ui.tbLog.Clear()
         $jobArgs = @{
@@ -637,11 +965,11 @@ function Show-W11Gui {
         [void](Start-W11Job -Name 'Build ISO' -Script '$sync.Result = Invoke-Win11Debloat @JobArgs -Sync $sync' -JobArgs $jobArgs -OnDone {
             $r = $script:Sync.Result
             if ($script:Sync.Error) {
-                Show-W11Msg ("FAILED / THẤT BẠI:`n$($script:Sync.Error)`n`nSee the log file next to the output ISO. / Xem file log cạnh ISO đầu ra.") 'Error' | Out-Null
+                Show-W11Msg (T 'msg.failed' $script:Sync.Error) 'Error' | Out-Null
             } elseif ($r -and $r.DryRun) {
-                Show-W11Msg 'Dry run finished - see the log. / Chạy thử xong - xem log.' | Out-Null
+                Show-W11Msg (T 'msg.dryDone') | Out-Null
             } elseif ($r) {
-                Show-W11Msg ("Done! / Xong!`n$($r.OutputIso)`nSHA256: $($r.Sha256)`n`nWrite it to USB with Rufus or Ventoy. / Ghi ra USB bằng Rufus hoặc Ventoy.") | Out-Null
+                Show-W11Msg (T 'msg.done' $r.OutputIso $r.Sha256) | Out-Null
             }
         })
     }
@@ -651,7 +979,7 @@ function Show-W11Gui {
     $f.Add_FormClosing({
             param($s, $e)
             if ($script:Job) {
-                Show-W11Msg 'A job is still running. Press Cancel and wait for it to stop first. / Đang chạy, hãy bấm Huỷ và chờ dừng hẳn.' 'Warning' | Out-Null
+                Show-W11Msg (T 'msg.jobRunning') 'Warning' | Out-Null
                 $e.Cancel = $true
             }
         })
@@ -663,9 +991,9 @@ function Show-W11Gui {
 
     $script:H['form.Shown'] = {
         Update-W11DownloadLists 'release'   # full release list; languages are loaded per release on demand
-        Write-W11Log -En 'Welcome. 1) pick or download a Windows 10/11 ISO  2) check target OS, apps, options  3) START.' -Vi 'Xin chào. 1) chọn hoặc tải ISO Windows 10/11  2) kiểm tra hệ điều hành, app, tuỳ chọn  3) BẮT ĐẦU.'
+        Write-W11Log -En 'Welcome. 1) pick or download a Windows 10/11 ISO  2) check target OS, apps, options  3) START.' -Vi 'Xin chào. 1) chọn hoặc tải ISO Windows 10/11  2) kiểm tra hệ điều hành, ứng dụng, tuỳ chọn  3) BẮT ĐẦU.'
         if ($script:W11D.LogPath) { Write-W11Log -En "Log file: $($script:W11D.LogPath)" -Vi 'File nhật ký (gửi file này khi cần hỗ trợ)' }
-        Write-W11Log -En ("WinDebloat Tool $($script:W11D.Version) | Host: Windows build $(Get-W11OsBuild), PowerShell $($PSVersionTable.PSVersion), CLR $($PSVersionTable.CLRVersion)")
+        Write-W11Log -En ("WinDebloat Tool $($script:W11D.Version) | Host: Windows build $(Get-W11OsBuild), PowerShell $($PSVersionTable.PSVersion), CLR $($PSVersionTable.CLRVersion) | UI language: $($script:UiLang)")
         [void](Start-W11Job -Background -Name 'System check' -Script '$null = Get-W11Capabilities -WorkPath $JobArgs.Work' -JobArgs @{ Work = $env:TEMP })
     }
     $f.Add_Shown({ Invoke-W11Handler 'form.Shown' })

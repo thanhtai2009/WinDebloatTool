@@ -13,7 +13,7 @@ if ($MyInvocation.MyCommand.Path) {
     $script:W11Root = Split-Path -Parent $script:W11LibDir
 }
 $script:W11D = @{
-    Version      = '0.3.1'
+    Version      = '0.3.2'
     LogPath      = $null
     Sync         = $null
     HiveSoftware = 'HKLM\W11D_SOFTWARE'
@@ -40,6 +40,7 @@ function Write-W11Log {
     }
     $s = $script:W11D.Sync
     if ($s) {
+        if ($Vi -and $s.UiLang -and $s.UiLang -ne 'vi') { $line = "[$ts] [$Level] $En" }
         $s.LogQueue.Enqueue($line)
     } else {
         $color = 'Gray'
@@ -84,6 +85,7 @@ function Get-W11Config {
 
 function Get-W11FreeGB {
     param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not $Path -or -not $Path.Trim()) { throw 'No folder given / Chưa chọn thư mục' }
     $root = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Path))
     if ($root -like '\\*') { throw "Network paths are not supported for the work folder / Không hỗ trợ thư mục mạng: $Path" }
     $d = New-Object IO.DriveInfo $root
@@ -154,6 +156,20 @@ function Test-W11Like {
     param([string]$Name, [string[]]$Patterns)
     foreach ($p in $Patterns) { if ($Name -like $p) { return $true } }
     return $false
+}
+
+function Test-W11PathText {
+    <# Safe path check for user-typed / empty values: $false (never an exception) for empty, whitespace,
+       invalid characters or a missing item. -Leaf = file, -Container = folder. #>
+    param([string]$Path, [switch]$Leaf, [switch]$Container)
+    if (-not $Path -or -not $Path.Trim()) { return $false }
+    $Path = $Path.Trim().Trim('"')
+    if (-not $Path -or $Path.IndexOfAny([IO.Path]::GetInvalidPathChars()) -ge 0) { return $false }
+    try {
+        if ($Leaf) { return (Test-Path -LiteralPath $Path -PathType Leaf) }
+        if ($Container) { return (Test-Path -LiteralPath $Path -PathType Container) }
+        return (Test-Path -LiteralPath $Path)
+    } catch { return $false }
 }
 
 function Get-W11Sha256 {
@@ -332,7 +348,7 @@ function Get-W11Capabilities {
     $osc = Find-W11Oscdimg
     $oscHint = ''
     if (-not $osc) {
-        if ($build -ge 10240) { $oscHint = 'Missing: the tool can install "ADK Deployment Tools" from Microsoft for you / Thiếu: tool sẽ đề nghị cài ADK Deployment Tools từ Microsoft' }
+        if ($build -ge 10240) { $oscHint = 'Missing: press "Install oscdimg" (or START) to install the official "ADK Deployment Tools" from Microsoft, or get them from https://learn.microsoft.com/windows-hardware/get-started/adk-install / Thiếu: bấm "Cài oscdimg" (hoặc BẮT ĐẦU) để cài ADK Deployment Tools chính thức của Microsoft' }
         else { $oscHint = 'Missing: current ADK does not install on Win7/8.x. Copy oscdimg.exe from a Win10/11 PC (ADK\Deployment Tools\amd64\Oscdimg) into the tools\ folder / Thiếu: ADK mới không cài được trên Win7/8; hãy chép oscdimg.exe từ máy Win10/11 có ADK vào thư mục tools\' }
     }
     $oscVal = 'not found'; if ($osc) { $oscVal = $osc }
@@ -906,7 +922,7 @@ function Invoke-Win11Debloat {
         $oscdimg = Find-W11Oscdimg -Hint $OscdimgPath
         if ($oscdimg) { Write-W11Log -En "oscdimg: $oscdimg" }
         elseif ($DryRun) { Write-W11Log -Level WARN -En 'oscdimg.exe not found (needed for a real run).' -Vi 'Chưa có oscdimg.exe (cần khi chạy thật).' }
-        else { throw 'oscdimg.exe not found - install ADK Deployment Tools or copy oscdimg.exe into tools\ / Chưa có oscdimg.exe' }
+        else { throw 'oscdimg.exe not found - install the Windows ADK Deployment Tools (https://learn.microsoft.com/windows-hardware/get-started/adk-install) or copy oscdimg.exe into tools\ / Chưa có oscdimg.exe' }
 
         if ((Test-Path -LiteralPath $WorkDir) -and -not (Test-Path -LiteralPath $marker)) {
             if (@(Get-ChildItem -LiteralPath $WorkDir -Force).Count -gt 0) { throw "Work dir is not empty and was not created by this tool: $WorkDir / Thư mục tạm đang chứa dữ liệu khác" }

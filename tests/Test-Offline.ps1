@@ -421,7 +421,7 @@ $pl = ConvertFrom-MsAria2Line '[#2089b0 0B/0B CN:1 DL:0B]'
 Assert ($pl -and $pl.Total -eq 0 -and $pl.Percent -eq 0) 'aria2 progress before the size is known'
 Assert ($null -eq (ConvertFrom-MsAria2Line '') -and $null -eq (ConvertFrom-MsAria2Line '*** Download Progress Summary as of Sat Oct 24 ***') -and $null -eq (ConvertFrom-MsAria2Line 'FILE: /x/Win11.iso') -and $null -eq (ConvertFrom-MsAria2Line '2b3c4d|OK  |  300MiB/s|/x/Win11.iso')) 'non-progress aria2 lines ignored'
 $st = Format-MsAria2Status (ConvertFrom-MsAria2Line '[#847d8f 3221225472B/6442450944B(50%) CN:16 DL:104857600B ETA:30s]')
-Assert ($st -match '3[.,]00 / 6[.,]00 GB' -and $st -match '100[.,]0 MB/s' -and $st -match '16 connections / luồng' -and $st -match 'ETA 30s') "status line shows size, speed, connections: $st"
+Assert ($st -match '3[.,]00 / 6[.,]00 GB' -and $st -match '100[.,]0 MB/s' -and $st -match ' x16 ' -and $st -match 'ETA 30s') "status line shows size, speed, connections: $st"
 
 # mocked aria2 process -> success / failure -> fallback / cancel
 function New-FakeAria2([string[]]$Out, [int]$Code, [bool]$Running = $false) {
@@ -460,7 +460,7 @@ Assert (@($script:logLines | Where-Object { $_ -like '*SHA256 matches*' }).Count
 Assert (($script:a2Calls[-1] -match '\?<signed>') -eq $false -and @($script:logLines | Where-Object { $_ -like '*aria2: *?<signed>*' -and $_ -notlike '*.iso?t=1*' }).Count -eq 1) 'aria2 command logged with the signed query hidden'
 $sy2 = @{ Percent = 0; Status = ''; Cancel = $false }
 $null = Invoke-MsAria2Download -Exe $fakeExe -Uri 'https://dl.example/a.iso' -Destination $script:a2Dest -Options $dlOpt -Sync $sy2
-Assert ($sy2.Status -like 'aria2: 2*/ 4*GB (50*%)*100*MB/s*16 connections / luồng*ETA 20s') "speed + connections in the status line: $($sy2.Status)"
+Assert ($sy2.Status -like 'aria2: 2*/ 4*GB (50*%)*100*MB/s*x16*ETA 20s') "speed + connections in the status line: $($sy2.Status)"
 Remove-Item -LiteralPath $script:a2Dest -Force
 
 # failure (403 -> exit 22) -> fallback to the built-in downloader with a fresh link
@@ -563,6 +563,133 @@ $js = Invoke-TestJob 'throw "boom from job"' $lp
 $logTxt = [IO.File]::ReadAllText($lp)
 Assert ($js.Error -eq 'boom from job' -and $logTxt -match '\[ERROR\] boom from job' -and $logTxt -match 'RuntimeException') 'runspace: job exception -> $sync.Error + details in log'
 Remove-Item $lp
+
+# 8) v0.3.2: empty paths (real-Windows crash), i18n files, settings, fonts, mirror fallback
+$script:W11Root = $root
+# Windows PowerShell 2.0-5.1 refuse '' for -LiteralPath (the v0.3.1 crash); PowerShell 7 only does so for Get-Item
+$crash = $null
+try { if ($PSVersionTable.PSVersion.Major -le 5) { $null = Test-Path -LiteralPath '' } else { $null = Get-Item -LiteralPath '' } } catch { $crash = $_.Exception.Message }
+Assert ($crash -match 'empty string') "repro: empty -LiteralPath throws ($crash)"
+$tp = Join-Path ([IO.Path]::GetTempPath()) ('w11p_' + [guid]::NewGuid().ToString('N')); $null = New-Item -ItemType Directory -Path $tp -Force
+$tf = Join-Path $tp 'Win11_26H2.iso'; [IO.File]::WriteAllText($tf, 'iso-bytes')
+$noThrow = $true; $r = @()
+try { $r = @((Test-W11PathText ''), (Test-W11PathText '   '), (Test-W11PathText $null), (Test-W11PathText '""'), (Test-W11PathText "bad`0path"), (Test-W11PathText '' -Leaf), (Test-W11PathText '' -Container)) } catch { $noThrow = $false }
+Assert ($noThrow -and @($r | Where-Object { $_ }).Count -eq 0) 'Test-W11PathText: empty / blank / quoted-empty / invalid -> $false, never throws'
+Assert ((Test-W11PathText $tf -Leaf) -and (Test-W11PathText ('"' + $tf + '" ') -Leaf) -and -not (Test-W11PathText $tf -Container) -and (Test-W11PathText $tp -Container) -and -not (Test-W11PathText (Join-Path $tp 'nope.iso') -Leaf)) 'Test-W11PathText: file / folder / quotes / missing'
+Assert ((Get-W11SuggestedOutput '') -eq '' -and (Get-W11SuggestedOutput '   ') -eq '' -and (Get-W11SuggestedOutput $null) -eq '') 'Get-W11SuggestedOutput: empty source -> "" (no Split-Path exception)'
+Assert ((Get-W11SuggestedOutput $tf) -eq (Join-Path $tp 'Win11_26H2_debloated.iso')) 'Get-W11SuggestedOutput: <source>_debloated.iso next to the source'
+$gfe = $null; try { $null = Get-W11FreeGB -Path ' ' } catch { $gfe = $_.Exception.Message }
+Assert ($gfe -match 'No folder') "Get-W11FreeGB: friendly message for an empty folder ($gfe)"
+$guiSrc = [IO.File]::ReadAllText((Join-Path $root 'lib/Gui.ps1'))
+$rawLit = @([regex]::Matches($guiSrc, '-LiteralPath \$script:ui\.\w+\.Text|Split-Path[^\r\n]*\$script:ui\.\w+\.Text'))
+Assert ($rawLit.Count -eq 0) "GUI never passes a raw text box value to -LiteralPath / Split-Path ($($rawLit.Count) found)"
+
+# languages
+$langDir = Join-Path $root 'lang'
+$codes = @('vi', 'en', 'zh-CN', 'km')
+$tabs = @{}
+foreach ($c in $codes) {
+    $fp = Join-Path $langDir "$c.psd1"
+    $b = [IO.File]::ReadAllBytes($fp)
+    Assert ($b.Length -gt 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) "lang/$c.psd1 is UTF-8 with BOM"
+    $t = $null; Import-LocalizedData -BaseDirectory $langDir -FileName $c -BindingVariable t -UICulture 'en-US'
+    $tabs[$c] = $t
+}
+$enKeys = @($tabs['en'].Keys | Sort-Object)
+foreach ($c in $codes) {
+    $k = @($tabs[$c].Keys | Sort-Object)
+    $missing = @($enKeys | Where-Object { $k -notcontains $_ }); $extra = @($k | Where-Object { $enKeys -notcontains $_ })
+    Assert ($missing.Count -eq 0 -and $extra.Count -eq 0) "lang/${c}: same $($enKeys.Count) keys as en (missing: $($missing -join ',') extra: $($extra -join ','))"
+    $bad = @(); $empty = @()
+    foreach ($key in $enKeys) {
+        $v = [string]$tabs[$c][$key]
+        if (-not $v.Trim()) { $empty += $key }
+        $pe = (@([regex]::Matches([string]$tabs['en'][$key], '\{\d+\}') | ForEach-Object { $_.Value } | Sort-Object -Unique)) -join ','
+        $pc = (@([regex]::Matches($v, '\{\d+\}') | ForEach-Object { $_.Value } | Sort-Object -Unique)) -join ','
+        $stray = ($v -replace '\{\d+\}', '') -match '[{}]'
+        if ($pe -ne $pc -or $stray) { $bad += $key }
+    }
+    Assert ($bad.Count -eq 0 -and $empty.Count -eq 0) "lang/${c}: placeholders match English, no stray braces, no empty text (bad: $($bad -join ',') empty: $($empty -join ','))"
+}
+$used = @([regex]::Matches($guiSrc, "(?:\bT '|'@)([a-z][A-Za-z0-9]*\.[A-Za-z0-9.]+)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+$undef = @($used | Where-Object { $enKeys -notcontains $_ })
+Assert ($used.Count -gt 60 -and $undef.Count -eq 0) "every key used in Gui.ps1 ($($used.Count)) exists in the language files (undefined: $($undef -join ','))"
+$cfgT = Get-W11Config
+$tIds = @(@($cfgT.Tweaks) + @($cfgT.Win10Tweaks) | ForEach-Object { $_.Id } | Sort-Object -Unique)
+$noTw = @($tIds | Where-Object { $enKeys -notcontains "tweak.$_" })
+Assert ($tIds.Count -ge 10 -and $noTw.Count -eq 0) "every tweak Id has a translated name (missing: $($noTw -join ','))"
+$vnBad = @($enKeys | Where-Object { [string]$tabs['vi'][$_] -match ' / ' -and [string]$tabs['en'][$_] -notmatch ' / ' })
+Assert ($vnBad.Count -eq 0) "no leftover 'English / Việt' pairs in vi.psd1 ($($vnBad -join ','))"
+
+Set-W11Language 'km'
+Assert ($script:UiLang -eq 'km' -and (T 'btn.start') -eq [string]$tabs['km']['btn.start']) 'T: Khmer text'
+Assert ((T 'msg.lowSpace' 5) -match '\b5\b' -and (T 'msg.done' 'X.iso' 'AB') -match "X\.iso`nSHA256: AB") 'T: placeholders + \n line breaks'
+$script:L.Remove('btn.cancel')
+Assert ((T 'btn.cancel') -eq 'Cancel' -and (T 'no.such.key') -eq 'no.such.key') 'T: missing key -> English -> key itself'
+Set-W11Language 'xx'
+Assert ($script:UiLang -eq 'vi' -and (T 'btn.start') -eq 'BẮT ĐẦU') 'unknown language code -> Vietnamese (default)'
+Set-W11Language 'zh-CN'
+Assert ((T 'btn.start') -eq '开始' -and (Get-W11TweakText @{ Id = 'CopilotOff'; Name = 'x' }) -match 'Copilot' -and (Get-W11TweakText @{ Id = 'NoSuchTweak'; Name = 'Fallback' }) -eq 'Fallback') 'Chinese texts + tweak name falls back to config'
+Set-W11Language 'en'
+Assert ((Get-W11AppText @{ Id = 'X.Y'; Name = 'Clipchamp (optional)' }) -eq 'Clipchamp (optional)   [X.Y]') 'app text: English stays as in config'
+Set-W11Language 'vi'
+Assert ((Get-W11AppText @{ Id = 'X.Y'; Name = 'Xbox (unsafe: game sign-in)' }) -eq 'Xbox (không an toàn: game sign-in)   [X.Y]') 'app text: note in brackets translated'
+
+Assert ((Get-W11FontFor 'km' @('Segoe UI', 'Leelawadee UI', 'Khmer UI')) -eq 'Leelawadee UI' -and (Get-W11FontFor 'km' @('Segoe UI', 'Khmer UI')) -eq 'Khmer UI' -and (Get-W11FontFor 'km' @('Segoe UI', 'DaunPenh')) -eq 'DaunPenh') 'font: Khmer -> Leelawadee UI (Win8+) / Khmer UI (Win7) / DaunPenh'
+Assert ((Get-W11FontFor 'zh-CN' @('Microsoft YaHei UI', 'Microsoft YaHei')) -eq 'Microsoft YaHei UI' -and (Get-W11FontFor 'zh-CN' @('Microsoft YaHei')) -eq 'Microsoft YaHei' -and (Get-W11FontFor 'vi' @()) -eq 'Microsoft Sans Serif' -and (Get-W11FontFor 'en' @('Segoe UI')) -eq 'Segoe UI') 'font: Chinese YaHei UI -> YaHei, fallbacks'
+
+# settings round trip + download folder default (does not need Output ISO)
+$script:W11Root = $tp
+$sp = Save-W11Settings @{ Language = 'km'; DownloadFolder = "$tp\it's here"; 'bad key' = 'x' }
+$sb = [IO.File]::ReadAllBytes($sp)
+$st2 = Read-W11Settings
+Assert ($sp -eq (Join-Path $tp 'settings.psd1') -and $sb[0] -eq 0xEF -and $st2.Language -eq 'km' -and $st2.DownloadFolder -eq "$tp\it's here" -and -not $st2.ContainsKey('bad key')) 'settings.psd1: saved (UTF-8 BOM) and read back, quotes kept'
+[IO.File]::WriteAllText($sp, 'this is { not valid')
+Assert ((Read-W11Settings).Count -eq 0) 'broken settings.psd1 -> defaults, no error'
+$oldUp = $env:USERPROFILE
+$env:USERPROFILE = $tp; $null = New-Item -ItemType Directory -Path (Join-Path $tp 'Downloads') -Force
+Assert ((Get-W11DownloadFolder @{ DownloadFolder = $tp }) -eq $tp -and (Get-W11DownloadFolder @{ DownloadFolder = (Join-Path $tp 'gone') }) -eq (Join-Path $tp 'Downloads') -and (Get-W11DownloadFolder @{}) -eq (Join-Path $tp 'Downloads') -and (Get-W11DownloadFolder $null) -eq (Join-Path $tp 'Downloads')) 'download folder: last used -> %USERPROFILE%\Downloads'
+$env:USERPROFILE = Join-Path $tp 'nouser'
+Assert ((Get-W11DownloadFolder @{}) -eq (Join-Path $tp 'downloads') -and (Test-Path -LiteralPath (Join-Path $tp 'downloads'))) 'download folder: falls back to <tool>\downloads (created)'
+$env:USERPROFILE = $oldUp
+$script:W11Root = $root
+Assert ($null -eq (Test-W11OutputPath -Out (Join-Path $tp 'out.iso') -Iso $tf)) 'output path check: valid path accepted'
+Assert ((Test-W11OutputPath -Out '' -Iso $tf) -and (Test-W11OutputPath -Out $tf -Iso $tf) -eq (T 'msg.outSameAsIso') -and (Test-W11OutputPath -Out (Join-Path $tp 'nodir/out.iso') -Iso $tf) -match 'nodir') 'output path check: empty / same as source / missing folder -> friendly message'
+
+# mirror fallback
+$mir = @($cfgT.Mirrors)
+$badM = @($mir | Where-Object { [string]$_.Sha256 -notmatch '^[0-9A-F]{64}$' -or [string]$_.FileName -notmatch '^[a-z]{2}-[a-z]{2}_windows_1[01]_.+\.iso$' -or [string]$_.Url -notmatch '^https://' -or (Get-MsUrlHost $_.Url) -match 'microsoft\.com$' -or [string]$_.Page -notmatch '^https://massgrave\.dev/' -or @('Win10', 'Win11') -notcontains $_.Os })
+Assert ($mir.Count -ge 8 -and $badM.Count -eq 0 -and @($mir | Where-Object { $_.Kind -eq 'ltsc' }).Count -ge 3) "config Mirrors: $($mir.Count) entries, each with file name, https page, massgrave source and a 64-hex SHA256"
+$uniq = @($mir | ForEach-Object { $_.Sha256 } | Sort-Object -Unique)
+Assert ($uniq.Count -eq $mir.Count) 'config Mirrors: no duplicate hashes'
+$c11 = @(Get-MsMirrorCandidates -Config $cfgT -Os 'Win11' -Arch 'x64' -ReleaseName '26H2')
+Assert ($c11.Count -ge 3 -and $c11[0].FileName -like '*consumer*26h2_x64*' -and $c11[0].Sha256 -eq 'BD4307DF32BC8AF33B39CCECB1174AEB345386630F89A2B86C7A4E36B55EA650') 'mirror candidates: Win11 26H2 x64 consumer first (hash = Microsoft published value)'
+Assert (@(Get-MsMirrorCandidates -Config $cfgT -Os 'Win11' -Arch 'arm64').Count -eq 0 -and @(Get-MsMirrorCandidates -Config $cfgT -Os 'Win10' -Arch 'x86').Count -eq 3) 'mirror candidates: by OS + arch (no arm64 entries)'
+$fakeCfg = @{ Mirrors = @(@{ Os = 'Win10'; Arch = 'x64'; Kind = 'consumer'; FileName = 'a.iso'; Sha256 = ''; Url = 'https://h/x' }, @{ Os = 'Win10'; Arch = 'x64'; Kind = 'consumer'; FileName = 'b.iso'; Sha256 = ('A' * 64); Url = 'https://h/y' }) }
+Assert (@(Get-MsMirrorCandidates -Config $fakeCfg -Os 'Win10' -Arch 'x64').Count -eq 1) 'mirror entries without a SHA256 are never offered'
+Assert (@(Get-MsMirrorCandidates -Config @{} -Os 'Win10' -Arch 'x64').Count -eq 0) 'no Mirrors section -> no fallback'
+$good = Get-W11Sha256 -Path $tf
+$vr = Test-MsMirrorFile -Path $tf -Mirror @{ FileName = 'Win11_26H2.iso'; Sha256 = $good.ToLower(); Url = 'https://buzzheavier.com/x' }
+Assert ($vr.Ok -and -not $vr.Deleted -and (Test-Path -LiteralPath $tf)) 'mirror file with the expected SHA256 is accepted and kept'
+$vr = Test-MsMirrorFile -Path $tf -Mirror @{ FileName = 'Win11_26H2.iso'; Sha256 = ('0' * 64); Url = 'https://buzzheavier.com/x' }
+Assert (-not $vr.Ok -and $vr.Deleted -and -not (Test-Path -LiteralPath $tf) -and $vr.Hash -eq $good.ToUpper()) 'mirror file with a wrong SHA256 is deleted and reported'
+[IO.File]::WriteAllText($tf, 'iso-bytes')
+$vr = Test-MsMirrorFile -Path $tf -Mirror @{ FileName = 'x.iso'; Sha256 = 'nohash'; Url = 'https://h/x' }
+Assert (-not $vr.Ok -and $vr.Error -match 'no valid SHA256' -and (Test-Path -LiteralPath $tf)) 'mirror entry without a valid SHA256 is refused (file untouched)'
+$vr = Test-MsMirrorFile -Path (Join-Path $tp 'missing.iso') -Mirror @{ Sha256 = ('0' * 64) }
+Assert (-not $vr.Ok -and $vr.Error -match 'not found') 'mirror check: missing file reported'
+$msSrc = [IO.File]::ReadAllText((Join-Path $root 'lib/MsDownload.ps1'))
+$mStart = $msSrc.IndexOf('#region ---------- mirror fallback'); $mEnd = $msSrc.IndexOf('#endregion', $mStart)
+$mBody = $msSrc.Substring($mStart, $mEnd - $mStart)
+Assert ($mBody -notmatch 'Start-Process|Invoke-Item|Invoke-Expression|& \$|\.Start\(') 'mirror code never runs a downloaded file'
+
+# log box: UI language other than Vietnamese -> English only (file keeps both)
+$lp2 = [IO.Path]::GetTempFileName()
+$js = Invoke-TestJob '$sync.UiLang = "km"; Write-W11Log -En "Hello" -Vi "Xin chao"' $lp2
+$q = @($js.LogQueue.ToArray()) -join "`n"
+Assert ($q -match '\] Hello$' -and $q -notmatch 'Xin chao' -and [IO.File]::ReadAllText($lp2) -match 'Hello \| Xin chao') 'log: GUI shows English for zh/km/en, log file keeps English | Vietnamese'
+Remove-Item $lp2
+Remove-Item -LiteralPath $tp -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "Failures: $script:fail"
 exit $script:fail

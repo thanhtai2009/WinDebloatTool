@@ -623,7 +623,7 @@ function ConvertFrom-MsAria2Line {
 }
 
 function Format-MsAria2Status($p) {
-    $s = 'aria2: {0:N2} / {1:N2} GB ({2:N1}%)  {3:N1} MB/s  {4} connections / luồng' -f ($p.Done / 1GB), ($p.Total / 1GB), $p.Percent, ($p.Speed / 1MB), $p.Connections
+    $s = 'aria2: {0:N2} / {1:N2} GB ({2:N1}%)  {3:N1} MB/s  x{4}' -f ($p.Done / 1GB), ($p.Total / 1GB), $p.Percent, ($p.Speed / 1MB), $p.Connections
     if ($p.Eta) { $s += "  ETA $($p.Eta)" }
     return $s
 }
@@ -700,6 +700,48 @@ function Clear-MsAria2Files([string]$Destination) {
     foreach ($f in @($Destination, "$Destination.aria2")) {
         if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
     }
+}
+#endregion
+
+#region ---------- mirror fallback (massgrave.dev list, opt-in, SHA256 mandatory) ----------
+function Get-MsMirrorCandidates {
+    <# Mirror entries from DebloatConfig.psd1 (Mirrors) for an OS/arch, best first: same release name,
+       then consumer, then business, then LTSC. Entries without a valid SHA256 are never returned. #>
+    param($Config, [string]$Os, [string]$Arch, [string]$ReleaseName)
+    $out = @()
+    foreach ($m in @($Config.Mirrors)) {
+        if (-not $m -or [string]$m.Sha256 -notmatch '^[0-9A-Fa-f]{64}$' -or [string]$m.FileName -notmatch '\.iso$') { continue }
+        if ($Os -and $m.Os -ne $Os) { continue }
+        if ($Arch -and $m.Arch -ne $Arch) { continue }
+        $rank = 3
+        if ($m.Kind -eq 'consumer') { $rank = 1 } elseif ($m.Kind -eq 'business') { $rank = 2 }
+        if ($ReleaseName -and $m.Release -and $ReleaseName -like "$($m.Release)*") { $rank = 0 }
+        $out += (New-Object PSObject -Property @{ Rank = $rank; Mirror = $m })
+    }
+    return @($out | Sort-Object Rank | ForEach-Object { $_.Mirror })
+}
+
+function Get-MsUrlHost([string]$Url) {
+    try { return ([Uri]$Url).Host } catch { return '' }
+}
+
+function Test-MsMirrorFile {
+    <# Mandatory check of a file downloaded from a mirror: SHA256 must equal the entry's value (the hash of
+       the original Microsoft MSDN file). On mismatch the file is deleted. Nothing is ever executed. #>
+    param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)]$Mirror)
+    $res = New-Object PSObject -Property @{ Ok = $false; Hash = ''; Expected = ([string]$Mirror.Sha256).ToUpper(); Deleted = $false; Path = $Path; Error = $null }
+    if (-not (Test-W11PathText $Path -Leaf)) { $res.Error = "File not found: $Path"; return $res }
+    if ($res.Expected -notmatch '^[0-9A-F]{64}$') { $res.Error = 'Mirror entry has no valid SHA256 - refusing to use it'; return $res }
+    Write-W11Log -Level STEP -En "Verifying SHA256 of $Path (mirror $($Mirror.FileName), host $(Get-MsUrlHost $Mirror.Url))" -Vi 'Đang kiểm tra SHA256 của file tải từ mirror'
+    $res.Hash = (Get-W11Sha256 -Path $Path).ToUpper()
+    if ($res.Hash -eq $res.Expected) {
+        $res.Ok = $true
+        Write-W11Log -Level OK -En "SHA256 matches the original Microsoft file $($Mirror.FileName): $($res.Hash)" -Vi 'SHA256 khớp với file gốc của Microsoft'
+        return $res
+    }
+    Write-W11Log -Level ERROR -En "SHA256 MISMATCH for $Path : got $($res.Hash), expected $($res.Expected) - deleting the file" -Vi 'SHA256 KHÔNG KHỚP - xoá file'
+    try { Remove-Item -LiteralPath $Path -Force -ErrorAction Stop; $res.Deleted = $true } catch { $res.Error = $_.Exception.Message }
+    return $res
 }
 #endregion
 

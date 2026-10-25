@@ -1,4 +1,4 @@
-# WinDebloat Tool (Windows 10 / 11)
+﻿# WinDebloat Tool (Windows 10 / 11)
 
 Turn an **official Windows 10 or Windows 11 ISO** into a **debloated ISO** – on Windows, with a GUI, using
 Microsoft tools (DISM, reg.exe, oscdimg from the Windows ADK). The only third-party program is the bundled
@@ -9,13 +9,14 @@ Microsoft tools (DISM, reg.exe, oscdimg from the Windows ADK). The only third-pa
 > Formerly *Win11 Debloat Tool*. Since 0.2.0 the main script is `WinDebloatTool.ps1`;
 > `Win11DebloatTool.ps1` remains as a wrapper and `run.bat` accepts the same parameters as before.
 
-> **Status: not yet tested on real Windows.** The code was written and statically checked on Linux
+> **Status: early.** 0.3.2 fixes the first real-Windows report (a crash on an empty path field).
+> The code was written and statically checked on Linux
 > (PowerShell 7 parser, PSScriptAnalyzer, a custom PowerShell 2.0 compatibility scan, offline unit
 > tests with mocked dism/reg). The same removals and tweaks were applied to a real
 > Windows 11 ISO on Linux (wimlib + hivex); that ISO booted into Windows Setup in a QEMU VM
 > (UEFI + Secure Boot), but a full installation was not tested. This Windows
 > tool reproduces that process with Microsoft tools. **The Windows 10 profile has not been applied to a
-> real Windows 10 image at all yet** (only unit-tested). Please report problems from a first real run.
+> real Windows 10 image at all yet** (only unit-tested). The GUI has had one real run (Windows 11, PowerShell 5.1); please keep reporting problems.
 
 ## Quick start
 1. Download/extract the zip, double-click **`run.bat`** (accept the UAC prompt).
@@ -27,6 +28,23 @@ Microsoft tools (DISM, reg.exe, oscdimg from the Windows ADK). The only third-pa
 4. **START**. Takes 20–60 min and needs about **25 GB** free. The output folder gets
    `*.iso`, `*.iso.sha256`, a log file and `kept_indexN.txt` (apps left in each edition).
 5. Write the ISO to USB with **Rufus** or **Ventoy** (install.wim is > 4 GB; plain FAT32 copying fails).
+
+*Download* only asks for a folder (last used one, else `%USERPROFILE%\Downloads`); it does not need the
+output field. If the output field is empty, START uses `<source>_debloated.iso` next to the source.
+Empty or wrong paths give a short message instead of an error. **Install oscdimg** installs only the
+*Deployment Tools* of the official Windows ADK (`adksetup.exe /features OptionId.DeploymentTools /quiet`,
+signature checked, or winget); manual download:
+<https://learn.microsoft.com/windows-hardware/get-started/adk-install>. START checks for oscdimg too.
+
+### Interface language
+Vietnamese (default), English, 简体中文 and ភាសាខ្មែរ – the box next to *Open the log folder* switches at once
+and the choice is saved in `settings.psd1` (tool folder, else `%APPDATA%\WinDebloatTool`). Texts live in
+`lang\*.psd1` (UTF-8 with BOM, one key per line). Fonts: Segoe UI; Chinese uses Microsoft YaHei UI →
+Microsoft YaHei; Khmer uses Leelawadee UI (Windows 8+) → Khmer UI (Windows 7) → DaunPenh. The log
+window shows English (plus Vietnamese when the UI is Vietnamese); the log file keeps both.
+**The Chinese and Khmer texts are machine-assisted** – corrections by native speakers are very welcome
+(edit `lang\zh-CN.psd1` / `lang\km.psd1`, keep the `{0}` placeholders; `tests/Test-Offline.ps1` checks
+that every key and placeholder is present).
 
 Console mode:
 ```
@@ -57,6 +75,27 @@ Parameters: `-TargetOs Auto|Win10|Win11`, `-Edition All|HomePro|Custom -Indexes 
   downloader (HttpWebRequest, `.partial` resume).
 - **Windows 7:** aria2 1.37 uses Windows' own TLS (schannel). Without TLS 1.2 updates (KB3140245) it fails and
   the tool falls back automatically (not tested on Windows 7).
+
+## Mirror fallback (not Microsoft, opt-in)
+Microsoft is always tried first. Only when Microsoft cannot deliver (release withdrawn, *Sentinel* /
+715-123130 block, CDN or download error) does the error message offer: **Yes = try a copy of the original
+Microsoft file listed on [massgrave.dev](https://massgrave.dev/genuine-installation-media)**, No = open the
+Microsoft page, Cancel = close.
+- A second dialog names the exact file, the download host and the expected SHA256, and says plainly that
+  the host is **not a Microsoft server**. Nothing happens without *Yes*. The host is written to the log.
+- File hosts (buzzheavier.com, zerofs.link) only serve a download page, so the tool opens it in the
+  browser. After downloading, choose the file in the dialog that opens.
+- **SHA256 check is mandatory.** The file is accepted only if its SHA256 equals the hash of the original
+  Microsoft (MSDN) file. On a mismatch it is **deleted** and the tool reports both hashes. The tool never
+  runs anything it downloads; the ISO is only read by DISM in the normal build.
+- Included (English US only; 10 entries in `Mirrors` in `config\DebloatConfig.psd1`): Windows 11 26H2
+  consumer / business x64, Windows 10 22H2 (Oct 2025) consumer / business x64 + x86, Windows 11
+  Enterprise LTSC 2024 and IoT Enterprise LTSC 2024 x64, Windows 10 Enterprise LTSC 2021 x64 + x86.
+  massgrave.dev's link pages publish no hashes, so each SHA256 was taken from two independent hash lists
+  (msnews.ru, and ntriver.org / macrohard0.github.io) that agree (2026-10-25). The 26H2 consumer hash also
+  equals the value Microsoft publishes. Files with no confirmed hash were left out.
+- To add one: copy an entry and set `FileName`, `Url`, `Sha256` (the original Microsoft hash), `Os`,
+  `Arch`, `Release` and `Kind`. Entries without a valid 64-character SHA256 are never offered.
 
 ## Windows 10 or Windows 11? (target OS detection)
 The engine reads the build of each image with DISM: **10240–21999 = Windows 10** (22H2 is 19045),
@@ -152,7 +191,7 @@ the Windows 11 profile, `Win10Apps` / `Win10Tweaks` the Windows 10 profile; `Pro
 
 ## Troubleshooting
 - **Log file:** the GUI writes `logs\WinDebloat_gui_<date>_<time>.log` in the tool folder (or `%TEMP%`
-  if the folder is not writable); the link *Open log folder* in the window opens it. A build also writes
+  if the folder is not writable); the link *Open the log folder* in the window opens it. A build also writes
   `WinDebloat_<time>.log` next to the output ISO. Send these files when reporting a problem.
 - **"Languages" fails / "remote name could not be resolved: vlscppe.microsoft.com"**: your DNS, ad
   blocker, hosts file or ISP blocks Microsoft's download-protection hosts `vlscppe.microsoft.com` and
@@ -195,7 +234,8 @@ pwsh -c "Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSett
 Layout: `run.bat` (elevating launcher) · `WinDebloatTool.ps1` (entry, CLI; `Win11DebloatTool.ps1` =
 compatibility wrapper) · `lib/Core.ps1`
 (engine) · `lib/MsDownload.ps1` (Microsoft download) · `lib/Gui.ps1` (WinForms) ·
-`config/DebloatConfig.psd1` · `autounattend.xml`.
+`config/DebloatConfig.psd1` (lists, download options, mirror list) · `lang/*.psd1` (UI texts) ·
+`autounattend.xml`.
 
 ## Third-party
 - Our code is MIT. `tools\aria2\` contains **aria2 1.37.0** Windows builds (`aria2c.exe`), **GPLv2**,

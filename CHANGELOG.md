@@ -1,4 +1,34 @@
-# Changelog
+﻿# Changelog
+
+## 0.3.2 - 2026-10-25
+**Fix for the first real-Windows report, interface language selector, optional mirror fallback.**
+
+- **Bug (Windows 11, PowerShell 5.1):** "Cannot bind argument to parameter 'LiteralPath' because it is an
+  empty string". *List editions in the ISO* passed the empty source field to `Test-Path -LiteralPath`
+  (Windows PowerShell refuses an empty string there). Every path from a text box now goes through
+  `Test-W11PathText` (empty / blank / invalid → friendly message, never an exception). Same fix for
+  *Save as…*, *System check*, START, the suggested output name and `Get-W11FreeGB`.
+- *Download* never depends on the output field: the folder dialog starts in the last used folder, else
+  `%USERPROFILE%\Downloads`, else `<tool>\downloads`; the choice is remembered. START fills an empty output
+  field with `<source>_debloated.iso` next to the source and checks the output folder (exists, not the
+  source file) before it starts.
+- **Install oscdimg** button: official Windows ADK *Deployment Tools* only (`adksetup.exe /features
+  OptionId.DeploymentTools /quiet`, signature checked, or winget); the ADK link is in the messages and the
+  system check. START still checks for oscdimg first.
+- **Interface language:** Vietnamese (default), English, Simplified Chinese, Khmer. The old
+  "English / Việt" labels are gone. Texts are in `lang\*.psd1` (UTF-8 BOM), switch live, remembered in
+  `settings.psd1`. Each language gets a font that can show it (YaHei UI / YaHei; Leelawadee UI / Khmer UI /
+  DaunPenh). The log window shows English unless the UI is Vietnamese; the log file is unchanged.
+  zh/km are machine-assisted, fixes welcome.
+- **Mirror fallback** (opt-in, only after Microsoft fails): 10 English (US) originals listed on
+  massgrave.dev (Win11 26H2, Win10 22H2, LTSC 2024 / 2021) in `Mirrors` in the config, each with file name
+  and SHA256 confirmed by two independent hash lists. Clear "NOT a Microsoft server" confirmation, host
+  logged, the download page opens in the browser, the chosen file is SHA256-checked (mandatory) and deleted
+  on mismatch. Nothing downloaded is ever run.
+- aria2 status line no longer mixes languages (`x16` connections).
+- Tests: empty-path repro and guards, output-path checks, download-folder default, language files (same
+  keys in all four, placeholders, BOM, every key used by the GUI, every tweak), fonts, settings round trip,
+  mirror list / selection / SHA256 accept + delete-on-mismatch, log language.
 
 ## 0.3.1 - 2026-10-25
 **Cross-check against the teammate research (MS edition IDs, appx names by build).**

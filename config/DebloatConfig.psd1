@@ -307,4 +307,53 @@
         Aria2RetryWait    = 5        # --retry-wait (seconds)
         Aria2Timeout      = 60       # --timeout (seconds)
     }
+
+    # ---- Mirror fallback (opt-in, used only when Microsoft cannot provide a download) ----
+    # Copies of original Microsoft (MSDN) ISOs listed on https://massgrave.dev (genuine-installation-media).
+    # These hosts are NOT Microsoft servers. Url = download page (opens in the browser); the tool then
+    # checks the chosen file against Sha256 and deletes it on mismatch. Hashes checked on 2026-10-25 in two
+    # independent lists (msnews.ru + ntriver.org / macrohard0); 26H2 consumer also equals Microsoft's own
+    # published hash. To add one: copy an entry, set FileName, Url and the SHA256 of the original file.
+    Mirrors = @(
+        @{ Os = 'Win11'; Arch = 'x64'; Release = '26H2'; Kind = 'consumer'; Lang = 'en-US'
+           FileName = 'en-us_windows_11_consumer_editions_version_26h2_x64_dvd_af326c9d.iso'
+           Sha256 = 'BD4307DF32BC8AF33B39CCECB1174AEB345386630F89A2B86C7A4E36B55EA650'
+           Url = 'https://zerofs.link/f/mLqGgJBBs9gT7TJBD10Wi-SoS4j0zXQkbsmomWb9LtWhu4w/'; Page = 'https://massgrave.dev/windows_11_links' }
+        @{ Os = 'Win11'; Arch = 'x64'; Release = '26H2'; Kind = 'business'; Lang = 'en-US'
+           FileName = 'en-us_windows_11_business_editions_version_26h2_x64_dvd_16357792.iso'
+           Sha256 = '9A9428DCF8AD48391744AC63062619E05758230FE4E9C9753515D413CFC316BB'
+           Url = 'https://zerofs.link/f/VQZCPJYffMic0jukz69BBt39t7-Ek0AlR6JxGQDKaUKVyxw/'; Page = 'https://massgrave.dev/windows_11_links' }
+        @{ Os = 'Win10'; Arch = 'x64'; Release = '22H2'; Kind = 'consumer'; Lang = 'en-US'
+           FileName = 'en-us_windows_10_consumer_editions_version_22h2_updated_oct_2025_x64_dvd_38efd00d.iso'
+           Sha256 = '600CDACE2ACF41E7F2F3CF68957FDE58DBE23077DDFFA7DCE408F14D4915D14C'
+           Url = 'https://buzzheavier.com/fuxscqu93mnn'; Page = 'https://massgrave.dev/windows_10_links' }
+        @{ Os = 'Win10'; Arch = 'x86'; Release = '22H2'; Kind = 'consumer'; Lang = 'en-US'
+           FileName = 'en-us_windows_10_consumer_editions_version_22h2_updated_oct_2025_x86_dvd_38efd00d.iso'
+           Sha256 = 'CC31ED766F12F20BF6A9BD09B058356108F7EB7DE4671963BDAA20AC011C4417'
+           Url = 'https://buzzheavier.com/4wlxz1qpf5vm'; Page = 'https://massgrave.dev/windows_10_links' }
+        @{ Os = 'Win10'; Arch = 'x64'; Release = '22H2'; Kind = 'business'; Lang = 'en-US'
+           FileName = 'en-us_windows_10_business_editions_version_22h2_updated_oct_2025_x64_dvd_d2eef4b0.iso'
+           Sha256 = '2C23BC8B95A9314F15EBFF881DCBEA49651F52A96A0327D7AAF523AA66043765'
+           Url = 'https://buzzheavier.com/tage1lj2oez3'; Page = 'https://massgrave.dev/windows_10_links' }
+        @{ Os = 'Win10'; Arch = 'x86'; Release = '22H2'; Kind = 'business'; Lang = 'en-US'
+           FileName = 'en-us_windows_10_business_editions_version_22h2_updated_oct_2025_x86_dvd_d9ac9936.iso'
+           Sha256 = '8AA6BE0A50C02CF1FAA4F062A74DB30D7780FE099B9C23F619CB02ACB87A2226'
+           Url = 'https://buzzheavier.com/ni5f4vp8tb4o'; Page = 'https://massgrave.dev/windows_10_links' }
+        @{ Os = 'Win11'; Arch = 'x64'; Release = 'LTSC 2024 IoT'; Kind = 'ltsc'; Lang = 'en-US'
+           FileName = 'en-us_windows_11_iot_enterprise_ltsc_2024_x64_dvd_f6b14814.iso'
+           Sha256 = '4F59662A96FC1DA48C1B415D6C369D08AF55DDD64E8F1C84E0166D9E50405D7A'
+           Url = 'https://buzzheavier.com/2gtemvaqgfm3'; Page = 'https://massgrave.dev/windows_ltsc_links' }
+        @{ Os = 'Win11'; Arch = 'x64'; Release = 'LTSC 2024'; Kind = 'ltsc'; Lang = 'en-US'
+           FileName = 'en-us_windows_11_enterprise_ltsc_2024_x64_dvd_965cfb00.iso'
+           Sha256 = '157D8365A517C40AFEB3106FDD74D0836E1025DEBBC343F2080E1A8687607F51'
+           Url = 'https://buzzheavier.com/ewj0dt4zu94c'; Page = 'https://massgrave.dev/windows_ltsc_links' }
+        @{ Os = 'Win10'; Arch = 'x64'; Release = 'LTSC 2021'; Kind = 'ltsc'; Lang = 'en-US'
+           FileName = 'en-us_windows_10_enterprise_ltsc_2021_x64_dvd_d289cf96.iso'
+           Sha256 = 'C90A6DF8997BF49E56B9673982F3E80745058723A707AEF8F22998AE6479597D'
+           Url = 'https://buzzheavier.com/pj97mvcpou4e'; Page = 'https://massgrave.dev/windows_ltsc_links' }
+        @{ Os = 'Win10'; Arch = 'x86'; Release = 'LTSC 2021'; Kind = 'ltsc'; Lang = 'en-US'
+           FileName = 'en-us_windows_10_enterprise_ltsc_2021_x86_dvd_9f4aa95f.iso'
+           Sha256 = '3276D60FA27F513B411224CD474278A9ABE406159BA47776747862C7080292BC'
+           Url = 'https://buzzheavier.com/2e3lg19or5as'; Page = 'https://massgrave.dev/windows_ltsc_links' }
+    )
 }

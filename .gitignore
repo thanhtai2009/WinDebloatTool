@@ -18,3 +18,5 @@ tools/Oscdimg/
 logs/
 !tools/aria2/
 !tools/aria2/**
+settings.psd1
+downloads/
