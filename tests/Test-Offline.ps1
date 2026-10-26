@@ -667,14 +667,14 @@ $gSrcKeys = @{
     btnDownload = 'btn.download'; chkAria2 = 'chk.aria2'; lblAria2 = 'lbl.aria2Missing'
     grpApps = 'grp.apps'; clbApps = ''; btnAppDef = 'btn.appDef'; btnAppAll = 'btn.appAll'; btnAppNone = 'btn.appNone'; note = 'lbl.keptNote'
     grpOptions = 'grp.options'; lblEditions = 'lbl.editions'; rbEdAll = 'rb.edAll'; rbEdHP = ''; rbEdCustom = 'rb.edIdx'; tbIdx = ''; btnEd = 'btn.listEditions'; lblTweaks = 'lbl.tweaks'
-    clbTweaks = ''; chkUnattend = 'chk.unattend'; chkCleanup = 'chk.cleanup'; chkDry = 'chk.dry'
+    clbTweaks = ''; chkUnattend = 'chk.unattend'; chkCleanup = 'chk.cleanup'; chkEsd = 'chk.esd'; chkDry = 'chk.dry'
     grpOutput = 'grp.output'; tbOut = ''; btnOut = 'btn.saveAs'
     btnCheck = 'btn.check'; btnOsc = 'btn.osc'; btnStart = 'btn.start'; btnCancel = 'btn.cancel'; pb = ''; lblStatus = 'status.ready'; cbUiLang = ''; lnkLog = 'lnk.log'; tbLog = ''; lblWatermark = ''
 }
 $inner = @{
     grpSource = @('picMs', 'rbLocal', 'lblTargetOs', 'cbOs', 'lblOs', 'tbIso', 'btnIso', 'rbDl', 'lnkMs', 'btnFetch', 'lblVersion', 'cbRelease', 'lblArch', 'cbArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'lblAria2')
     grpApps = @('clbApps', 'btnAppDef', 'btnAppAll', 'btnAppNone', 'note')
-    grpOptions = @('lblEditions', 'rbEdAll', 'rbEdHP', 'rbEdCustom', 'tbIdx', 'btnEd', 'lblTweaks', 'clbTweaks', 'chkUnattend', 'chkCleanup', 'chkDry')
+    grpOptions = @('lblEditions', 'rbEdAll', 'rbEdHP', 'rbEdCustom', 'tbIdx', 'btnEd', 'lblTweaks', 'clbTweaks', 'chkUnattend', 'chkCleanup', 'chkEsd', 'chkDry')
     grpOutput = @('tbOut', 'btnOut')
 }
 $top = @('grpSource', 'grpApps', 'grpOptions', 'grpOutput', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'pb', 'lblStatus', 'cbUiLang', 'picLog', 'lnkLog', 'tbLog')
@@ -854,6 +854,110 @@ Assert (-not $icErr -and $null -eq $a1 -and $null -eq $a2 -and $null -eq $a3) "i
 $script:LayoutScale = 1.0; $z1 = Get-W11IconSize; $script:LayoutScale = 1.5; $z2 = Get-W11IconSize; $script:LayoutScale = 2.0; $z3 = Get-W11IconSize; $script:LayoutScale = 1.25; $z4 = Get-W11IconSize; $script:LayoutScale = $null
 Assert ($z1 -eq 16 -and $z4 -eq 20 -and $z2 -eq 24 -and $z3 -eq 32) "icon size by DPI: 100% 16, 125% 20, 150% 24, 200% 32 ($z1 $z4 $z2 $z3)"
 Assert ($guiSrc -match "TextImageRelation = 'ImageBeforeText'" -and $guiSrc -match 'Set-W11FormIcon \$f' -and $guiSrc -match 'Set-W11FormIcon \$d') 'icons: image before text on buttons; icon on the main window and the mirror dialog'
+
+# 12) v0.3.7: ISO much bigger than the source (user report: +10 GB) -> layout, export command lines, size log, sanity warning
+Assert ((Test-W11PathInside 'D:\W\iso\sources' 'D:\W\iso') -and (Test-W11PathInside 'd:\w\ISO' 'D:\W\iso\') -and -not (Test-W11PathInside 'D:\W\iso2' 'D:\W\iso') -and -not (Test-W11PathInside 'D:\W\mount' 'D:\W\iso') -and (Test-W11PathInside '/t/w/iso/a' '/t/w/iso')) 'Test-W11PathInside: same/child yes, sibling or prefix-only no'
+$ly = Get-W11WorkLayout -WorkDir 'D:\WinDebloat_work'
+Assert ($ly.Tree -eq 'D:\WinDebloat_work\iso' -and $ly.Mount -eq 'D:\WinDebloat_work\mount' -and $ly.Scratch -eq 'D:\WinDebloat_work\scratch' -and $ly.WorkWim -eq 'D:\WinDebloat_work\install.work.wim' -and $ly.NewImage -eq 'D:\WinDebloat_work\install.new.wim') 'work layout: tree, mount, scratch, work WIM and new image are siblings under the work dir'
+$le = $null; try { Assert-W11WorkLayout -Layout $ly -OutputIso 'D:\Windows11_debloated.iso' } catch { $le = $_.Exception.Message }
+Assert (-not $le) "default layout passes the check ($le)"
+Assert ((Get-W11WorkLayout -WorkDir 'D:\W' -Compression Recovery).NewImage -eq 'D:\W\install.new.esd') 'Recovery compression -> new image is install.new.esd'
+$badLy = New-W11Obj @{ Tree = 'D:\W\iso'; Mount = 'D:\W\iso\mount'; Scratch = 'D:\W\scratch'; WorkWim = 'D:\W\iso\sources\install.work.wim'; NewImage = 'D:\W\n.wim' }
+$le = $null; try { Assert-W11WorkLayout -Layout $badLy } catch { $le = $_.Exception.Message }
+Assert ($le -match 'Mount=D:\\W\\iso\\mount' -and $le -match 'WorkWim=') "mount dir / work WIM inside the ISO tree -> refused ($le)"
+$le = $null; try { Assert-W11WorkLayout -Layout $ly -OutputIso 'D:\WinDebloat_work\iso\out.iso' } catch { $le = $_.Exception.Message }
+Assert ($le -match 'OutputIso') 'output ISO inside the ISO tree -> refused'
+$ea = Get-W11ExportArgs -Source 'D:\W\install.work.wim' -Index 6 -Destination 'D:\W\install.new.wim' -ScratchDir 'D:\W\scratch'
+Assert ($ea -eq '/Export-Image /SourceImageFile:"D:\W\install.work.wim" /SourceIndex:6 /DestinationImageFile:"D:\W\install.new.wim" /Compress:max /ScratchDir:"D:\W\scratch"') "export command line (max): $ea"
+$ea = Get-W11ExportArgs -Source 'E:\sources\install.esd' -Index 1 -Destination 'D:\My W\install.new.esd' -Compression Recovery -CheckIntegrity
+Assert ($ea -eq '/Export-Image /SourceImageFile:"E:\sources\install.esd" /SourceIndex:1 /DestinationImageFile:"D:\My W\install.new.esd" /Compress:recovery /CheckIntegrity') "export command line (recovery): $ea"
+$sa = Get-W11SplitArgs -ImageFile 'D:\W\install.new.wim' -SwmFile 'D:\W\iso\sources\install.swm'
+Assert ($sa -eq '/Split-Image /ImageFile:"D:\W\install.new.wim" /SWMFile:"D:\W\iso\sources\install.swm" /FileSize:3800 /CheckIntegrity') "split command line: $sa"
+
+# full pipeline with mocked dism/robocopy/oscdimg on real temp folders
+$pr = Join-Path $tp 'p12'; $srcRoot = Join-Path $pr 'isoroot'
+foreach ($d in @('sources', 'boot', 'efi/microsoft/boot')) { $null = [IO.Directory]::CreateDirectory((Join-Path $srcRoot $d)) }
+[IO.File]::WriteAllBytes((Join-Path $srcRoot 'sources/install.wim'), (New-Object byte[] 5000))
+[IO.File]::WriteAllBytes((Join-Path $srcRoot 'sources/boot.wim'), (New-Object byte[] 300))
+[IO.File]::WriteAllBytes((Join-Path $srcRoot 'boot/etfsboot.com'), (New-Object byte[] 10))
+[IO.File]::WriteAllBytes((Join-Path $srcRoot 'efi/microsoft/boot/efisys.bin'), (New-Object byte[] 10))
+[IO.File]::WriteAllBytes((Join-Path $srcRoot 'setup.exe'), (New-Object byte[] 20))
+$srcIso = Join-Path $pr 'Windows11_src.iso'; [IO.File]::WriteAllBytes($srcIso, (New-Object byte[] 4096))
+$saved = @{}
+foreach ($fn in @('Write-W11Log', 'Test-W11Admin', 'Get-W11FreeGB', 'Find-W11Oscdimg', 'Clear-W11StaleMount', 'Dismount-W11Hives', 'Mount-W11Hives', 'Open-W11Iso', 'Close-W11Iso', 'Select-W11Dism', 'Get-W11ImageInfo', 'Remove-W11AppsDism', 'Invoke-W11Tweaks', 'Invoke-W11Process', 'Invoke-W11Dism', 'Get-W11Sha256')) { $saved[$fn] = (Get-Item "function:$fn").ScriptBlock }
+function Write-W11Log { param([string]$Level = 'INFO', [string]$En, [string]$Vi) [void]$script:pLog.Add("[$Level] $En") }
+function Test-W11Admin { return $true }
+function Get-W11FreeGB { param([string]$Path) return 100 }
+function Find-W11Oscdimg { param([string]$Hint) return 'oscdimg.exe' }
+function Clear-W11StaleMount { param([string]$MountDir) }
+function Dismount-W11Hives { }
+function Mount-W11Hives { param([string]$MountDir) }
+function Open-W11Iso { param([string]$IsoPath, [string]$ExtractTo) return (New-W11Obj @{ Root = $script:pSrcRoot + '/'; Label = 'CCCOMA'; Mode = 'Mounted' }) }
+function Close-W11Iso { param($Iso, [string]$IsoPath) }
+function Select-W11Dism { param([string]$IsoSourcesDir) $script:W11D.Dism = 'dism.exe'; $script:W11D.DismCanAppx = $true; return (New-W11Obj @{ Path = 'dism.exe'; Kind = 'Host'; Version = '10.0.26100' }) }
+function Get-W11ImageInfo { param([string]$ImageFile) return @(1, 2, 3 | ForEach-Object { New-W11Obj @{ Index = $_; Name = "Windows 11 E$_"; EditionId = @('Core', 'Professional', 'Education')[$_ - 1]; DefaultLanguage = 'en-US'; Architecture = 'x64'; Build = 26300 } }) }
+function Remove-W11AppsDism { param($MountDir, $Patterns, $Protected, $OutOfRange, $KeptListPath, [switch]$DryRun) }
+function Invoke-W11Tweaks { param([object[]]$TweakDefs, [switch]$DryRun) }
+function Get-W11Sha256 { param([string]$Path) return 'AB' }
+function Invoke-W11Process { param([string]$FilePath, [string]$Arguments, [switch]$Quiet, [switch]$MergeStdErr, $ProgressBase, $ProgressSpan, $ProgressText)
+    [void]$script:pCalls.Add("$FilePath $Arguments")
+    if ($FilePath -like '*robocopy*') {
+        # faulty copy on purpose: also brings the original install.wim and a temp file into the tree
+        $dst = Join-Path $script:pWork 'iso'
+        Copy-Item -LiteralPath $script:pSrcRoot -Destination $dst -Recurse   # robocopy creates the target folder
+        [IO.File]::WriteAllBytes((Join-Path $dst 'sources/junk.tmp'), (New-Object byte[] 7))
+    }
+    if ($FilePath -eq 'oscdimg.exe') { $fs = [IO.File]::Create($script:pOut); $fs.SetLength($script:pIsoLen); $fs.Close() }
+    return (New-W11Obj @{ ExitCode = 0; Lines = (New-Object Collections.ArrayList) })
+}
+function Invoke-W11Dism { param([string]$Arguments, [switch]$Quiet, $ProgressBase, $ProgressSpan, $ProgressText, [switch]$NoThrow)
+    [void]$script:pCalls.Add("dism $Arguments")
+    if ($Arguments -match '/DestinationImageFile:"([^"]+)"') { $fs = [IO.File]::Open($Matches[1], 'OpenOrCreate'); $fs.SetLength($fs.Length + $script:pExportLen); $fs.Close() }
+    if ($Arguments -match '/Unmount-Image .*/Commit') { $fs = [IO.File]::Open((Join-Path $script:pWork 'install.work.wim'), 'Open'); $fs.SetLength($fs.Length + 100); $fs.Close() }
+    if ($Arguments -match '/SWMFile:"([^"]+)"') { $b = $Matches[1]; [IO.File]::WriteAllBytes($b, (New-Object byte[] 3)); [IO.File]::WriteAllBytes(($b -replace 'install\.swm$', 'install2.swm'), (New-Object byte[] 3)) }
+    return (New-W11Obj @{ ExitCode = 0; Lines = (New-Object Collections.ArrayList) })
+}
+$script:pSrcRoot = $srcRoot
+$saveWindir = $env:windir; if (-not $env:windir) { $env:windir = '/windows' }   # robocopy/attrib paths (mocked)
+$runs = @(
+    @{ Name = 'max'; Compression = 'Max'; Split = 0; Export = 1000; IsoLen = 600MB },
+    @{ Name = 'recovery'; Compression = 'Recovery'; Split = 0; Export = 500; IsoLen = 2000 },
+    @{ Name = 'split'; Compression = 'Max'; Split = 3800; Export = 1500MB; IsoLen = 2000 }
+)
+$pRes = @{}
+foreach ($r in $runs) {
+    $script:pWork = Join-Path $pr ('work_' + $r.Name); $script:pOut = Join-Path $pr ('out/' + $r.Name + '.iso')
+    $script:pExportLen = $r.Export; $script:pIsoLen = $r.IsoLen
+    $script:pLog = New-Object Collections.ArrayList; $script:pCalls = New-Object Collections.ArrayList
+    $e12 = $null
+    try { $null = Invoke-Win11Debloat -IsoPath $srcIso -OutputIso $script:pOut -WorkDir $script:pWork -EditionMode All -Autounattend $false -Compression $r.Compression -SplitWimMB $r.Split -KeepWorkDir $true -LogPath (Join-Path $pr "$($r.Name).log") } catch { $e12 = $_.Exception.Message + ' @ ' + $_.InvocationInfo.PositionMessage }
+    $pRes[$r.Name] = New-W11Obj @{ Err = $e12; Log = ($script:pLog -join "`n"); Calls = @($script:pCalls); Work = $script:pWork
+        Sources = @(Get-ChildItem -LiteralPath (Join-Path $script:pWork 'iso/sources') -Force | ForEach-Object { $_.Name } | Sort-Object) }
+}
+foreach ($fn in $saved.Keys) { Set-Item "function:$fn" $saved[$fn] }
+$env:windir = $saveWindir
+$m = $pRes['max']; $tree12 = Join-Path $m.Work 'iso'
+Assert (-not $m.Err) "pipeline (mocked, Max): runs to the end ($($m.Err))"
+$exp = @($m.Calls | Where-Object { $_ -like 'dism /Export-Image*' })
+$expOk = @($exp | Where-Object { $_ -match '/Compress:max' -and $_ -match [regex]::Escape('/DestinationImageFile:"' + (Join-Path $m.Work 'install.new.wim') + '"') -and $_ -match [regex]::Escape('/SourceImageFile:"' + (Join-Path $m.Work 'install.work.wim') + '"') })
+Assert ($exp.Count -eq 3 -and $expOk.Count -eq 3 -and $exp[2] -match '/SourceIndex:3 ') "pipeline: every kept edition exported with /Compress:max from the work WIM into a NEW image outside the tree ($($exp -join ' || '))"
+$mnt = @($m.Calls | Where-Object { $_ -like 'dism /Mount-Image*' })
+Assert ($mnt.Count -eq 3 -and @($mnt | Where-Object { $_ -match [regex]::Escape('/MountDir:"' + (Join-Path $m.Work 'mount') + '"') }).Count -eq 3) 'pipeline: images mounted in <work>\mount, next to the ISO tree'
+$inTree = @($m.Calls | Where-Object { $_ -like 'dism *' -and ($_ -match ('/(MountDir|DestinationImageFile|ScratchDir):"' + [regex]::Escape($tree12))) })
+Assert ($inTree.Count -eq 0) "pipeline: no DISM mount/scratch/destination path inside the ISO tree ($($inTree -join ' || '))"
+Assert (($m.Sources -join ',') -eq 'boot.wim,install.wim') "pipeline: old install.wim and junk.tmp replaced/removed before oscdimg, tree sources = $($m.Sources -join ',')"
+Assert ((Get-Item -LiteralPath (Join-Path $tree12 'sources/install.wim')).Length -eq 3000) 'pipeline: tree install.wim is the newly exported image'
+$osc = @($m.Calls | Where-Object { $_ -like 'oscdimg.exe *' })
+Assert ($osc.Count -eq 1 -and $osc[0] -match '-m -o -u2 -udfver102' -and $osc[0] -match [regex]::Escape('"' + $tree12 + '"')) "pipeline: oscdimg packs only the ISO tree ($osc)"
+Assert ($m.Log -match 'SIZE source ISO: .*\(4096 bytes\); source install\.wim: .*\(5000 bytes\)' -and $m.Log -match 'SIZE work WIM after commit' -and $m.Log -match 'SIZE new image: ' -and $m.Log -match 'SIZE source image: .* -> new image: .*\(3 editions, Max\)' -and $m.Log -match 'SIZE ISO tree: ' -and $m.Log -match 'SIZE output ISO: .*\(629145600 bytes\), source ISO: .*\(4096 bytes\)') 'pipeline: size log lines (source ISO/image, work WIM per commit, new image per export, tree, output ISO)'
+Assert ($m.Log -match '\[WARN\] Output ISO is .* larger than the source ISO' -and $m.Log -match 'install\.wim' -and $m.Log -match 'boot\.wim') 'pipeline: output ISO > source + 500 MB -> WARN with the largest files of the ISO tree'
+Assert ($m.Log -match 'Removed temp file from the ISO tree: .*junk\.tmp' -and $m.Log -match 'Removing old install\.wim') 'pipeline: leftovers are logged when removed'
+$rv = $pRes['recovery']
+$expR = @($rv.Calls | Where-Object { $_ -like 'dism /Export-Image*' -and $_ -match '/Compress:recovery' -and $_ -match 'install\.new\.esd"' })
+Assert (-not $rv.Err -and $expR.Count -eq 3 -and ($rv.Sources -join ',') -eq 'boot.wim,install.esd' -and $rv.Log -notmatch '\[WARN\] Output ISO') "pipeline (Recovery): install.esd only, /Compress:recovery, no size warning ($($rv.Err); $($rv.Sources -join ','))"
+$sp = $pRes['split']
+Assert (-not $sp.Err -and ($sp.Sources -join ',') -eq 'boot.wim,install.swm,install2.swm' -and @($sp.Calls | Where-Object { $_ -like 'dism /Split-Image*/FileSize:3800*' }).Count -eq 1 -and -not (Test-Path -LiteralPath (Join-Path $sp.Work 'install.new.wim'))) "pipeline (split): >4 GB install.wim -> install.swm + install2.swm in the tree ($($sp.Err); $($sp.Sources -join ','))"
+Assert ($sp.Log -match '\[WARN\] The new image is .* larger than the source one') 'pipeline: new image much bigger than the source image -> WARN with the advice (fewer editions / ESD)'
 Remove-Item -LiteralPath $tp -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "Failures: $script:fail"

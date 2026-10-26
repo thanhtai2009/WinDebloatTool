@@ -12,6 +12,8 @@ param(
     [int[]]$Indexes,
     [switch]$NoAutounattend,
     [switch]$ComponentCleanup,
+    [ValidateSet('Max', 'Recovery')][string]$Compression = 'Max',
+    [int]$SplitWimMB = 0,
     [switch]$DryRun,
     [switch]$NoGui,
     [switch]$Check,

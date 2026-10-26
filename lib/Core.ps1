@@ -13,7 +13,7 @@ if ($MyInvocation.MyCommand.Path) {
     $script:W11Root = Split-Path -Parent $script:W11LibDir
 }
 $script:W11D = @{
-    Version      = '0.3.6'
+    Version      = '0.3.7'
     LogPath      = $null
     Sync         = $null
     HiveSoftware = 'HKLM\W11D_SOFTWARE'
@@ -978,6 +978,105 @@ function Get-W11IsoEditions {
 }
 #endregion
 
+#region ---------- image export / size checks (v0.3.7) ----------
+function Test-W11PathInside {
+    # $true when $Path is $Parent itself or anything below it (case-insensitive, '\' and '/' are the same)
+    param([string]$Path, [string]$Parent)
+    if (-not $Path -or -not $Parent) { return $false }
+    $a = ($Path -replace '/', '\').TrimEnd('\') + '\'
+    $b = ($Parent -replace '/', '\').TrimEnd('\') + '\'
+    return $a.StartsWith($b, [StringComparison]::OrdinalIgnoreCase)
+}
+
+function Get-W11WorkLayout {
+    # every temporary path lives directly under the work dir, next to (never inside) the ISO tree
+    param([Parameter(Mandatory = $true)][string]$WorkDir, [ValidateSet('Max', 'Recovery')][string]$Compression = 'Max')
+    $ext = 'wim'; if ($Compression -eq 'Recovery') { $ext = 'esd' }
+    return (New-W11Obj @{
+        Tree = (Join-W11Path $WorkDir 'iso'); Mount = (Join-W11Path $WorkDir 'mount'); Scratch = (Join-W11Path $WorkDir 'scratch')
+        WorkWim = (Join-W11Path $WorkDir 'install.work.wim'); NewImage = (Join-W11Path $WorkDir ('install.new.' + $ext))
+        Marker = (Join-W11Path $WorkDir '.w11debloat-work'); Ext = $ext
+    })
+}
+
+function Assert-W11WorkLayout {
+    # throws if a mount/scratch/temp image path would end up inside the folder that becomes the ISO (or the other way round)
+    param([Parameter(Mandatory = $true)]$Layout, [string]$OutputIso)
+    $t = $Layout.Tree
+    $bad = @()
+    foreach ($n in @('Mount', 'Scratch', 'WorkWim', 'NewImage')) {
+        $p = $Layout.$n
+        if ((Test-W11PathInside $p $t) -or (Test-W11PathInside $t $p)) { $bad += "$n=$p" }
+    }
+    if ($OutputIso -and (Test-W11PathInside $OutputIso $t)) { $bad += "OutputIso=$OutputIso" }
+    if ((Test-W11PathInside $t $Layout.Mount)) { $bad += "Tree=$t" }
+    if ($bad.Count -gt 0) { throw ('Unsafe work folder layout (temporary files inside the ISO tree) / Thư mục tạm nằm trong cây ISO: ' + ($bad -join '; ')) }
+}
+
+function Get-W11ExportArgs {
+    # DISM command line that copies one edition into a NEW image file (dedupe by file hash, full recompression)
+    param([Parameter(Mandatory = $true)][string]$Source, [Parameter(Mandatory = $true)][int]$Index, [Parameter(Mandatory = $true)][string]$Destination,
+        [ValidateSet('Max', 'Recovery')][string]$Compression = 'Max', [string]$ScratchDir, [switch]$CheckIntegrity)
+    $a = '/Export-Image /SourceImageFile:{0} /SourceIndex:{1} /DestinationImageFile:{2} /Compress:{3}' -f (ConvertTo-W11Arg $Source), $Index, (ConvertTo-W11Arg $Destination), $Compression.ToLower()
+    if ($CheckIntegrity) { $a += ' /CheckIntegrity' }
+    if ($ScratchDir) { $a += ' /ScratchDir:' + (ConvertTo-W11Arg $ScratchDir) }
+    return $a
+}
+
+function Get-W11SplitArgs {
+    # install.wim > 4 GB does not fit on a FAT32 USB stick -> install.swm, install2.swm, ...
+    param([Parameter(Mandatory = $true)][string]$ImageFile, [Parameter(Mandatory = $true)][string]$SwmFile, [int]$SizeMB = 3800)
+    return ('/Split-Image /ImageFile:{0} /SWMFile:{1} /FileSize:{2} /CheckIntegrity' -f (ConvertTo-W11Arg $ImageFile), (ConvertTo-W11Arg $SwmFile), $SizeMB)
+}
+
+function Get-W11FileLength {
+    param([string]$Path)
+    if ($Path -and (Test-Path -LiteralPath $Path -PathType Leaf)) { return [int64](Get-Item -LiteralPath $Path -Force).Length }
+    return [int64]0
+}
+
+function Format-W11Size {
+    param([int64]$Bytes)
+    return ('{0:N2} GB' -f ($Bytes / 1GB))
+}
+
+function Get-W11TreeFiles {
+    param([Parameter(Mandatory = $true)][string]$Dir)
+    return @(Get-ChildItem -LiteralPath $Dir -Recurse -Force -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer })
+}
+
+function Get-W11LargestFiles {
+    param([Parameter(Mandatory = $true)][string]$Dir, [int]$Top = 10)
+    return @(Get-W11TreeFiles $Dir | Sort-Object Length -Descending | Select-Object -First $Top)
+}
+
+function Write-W11LargestFiles {
+    param([Parameter(Mandatory = $true)][string]$Dir, [int]$Top = 10)
+    $root = ($Dir -replace '/', '\').TrimEnd('\')
+    foreach ($f in (Get-W11LargestFiles $Dir $Top)) {
+        $rel = ($f.FullName -replace '/', '\')
+        if ($rel.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) { $rel = $rel.Substring($root.Length).TrimStart('\') }
+        Write-W11Log -En ('    {0,10}  {1}' -f (Format-W11Size $f.Length), $rel)
+    }
+}
+
+function Clear-W11TreeTemp {
+    # removes leftovers that must never be packed into the ISO: extra install images, DISM/robocopy temp files
+    param([Parameter(Mandatory = $true)][string]$Tree, [string]$KeepImage)
+    $removed = @()
+    $src = Join-W11Path $Tree 'sources'
+    foreach ($f in (Get-W11TreeFiles $Tree)) {
+        $n = $f.Name.ToLower()
+        $isImg = (($f.DirectoryName -replace '/', '\').TrimEnd('\') -eq ($src -replace '/', '\').TrimEnd('\')) -and ($n -like 'install*.wim' -or $n -like 'install*.esd' -or $n -like 'install*.swm')
+        $isTmp = ($n -like '*.tmp' -or $n -like '*.partial' -or $n -like '~*' -or $n -eq 'install.work.wim' -or $n -like 'install.new.*' -or $n -like 'kept_index*.txt')
+        $keepIt = ($KeepImage -and ($f.FullName -replace '/', '\') -eq ($KeepImage -replace '/', '\'))
+        if ($isImg -and $KeepImage -like '*.swm' -and $n -like 'install*.swm') { $keepIt = $true }   # install.swm, install2.swm, ...
+        if (($isImg -or $isTmp) -and -not $keepIt) { Remove-Item -LiteralPath $f.FullName -Force; $removed += $f.FullName }
+    }
+    return $removed
+}
+#endregion
+
 #region ---------- main ----------
 function Invoke-Win11Debloat {
     [CmdletBinding()]
@@ -993,6 +1092,8 @@ function Invoke-Win11Debloat {
         [bool]$Autounattend = $true,
         [string]$AutounattendPath,
         [bool]$ComponentCleanup = $false,
+        [ValidateSet('Max', 'Recovery')][string]$Compression = 'Max',   # Max = LZX install.wim, Recovery = LZMS install.esd (smallest, slow)
+        [int]$SplitWimMB = 0,           # > 0: split an install.wim bigger than 4 GB into install*.swm (FAT32 USB)
         [bool]$DryRun = $false,
         [int]$MinFreeGB = 25,
         [string]$OscdimgPath,
@@ -1042,10 +1143,12 @@ function Invoke-Win11Debloat {
     & $planFor $os
     $RemoveApps = $script:__apps; $Tweaks = $script:__tweakIds; $tweakDefs = $script:__tweakDefs
 
-    $mountDir = Join-W11Path $WorkDir 'mount'
-    $tree = Join-W11Path $WorkDir 'iso'
-    $workWim = Join-W11Path $WorkDir 'install.work.wim'
-    $marker = Join-W11Path $WorkDir '.w11debloat-work'
+    # mount, scratch and temporary images are siblings of the ISO tree, never inside it (checked below)
+    $lay = Get-W11WorkLayout -WorkDir $WorkDir -Compression $Compression
+    Assert-W11WorkLayout -Layout $lay -OutputIso $OutputIso
+    $mountDir = $lay.Mount; $tree = $lay.Tree; $workWim = $lay.WorkWim; $marker = $lay.Marker
+    $scratch = $lay.Scratch; $newImage = $lay.NewImage
+    $srcIsoLen = Get-W11FileLength $IsoPath
     $iso = $null; $imageMounted = $false; $success = $false
     $result = New-W11Obj @{ OutputIso = $OutputIso; Sha256 = $null; LogPath = $LogPath; DryRun = $DryRun; TargetOs = $null; Build = 0; Release = $null }
 
@@ -1054,6 +1157,8 @@ function Invoke-Win11Debloat {
     Write-W11Log -En "Output ISO: $OutputIso" -Vi 'ISO đầu ra'
     Write-W11Log -En "Work dir  : $WorkDir" -Vi 'Thư mục tạm'
     Write-W11Log -En "Log file  : $LogPath" -Vi 'File log'
+    Write-W11Log -En ("Layout    : tree=$tree mount=$mountDir scratch=$scratch image=$newImage")
+    Write-W11Log -En ("Compression: {0} (install.{1})" -f $Compression, $lay.Ext) -Vi ('Kiểu nén: ' + $Compression)
     if ($DryRun) { Write-W11Log -Level DRY -En 'DRY RUN: nothing will be modified.' -Vi 'CHẠY THỬ: không thay đổi gì.' }
 
     try {
@@ -1099,6 +1204,7 @@ function Invoke-Win11Debloat {
         }
         New-W11Directory $WorkDir
         New-W11Directory $mountDir
+        New-W11Directory $scratch
         Set-Content -LiteralPath $marker -Value 'w11debloat'
 
         # ---- open ISO ----
@@ -1110,6 +1216,8 @@ function Invoke-Win11Debloat {
         foreach ($f in @('install.wim', 'install.esd')) { $p = Join-Path $iso.Root "sources\$f"; if (Test-Path -LiteralPath $p) { $srcImage = $p; break } }
         if (-not $srcImage) { throw 'sources\install.wim or install.esd not found - not a Windows install ISO? / Không thấy install.wim/esd' }
         $isEsd = ($srcImage -like '*.esd')
+        $srcImgLen = Get-W11FileLength $srcImage
+        Write-W11Log -En ('SIZE source ISO: {0} ({1} bytes); source {2}: {3} ({4} bytes)' -f (Format-W11Size $srcIsoLen), $srcIsoLen, (Get-W11PathLeaf $srcImage), (Format-W11Size $srcImgLen), $srcImgLen) -Vi 'Dung lượng nguồn'
 
         $d = Select-W11Dism -IsoSourcesDir (Join-Path $iso.Root 'sources')
         Write-W11Log -En "DISM: $($d.Path) ($($d.Kind) $($d.Version)), appx provider: $($script:W11D.DismCanAppx)"
@@ -1188,7 +1296,7 @@ function Invoke-Win11Debloat {
                 $n++
                 Assert-W11NotCancelled
                 Write-W11Log -Level STEP -En "Converting ESD index $($e.Index) to WIM (slow)..." -Vi 'Đang chuyển ESD sang WIM (chậm)...'
-                $null = Invoke-W11Dism ('/Export-Image /SourceImageFile:{0} /SourceIndex:{1} /DestinationImageFile:{2} /Compress:max /CheckIntegrity' -f (ConvertTo-W11Arg $srcImage), $e.Index, (ConvertTo-W11Arg $workWim)) -Quiet -ProgressBase (8 + 12 * ($n - 1) / $selected.Count) -ProgressSpan (12 / $selected.Count) -ProgressText "ESD -> WIM: $($e.Name)"
+                $null = Invoke-W11Dism (Get-W11ExportArgs -Source $srcImage -Index $e.Index -Destination $workWim -Compression Max -ScratchDir $scratch -CheckIntegrity) -Quiet -ProgressBase (8 + 12 * ($n - 1) / $selected.Count) -ProgressSpan (12 / $selected.Count) -ProgressText "ESD -> WIM: $($e.Name)"
                 $targets += (New-W11Obj @{ WorkIndex = $n; Name = $e.Name })
             }
             if ($iso.Mode -eq 'Extracted') { Remove-Item -LiteralPath $srcImage -Force }
@@ -1200,6 +1308,8 @@ function Invoke-Win11Debloat {
             $targets = @($selected | ForEach-Object { New-W11Obj @{ WorkIndex = $_.Index; Name = $_.Name } })
         }
         Close-W11Iso -Iso $iso -IsoPath $IsoPath; $iso = $null
+        $workLen = Get-W11FileLength $workWim
+        Write-W11Log -En ('SIZE work WIM before servicing: {0}' -f (Format-W11Size $workLen))
 
         # ---- service each edition ----
         $i = 0
@@ -1228,26 +1338,53 @@ function Invoke-Win11Debloat {
             Assert-W11NotCancelled
             if ($ComponentCleanup) {
                 Write-W11Log -En '  /Cleanup-Image /StartComponentCleanup (slow)...' -Vi '  Dọn component store (chậm)...'
-                $r = Invoke-W11Dism ('/Image:{0} /Cleanup-Image /StartComponentCleanup' -f (ConvertTo-W11Arg $mountDir)) -Quiet -NoThrow -ProgressBase ($base + $span * 0.5) -ProgressSpan ($span * 0.3) -ProgressText "$tag Component cleanup"
+                $r = Invoke-W11Dism ('/Image:{0} /ScratchDir:{1} /Cleanup-Image /StartComponentCleanup' -f (ConvertTo-W11Arg $mountDir), (ConvertTo-W11Arg $scratch)) -Quiet -NoThrow -ProgressBase ($base + $span * 0.5) -ProgressSpan ($span * 0.3) -ProgressText "$tag Component cleanup"
                 if ($r.ExitCode -ne 0) { Write-W11Log -Level WARN -En "  Component cleanup failed (exit $($r.ExitCode)), continuing" -Vi '  Dọn component lỗi, bỏ qua' }
             }
             Write-W11Log -En '  Committing image...' -Vi '  Đang lưu image...'
             $null = Invoke-W11Dism ('/Unmount-Image /MountDir:{0} /Commit' -f (ConvertTo-W11Arg $mountDir)) -Quiet -ProgressBase ($base + $span * 0.8) -ProgressSpan ($span * 0.2) -ProgressText "$tag Commit"
             $imageMounted = $false
+            $l = Get-W11FileLength $workWim
+            Write-W11Log -En ('  SIZE work WIM after commit: {0} (+{1})' -f (Format-W11Size $l), (Format-W11Size ($l - $workLen)))
+            $workLen = $l
         }
 
         # ---- export / recompress ----
-        $finalWim = Join-W11Path $tree 'sources\install.wim'
-        if (Test-Path -LiteralPath $finalWim) { Remove-Item -LiteralPath $finalWim -Force }
-        $i = 0
+        # Always a NEW image file next to the tree: every kept edition is exported into it (files shared by
+        # editions are stored once, everything is recompressed, the space left by /Commit is dropped), then it
+        # replaces every install.* in the tree.
+        Assert-W11WorkLayout -Layout $lay -OutputIso $OutputIso
+        if (Test-Path -LiteralPath $newImage) { Remove-Item -LiteralPath $newImage -Force }
+        $i = 0; $newLen = [int64]0
         foreach ($t in $targets) {
             $i++
             Assert-W11NotCancelled
-            Write-W11Log -Level STEP -En "Exporting/recompressing $($t.Name)..." -Vi "Đang nén lại $($t.Name)..."
-            $null = Invoke-W11Dism ('/Export-Image /SourceImageFile:{0} /SourceIndex:{1} /DestinationImageFile:{2} /Compress:max' -f (ConvertTo-W11Arg $workWim), $t.WorkIndex, (ConvertTo-W11Arg $finalWim)) -Quiet -ProgressBase (75 + 12 * ($i - 1) / $targets.Count) -ProgressSpan (12 / $targets.Count) -ProgressText "Export $($t.Name)"
+            Write-W11Log -Level STEP -En "Exporting/recompressing $($t.Name) ($Compression)..." -Vi "Đang nén lại $($t.Name)..."
+            $null = Invoke-W11Dism (Get-W11ExportArgs -Source $workWim -Index $t.WorkIndex -Destination $newImage -Compression $Compression -ScratchDir $scratch) -Quiet -ProgressBase (75 + 12 * ($i - 1) / $targets.Count) -ProgressSpan (12 / $targets.Count) -ProgressText "Export $($t.Name)"
+            $l = Get-W11FileLength $newImage
+            Write-W11Log -En ('  SIZE new image: {0} (+{1})' -f (Format-W11Size $l), (Format-W11Size ($l - $newLen)))
+            $newLen = $l
         }
         Remove-Item -LiteralPath $workWim -Force
-        Write-W11Log -En ('install.wim: {0:N2} GB' -f ((Get-Item -LiteralPath $finalWim).Length / 1GB))
+        $srcDir = Join-W11Path $tree 'sources'
+        foreach ($f in @(Get-ChildItem -LiteralPath $srcDir -Force | Where-Object { -not $_.PSIsContainer -and $_.Name -match '^install.*\.(wim|esd|swm)$' })) {
+            Write-W11Log -En "  Removing old $($f.Name) from the ISO tree" -Vi "  Xoá $($f.Name) cũ khỏi cây ISO"
+            Remove-Item -LiteralPath $f.FullName -Force
+        }
+        $finalImage = Join-W11Path $srcDir ('install.' + $lay.Ext)
+        if ($SplitWimMB -gt 0 -and $lay.Ext -eq 'wim' -and $newLen -ge 4GB) {
+            Write-W11Log -Level STEP -En "install.wim is over 4 GB: splitting into install*.swm ($SplitWimMB MB parts) for FAT32 USB..." -Vi 'install.wim lớn hơn 4 GB: đang chia thành install*.swm cho USB FAT32...'
+            $finalImage = Join-W11Path $srcDir 'install.swm'
+            $null = Invoke-W11Dism (Get-W11SplitArgs -ImageFile $newImage -SwmFile $finalImage -SizeMB $SplitWimMB) -Quiet
+            Remove-Item -LiteralPath $newImage -Force
+        } else {
+            Move-Item -LiteralPath $newImage -Destination $finalImage
+            if ($lay.Ext -eq 'wim' -and $newLen -ge 4GB) { Write-W11Log -Level WARN -En 'install.wim is over 4 GB: fine for the ISO / Rufus (NTFS), but a FAT32 USB needs the split option.' -Vi 'install.wim lớn hơn 4 GB: dùng ISO/Rufus (NTFS) vẫn được, USB FAT32 thì cần chia file.' }
+        }
+        Write-W11Log -En ('SIZE source image: {0} -> new image: {1} ({2} editions, {3})' -f (Format-W11Size $srcImgLen), (Format-W11Size $newLen), $targets.Count, $Compression) -Vi 'Dung lượng image'
+        if ($newLen -gt $srcImgLen + 500MB) {
+            Write-W11Log -Level WARN -En ('The new image is {0} larger than the source one. Each serviced edition stores its own changed files; keep fewer editions (Home + Pro) or use ESD compression.' -f (Format-W11Size ($newLen - $srcImgLen))) -Vi 'Image mới lớn hơn image gốc: mỗi phiên bản đã sửa lưu riêng phần thay đổi; hãy giữ ít phiên bản hơn (Home + Pro) hoặc chọn nén ESD.'
+        }
 
         # ---- autounattend ----
         if ($Autounattend) {
@@ -1259,10 +1396,14 @@ function Invoke-Win11Debloat {
         Assert-W11NotCancelled
         Write-W11Log -Level STEP -En 'Building bootable ISO with oscdimg...' -Vi 'Đang tạo ISO khởi động bằng oscdimg...'
         if (Test-Path -LiteralPath $OutputIso) { Remove-Item -LiteralPath $OutputIso -Force }
+        Assert-W11WorkLayout -Layout $lay -OutputIso $OutputIso
+        foreach ($r in @(Clear-W11TreeTemp -Tree $tree -KeepImage $finalImage)) { Write-W11Log -En "  Removed temp file from the ISO tree: $r" -Vi '  Đã xoá file tạm khỏi cây ISO' }
+        $treeLen = [int64]0; foreach ($f in (Get-W11TreeFiles $tree)) { $treeLen += $f.Length }
+        Write-W11Log -En ('SIZE ISO tree: {0}' -f (Format-W11Size $treeLen)) -Vi 'Dung lượng cây ISO'
         $etfs = Join-W11Path $tree 'boot\etfsboot.com'
         $efisys = Join-W11Path $tree 'efi\microsoft\boot\efisys.bin'
         if (-not (Test-Path -LiteralPath $efisys)) { throw "UEFI boot file missing: $efisys" }
-        $label = (Get-W11IsoLabel -IsoPath $IsoPath) -replace '[^A-Za-z0-9_]', '_'
+        $label = ((Get-W11IsoLabel -IsoPath $IsoPath) -replace '[^A-Za-z0-9_]', '_').Trim('_')
         if (-not $label) { $label = 'WIN11_DEBLOAT' }
         if ($label.Length -gt 32) { $label = $label.Substring(0, 32) }
         if (Test-Path -LiteralPath $etfs) {
@@ -1283,7 +1424,13 @@ function Invoke-Win11Debloat {
         $hash = Get-W11Sha256 -Path $OutputIso
         ('{0} *{1}' -f $hash.ToLower(), (Split-Path -Leaf $OutputIso)) | Set-Content -LiteralPath "$OutputIso.sha256" -Encoding ASCII
         $result.Sha256 = $hash
-        Write-W11Log -Level OK -En ('DONE: {0} ({1:N2} GB)' -f $OutputIso, ((Get-Item -LiteralPath $OutputIso).Length / 1GB)) -Vi 'HOÀN TẤT'
+        $outLen = Get-W11FileLength $OutputIso
+        Write-W11Log -En ('SIZE output ISO: {0} ({1} bytes), source ISO: {2} ({3} bytes)' -f (Format-W11Size $outLen), $outLen, (Format-W11Size $srcIsoLen), $srcIsoLen) -Vi 'Dung lượng ISO'
+        if ($outLen -gt $srcIsoLen + 500MB) {
+            Write-W11Log -Level WARN -En ('Output ISO is {0} larger than the source ISO. Largest files in the ISO tree:' -f (Format-W11Size ($outLen - $srcIsoLen))) -Vi 'ISO đầu ra lớn hơn ISO nguồn quá 500 MB. Các file lớn nhất trong cây ISO:'
+            Write-W11LargestFiles -Dir $tree -Top 10
+        }
+        Write-W11Log -Level OK -En ('DONE: {0} ({1:N2} GB)' -f $OutputIso, ($outLen / 1GB)) -Vi 'HOÀN TẤT'
         Write-W11Log -Level OK -En "SHA256: $hash"
         Set-W11Progress 100 'Done / Xong'
         $success = $true

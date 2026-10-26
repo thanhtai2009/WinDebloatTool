@@ -233,9 +233,10 @@ function Set-W11Layout {
         $ui.btnEd.SetBounds($in, $ye + $rowH + (& $px 2), $iw, $bh)
         $ui.lblTweaks.SetBounds($in, $ui.btnEd.Bottom + (& $px 5), $iw, $rowH - (& $px 4))
         $chkH = { param($c) [Math]::Max($rowH - (& $px 1), (Get-W11TextHeight $c.Text $c.Font ($iw - (& $px 24))) + (& $px 6)) }
-        $hDry = & $chkH $ui.chkDry; $hCl = & $chkH $ui.chkCleanup; $hUn = & $chkH $ui.chkUnattend
+        $hDry = & $chkH $ui.chkDry; $hCl = & $chkH $ui.chkCleanup; $hUn = & $chkH $ui.chkUnattend; $hEsd = & $chkH $ui.chkEsd
         $ui.chkDry.SetBounds($in, $midH - (& $px 6) - $hDry, $iw, $hDry)
-        $ui.chkCleanup.SetBounds($in, $ui.chkDry.Top - $hCl, $iw, $hCl)
+        $ui.chkEsd.SetBounds($in, $ui.chkDry.Top - $hEsd, $iw, $hEsd)
+        $ui.chkCleanup.SetBounds($in, $ui.chkEsd.Top - $hCl, $iw, $hCl)
         $ui.chkUnattend.SetBounds($in, $ui.chkCleanup.Top - $hUn, $iw, $hUn)
         $ty = $ui.lblTweaks.Bottom + (& $px 1)
         $ui.clbTweaks.SetBounds($in, $ty, $iw, [Math]::Max((& $px 50), $ui.chkUnattend.Top - (& $px 4) - $ty))
@@ -1036,8 +1037,9 @@ function Show-W11Gui {
     $ui.chkUnattend = New-W11Ctl CheckBox '@chk.unattend' 12 246 370 34
     $ui.chkUnattend.Checked = $true
     $ui.chkCleanup = New-W11Ctl CheckBox '@chk.cleanup' 12 280 370 22
-    $ui.chkDry = New-W11Ctl CheckBox '@chk.dry' 12 302 370 22
-    $g3.Controls.AddRange(@($le, $ui.rbEdAll, $ui.rbEdHP, $ui.rbEdCustom, $ui.tbIdx, $ui.btnEd, $lt, $ui.clbTweaks, $ui.chkUnattend, $ui.chkCleanup, $ui.chkDry))
+    $ui.chkEsd = New-W11Ctl CheckBox '@chk.esd' 12 302 370 22
+    $ui.chkDry = New-W11Ctl CheckBox '@chk.dry' 12 324 370 22
+    $g3.Controls.AddRange(@($le, $ui.rbEdAll, $ui.rbEdHP, $ui.rbEdCustom, $ui.tbIdx, $ui.btnEd, $lt, $ui.clbTweaks, $ui.chkUnattend, $ui.chkCleanup, $ui.chkEsd, $ui.chkDry))
 
     # ---------- 4. output ----------
     $g4 = New-W11Ctl GroupBox '@grp.output' 10 516 960 56
@@ -1293,12 +1295,13 @@ function Show-W11Gui {
         $dry = $ui.chkDry.Checked
         if (-not $dry -and -not (Find-W11Oscdimg)) { Invoke-W11OscInstall -ThenStart; return }
         $yn = @{ $true = (T 'w.yes'); $false = (T 'w.no') }
-        $summary = T 'msg.summary' $iso $out $osNote ("$mode $($idx -join ',')".Trim()) $apps.Count $tw.Count $yn[[bool]$ui.chkUnattend.Checked] $yn[[bool]$ui.chkCleanup.Checked] $yn[[bool]$dry]
+        $summary = T 'msg.summary' $iso $out $osNote ("$mode $($idx -join ',')".Trim()) $apps.Count $tw.Count $yn[[bool]$ui.chkUnattend.Checked] $yn[[bool]$ui.chkCleanup.Checked] $yn[[bool]$dry] $yn[[bool]$ui.chkEsd.Checked]
         if ([string](Show-W11Msg $summary 'Question' 'YesNo') -ne 'Yes') { return }
         $ui.tbLog.Clear()
         $jobArgs = @{
             IsoPath = $iso; OutputIso = $out; EditionMode = $mode; Indexes = $idx; TargetOs = $targetOs
             Autounattend = $ui.chkUnattend.Checked; ComponentCleanup = $ui.chkCleanup.Checked; DryRun = $dry
+            Compression = $(if ($ui.chkEsd.Checked) { 'Recovery' } else { 'Max' })
         }
         if (-not $useDefaults) { $jobArgs.RemoveApps = $apps; $jobArgs.Tweaks = $tw }
         [void](Start-W11Job -Name 'Build ISO' -Script '$sync.Result = Invoke-Win11Debloat @JobArgs -Sync $sync' -JobArgs $jobArgs -OnDone {

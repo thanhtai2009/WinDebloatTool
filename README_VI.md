@@ -164,6 +164,10 @@ Muốn sửa danh sách: mở `config\DebloatConfig.psd1` bằng Notepad (`Apps`
   và `ov-df.microsoft.com` mà Microsoft dùng để chống tải tự động. Từ bản 0.2.1 danh sách vẫn hiện bình
   thường. Nếu đến lúc tải Microsoft báo từ chối (*Sentinel* / 715-123130) thì đổi DNS sang 1.1.1.1 hoặc
   8.8.8.8 (hoặc bỏ chặn hai tên miền trên), tắt VPN, hoặc bấm **Mở trang Microsoft** để tải bằng trình duyệt.
+- **ISO đầu ra to hơn ISO gốc:** mỗi phiên bản (Home, Pro, Education...) sau khi sửa sẽ lưu riêng phần file đã
+  thay đổi, nên chọn **Tất cả** (khoảng 10 phiên bản) làm ISO to lên nhiều. Hãy chọn **Home + Pro** hoặc chỉ các
+  phiên bản cần dùng, và/hoặc bật **Nén kiểu ESD** (ISO nhỏ nhất, chậm hơn). Trong log, các dòng `SIZE ...` cho
+  biết dung lượng ở từng bước; nếu ISO to hơn ISO gốc quá 500 MB, log có dòng `WARN` kèm danh sách file lớn nhất.
 - Nếu hoàn toàn không có mạng, danh sách phiên bản Windows 11 / Windows 10 vẫn hiện; bấm **Tải về** sẽ mở
   trang tải chính thức của Microsoft.
 

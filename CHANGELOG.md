@@ -1,5 +1,32 @@
 ﻿# Changelog
 
+## 0.3.7 - 2026-10-26
+**Output ISO much larger than the source (report: +10 GB with "All" editions).**
+
+- Findings: the mount folder, the work WIM and the ISO tree were already separate folders under the work dir,
+  and the kept editions were already exported with `/Compress:max` into a fresh `install.wim`. What grows is
+  the image itself: every serviced edition gets its own changed files after `/Unmount-Image /Commit`, and the
+  export can only store a file once when it is byte-identical in all editions. With "All" (about 10 editions on
+  the 26300 media, `install.wim` 8.2 GB in a 9.0 GB ISO) this adds up quickly, more so with component cleanup.
+  0.3.6 also had no size log and no check, so the cause was not visible.
+- The new image is always a NEW file next to the tree (`<work>\install.new.wim` / `.esd`). Every kept edition
+  is exported into it, then it replaces every `install.*` (wim/esd/swm) in `sources\`.
+- New option **ESD compression** (GUI checkbox; console `-Compression Recovery`): `/Compress:recovery` gives
+  `install.esd`, the smallest ISO (Windows Setup reads it), but it is much slower. Default stays `Max` (LZX).
+- `install.wim` bigger than 4 GB: WARN (fine for the ISO or an NTFS USB); console `-SplitWimMB 3800` splits it
+  into `install.swm`, `install2.swm`, ... for FAT32 USB sticks (`dism /Split-Image`).
+- Mount, scratch (`<work>\scratch`, passed to export / component cleanup) and temporary images are checked to be
+  outside the ISO tree (and the output ISO too) at start, before export and before oscdimg.
+- Before oscdimg, leftovers are removed from the tree: extra `install*` images, `*.tmp`, `*.partial`, `~*`.
+- Log: `SIZE ...` lines for the source ISO and image, the work WIM after each commit (+growth), the new image
+  after each export (+growth), the ISO tree and the output ISO. WARN when the new image is more than 500 MB
+  larger than the source image (advice: fewer editions or ESD), and when the output ISO is more than 500 MB
+  larger than the source ISO, with the 10 largest files of the ISO tree.
+- ISO label made only of padding falls back to `WIN11_DEBLOAT`.
+- Tests: path inside/outside checks, the work layout, export / split command lines, and a mocked full pipeline
+  (Max, Recovery, split) on real folders: only the new image ends up in the tree, no DISM path inside the tree,
+  size lines and warnings present.
+
 ## 0.3.6 - 2026-10-26
 **App icon and button icons.**
 

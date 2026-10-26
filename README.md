@@ -11,7 +11,7 @@ Microsoft tools (DISM, reg.exe, oscdimg from the Windows ADK). The only third-pa
 > Formerly *Win11 Debloat Tool*. Since 0.2.0 the main script is `WinDebloatTool.ps1`;
 > `Win11DebloatTool.ps1` remains as a wrapper and `run.bat` accepts the same parameters as before.
 
-> **Status: early.** 0.3.6 adds an app icon and button icons; 0.3.5 fixed START failing for an output ISO on a drive root (e.g. `D:\x.iso`); 0.3.4 made the window fully resizable; 0.3.3 added the bottom watermark; 0.3.2 fixed the first real-Windows report (a crash on an empty path field).
+> **Status: early.** 0.3.7 adds ESD compression, size logging and an output-size check (report: ISO 10 GB larger than the source); 0.3.6 adds an app icon and button icons; 0.3.5 fixed START failing for an output ISO on a drive root (e.g. `D:\x.iso`); 0.3.4 made the window fully resizable; 0.3.3 added the bottom watermark; 0.3.2 fixed the first real-Windows report (a crash on an empty path field).
 > The code was written and statically checked on Linux
 > (PowerShell 7 parser, PSScriptAnalyzer, a custom PowerShell 2.0 compatibility scan, offline unit
 > tests with mocked dism/reg). The same removals and tweaks were applied to a real
@@ -56,7 +56,8 @@ run.bat -IsoPath D:\Win11.iso -OutputIso D:\out.iso -WhatIf      # dry run
 run.bat -Check                                                  # system report
 ```
 Parameters: `-TargetOs Auto|Win10|Win11`, `-Edition All|HomePro|Custom -Indexes 1,6`, `-NoAutounattend`, `-ComponentCleanup`,
-`-DryRun`/`-WhatIf`, `-WorkDir`, `-KeepWorkDir`, `-MinFreeGB`, `-OscdimgPath`.
+`-Compression Max|Recovery` (Recovery = `install.esd`, smallest ISO, slower), `-SplitWimMB 3800` (split a >4 GB
+`install.wim` into `install*.swm` for FAT32 USB sticks), `-DryRun`/`-WhatIf`, `-WorkDir`, `-KeepWorkDir`, `-MinFreeGB`, `-OscdimgPath`.
 
 ## Downloading from Microsoft
 - **Releases:** the picker lists every release Microsoft's download API serves (edition IDs as used by
@@ -220,7 +221,11 @@ DISM versions, oscdimg, ISO access method and free space, with what to do in Eng
 4. For each selected edition: `dism /Mount-Image` → `/Remove-ProvisionedAppxPackage` →
    `reg load` SOFTWARE + Default\NTUSER.DAT → tweaks → `reg unload` → optional
    `/Cleanup-Image /StartComponentCleanup` → `/Unmount-Image /Commit`.
-5. `dism /Export-Image /Compress:max` of the kept editions (recompress, drops unselected ones).
+5. `dism /Export-Image /Compress:max` (or `/Compress:recovery` → `install.esd`) of every kept edition into a
+   **new** image file next to the ISO tree; it replaces every `install.*` in `sources\`. Mount, scratch and
+   temporary images are never inside the ISO tree (checked before export and before oscdimg); stray temp files
+   are deleted before oscdimg. The log has `SIZE ...` lines (source image, work WIM after each commit, new image
+   after each export, ISO tree, output ISO) and a WARN with the largest files if the ISO grew by more than 500 MB.
 6. Add autounattend.xml, `oscdimg -m -o -u2 -udfver102 -bootdata:2#p0,e,b<etfsboot.com>#pEF,e,b<efisys.bin>`.
 7. SHA256 of the result.
 `try/finally` always unloads the hives, discards a mounted image on errors, and unmounts the ISO.

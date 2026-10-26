@@ -20,6 +20,9 @@
 .EXAMPLE
     .\WinDebloatTool.ps1 -NoGui -IsoPath D:\Win10_22H2_English_x64v1.iso -OutputIso D:\Win10_lite.iso -TargetOs Win10
 .EXAMPLE
+    .\WinDebloatTool.ps1 -NoGui -IsoPath D:\Win11.iso -OutputIso D:\Win11_small.iso -Compression Recovery
+    (install.esd, smallest ISO, slower; -SplitWimMB 3800 splits a >4 GB install.wim into install*.swm for FAT32 USB)
+.EXAMPLE
     .\WinDebloatTool.ps1 -Check
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
@@ -32,6 +35,8 @@ param(
     [int[]]$Indexes,
     [switch]$NoAutounattend,
     [switch]$ComponentCleanup,
+    [ValidateSet('Max', 'Recovery')][string]$Compression = 'Max',
+    [int]$SplitWimMB = 0,
     [switch]$DryRun,
     [switch]$NoGui,
     [switch]$Check,
@@ -103,7 +108,7 @@ if (-not $DryRun -and -not (Find-W11Oscdimg -Hint $OscdimgPath)) {
 $params = @{
     IsoPath = $IsoPath; OutputIso = $OutputIso; EditionMode = $Edition; TargetOs = $TargetOs
     Autounattend = (-not $NoAutounattend); ComponentCleanup = [bool]$ComponentCleanup; DryRun = [bool]$DryRun
-    MinFreeGB = $MinFreeGB; KeepWorkDir = [bool]$KeepWorkDir
+    MinFreeGB = $MinFreeGB; KeepWorkDir = [bool]$KeepWorkDir; Compression = $Compression; SplitWimMB = $SplitWimMB
 }
 if ($WorkDir) { $params.WorkDir = $WorkDir }
 if ($Indexes) { $params.Indexes = $Indexes }
