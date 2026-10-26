@@ -161,4 +161,67 @@ Use at most 20 characters, none of " / \ [ ] : ; | = , + * ? < > @ %, and not a 
 {0}'
     'lvl.aggressive' = 'aggressive'
     'w.packages' = '{0} package(s)'
+    'mode.title' = 'Which mode do you want to use?'
+    'mode.simple' = 'Simple'
+    'mode.advanced' = 'Advanced'
+    'mode.simpleDesc' = 'One button: downloads the newest official Windows ISO from Microsoft, keeps Home + Pro, removes apps and applies tweaks with the default (Safe) settings, installs oscdimg if needed and builds the new ISO.'
+    'mode.advancedDesc' = 'Full control: pick the ISO and editions, choose every app and tweak, answer file, updates, presets...'
+    'mode.remember' = 'Remember my choice (do not ask again)'
+    'lnk.simple' = 'Simple mode'
+    'simple.title' = 'Build a slim Windows ISO with one button'
+    'simple.intro' = 'Choose Windows, the ISO language and a folder, then press START. The tool downloads the newest ISO from Microsoft (SHA256 checked), keeps only Home + Pro, removes unneeded apps and applies the Safe preset tweaks, installs oscdimg if it is missing and builds the new ISO. Needs administrator rights and internet; takes about 30-90 minutes.'
+    'simple.os' = 'Windows:'
+    'simple.lang' = 'ISO language:'
+    'simple.langAuto' = 'Automatic (English - United States)'
+    'simple.out' = 'Save to folder:'
+    'simple.free' = '{0} GB free'
+    'simple.freeLow' = 'Only {0} GB free - at least {1} GB is recommended'
+    'simple.start' = 'START'
+    'simple.showLog' = 'Show log'
+    'simple.hideLog' = 'Hide log'
+    'simple.openFolder' = 'Open folder'
+    'simple.toAdvanced' = 'Switch to Advanced'
+    'simple.ready' = 'Ready. Press START.'
+    'simple.result' = 'New ISO: {0}'
+    'simple.step.check' = 'Checking...'
+    'simple.step.oscdimg' = 'Step 1/3: preparing oscdimg (installs the Windows ADK Deployment Tools if missing)'
+    'simple.step.download' = 'Step 2/3: downloading the ISO from Microsoft and checking SHA256'
+    'simple.step.verify' = 'Checking the SHA256 of the mirror ISO...'
+    'simple.step.build' = 'Step 3/3: keeping Home + Pro, removing apps, applying tweaks and building the ISO'
+    'simple.step.done' = 'Done!'
+    'simple.step.cancelling' = 'Cancelling... (waiting for the current step to finish)'
+    'simple.step.cancelled' = 'Cancelled.'
+    'simple.step.failed' = 'Something went wrong - press "Show log" for details.'
+    'msg.simpleConfirm' = 'Simple mode will:
+- Download the newest {0} ({1}, {2}) from Microsoft
+- Keep only Home + Pro, remove apps and apply tweaks of the Safe preset
+- Install oscdimg (Windows ADK Deployment Tools) if it is missing
+- Save the downloaded ISO and the new ISO in: {3}
+
+This can take 30-90 minutes. Continue?'
+    'msg.simpleLowSpace' = 'Only {0} GB is free on this drive; at least {1} GB is recommended (downloaded ISO + work folder + new ISO).
+Continue anyway?'
+    'msg.simpleDlFailed' = 'Could not download the ISO from Microsoft:
+{0}'
+    'msg.simpleFolderBad' = 'This folder cannot be used (choose a folder on a local drive):
+{0}'
+    'msg.simpleNeedAdmin' = 'Administrator rights are needed to build the ISO and install oscdimg.
+Close the tool and start it again with run.bat (it asks for them).'
+    'msg.oscNeedAdmin' = 'Installing the Windows ADK needs administrator rights.
+Start the tool again with run.bat (it asks for them).'
+    'msg.oscLegacy' = 'oscdimg.exe was not found. The current Windows ADK cannot be installed on Windows 7/8.x, so the tool tries the older official {0} (Deployment Tools only).
+If that fails, copy oscdimg.exe from a Windows 10/11 PC that has the ADK (Deployment Tools\amd64\Oscdimg) into:
+{1}
+
+Try it now?'
+    'isoLang.enIntl' = 'English International (en-GB)'
+    'isoLang.en' = 'English - United States (en-US)'
+    'isoLang.zhCn' = 'Chinese Simplified (zh-CN)'
+    'isoLang.zhTw' = 'Chinese Traditional (zh-TW)'
+    'isoLang.th' = 'Thai (th-TH)'
+    'isoLang.ja' = 'Japanese (ja-JP)'
+    'isoLang.ko' = 'Korean (ko-KR)'
+    'isoLang.fr' = 'French (fr-FR)'
+    'isoLang.de' = 'German (de-DE)'
+    'isoLang.es' = 'Spanish (es-ES)'
 }

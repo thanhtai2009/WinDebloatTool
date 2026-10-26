@@ -31,6 +31,13 @@
     .\WinDebloatTool.ps1 -NoGui -IsoPath D:\Win11.iso -OutputIso D:\Win11_auto.iso -LocalUser Tai -SkipPrivacy -Locale vi-VN -FirstLogonCleanup
 .EXAMPLE
     .\WinDebloatTool.ps1 -Check
+.EXAMPLE
+    .\WinDebloatTool.ps1 -Mode Simple
+    (opens the GUI directly in Simple mode; -Mode Advanced = the full window)
+.EXAMPLE
+    .\WinDebloatTool.ps1 -Simple -OutputFolder D:\ISO -TargetOs Win11 -IsoLanguage 'English International'
+    (console: newest official ISO from Microsoft, Home + Pro, safe preset, oscdimg installed if missing; add -DryRun to only show the plan,
+     -IsoPath to use an ISO you already have)
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
@@ -63,7 +70,11 @@ param(
     [switch]$FirstLogonCleanup,
     [string]$Locale,                # e.g. vi-VN
     [string]$Keyboard,              # e.g. 0409:00000409 or en-US
-    [string]$AutounattendPath       # your own answer file instead of the generated one
+    [string]$AutounattendPath,      # your own answer file instead of the generated one
+    [ValidateSet('Simple', 'Advanced')][string]$Mode,     # GUI: open this mode (skips the chooser)
+    [switch]$Simple,                # Simple mode in the console: newest official ISO -> Home + Pro -> safe preset -> ISO
+    [string]$OutputFolder,          # Simple mode: where the ISO is downloaded and the new ISO is saved
+    [string]$IsoLanguage = 'auto'   # Simple mode: Microsoft language name (English International, English, ...) or auto
 )
 
 $ErrorActionPreference = 'Stop'
@@ -80,13 +91,49 @@ if ($Check) {
     return
 }
 
-if (-not $NoGui -and -not $IsoPath) {
+if ($Mode -eq 'Simple' -and $NoGui) { $Simple = [switch]$true }
+if (-not $NoGui -and -not $IsoPath -and -not $Simple) {
     if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
         Write-W11Log -Level WARN -En 'GUI needs -STA. Start through run.bat.' -Vi 'Giao diện cần -STA, hãy chạy bằng run.bat.'
     }
     . (Join-Path $here 'lib\Gui.ps1')
-    Show-W11Gui
+    Show-W11Gui -Mode $Mode
     return
+}
+
+# ------------------------- Simple mode, console -------------------------
+if ($Simple) {
+    $os = 'Win11'; if ($TargetOs -eq 'Win10') { $os = 'Win10' }
+    $dir = $OutputFolder
+    if (-not $dir) { $dir = Get-W11SimpleDefaultFolder }
+    $dir = Resolve-W11FullPath (ConvertTo-W11CleanPath $dir)
+    if (-not $dir) { Write-Host "ERROR / LỖI: invalid output folder / thư mục không hợp lệ: $OutputFolder" -ForegroundColor Red; exit 2 }
+    $free = -1; try { $free = Get-W11FreeGB -Path $dir } catch { Write-Host "ERROR / LỖI: $($_.Exception.Message)" -ForegroundColor Red; exit 2 }
+    $iso = ''; if ($IsoPath) { $iso = Resolve-W11FullPath $IsoPath }
+    $plan = Get-W11SimplePlan -Os $os -UiLang 'vi' -LangChoice $IsoLanguage -OutputFolder $dir -FreeGB $free -IsoPath $iso
+    if ($PSBoundParameters.ContainsKey('MinFreeGB')) { $plan.BuildMinFreeGB = $MinFreeGB }
+    elseif ($plan.LowSpace -and -not $DryRun) {
+        Write-Host ("ERROR / LỖI: only {0} GB free on {1}, about {2} GB are needed. Add -MinFreeGB 0 to continue anyway / Chỉ còn {0} GB trống, cần khoảng {2} GB (thêm -MinFreeGB 0 để vẫn chạy)" -f $free, $dir, $plan.MinFreeGB) -ForegroundColor Red
+        exit 2
+    }
+    Write-Host ("Simple mode / Chế độ Đơn giản: {0} {1} | ISO language: {2} | Home + Pro | preset safe | {3}" -f $os, $plan.Arch, ($plan.LangPrefs -join ' > '), $dir)
+    try {
+        $r = Invoke-W11SimpleBuild -Plan $plan -IsoPath $iso -DryRun:$DryRun -DownloadOptions (Get-MsAria2Options -Config (Get-W11Config))
+        Write-Progress -Activity 'WinDebloat Tool' -Completed
+        if ($r.DownloadFailed) {
+            Write-Host "ERROR / LỖI: download from Microsoft failed / tải từ Microsoft thất bại: $($r.Error)" -ForegroundColor Red
+            foreach ($m in @(Get-MsMirrorCandidates -Config (Get-W11Config) -Os $plan.Os -Arch $plan.Arch -ReleaseName '')) { Write-Host "  mirror (not Microsoft, check SHA256 $($m.Sha256)): $($m.FileName) - $($m.Page)" }
+            Write-Host '  Download the ISO yourself, then run again with -IsoPath <file> / Tự tải ISO rồi chạy lại với -IsoPath <file>'
+            exit 3
+        }
+        if ($r.Build -and $r.Build.Sha256) { Write-Host ''; Write-Host "ISO   : $($r.Build.OutputIso)" -ForegroundColor Green; Write-Host "SHA256: $($r.Build.Sha256)" -ForegroundColor Green }
+        if ($r.Build -and $r.Build.LogPath) { Write-Host "Log   : $($r.Build.LogPath)" }
+        exit 0
+    } catch {
+        Write-Host ''
+        Write-Host "ERROR / LỖI: $($_.Exception.Message)" -ForegroundColor Red
+        exit 2
+    }
 }
 
 # ------------------------- console mode -------------------------
@@ -110,7 +157,14 @@ if (-not $OutputIso) {
 }
 
 if (-not $DryRun -and -not (Find-W11Oscdimg -Hint $OscdimgPath)) {
-    if ((Get-W11OsBuild) -ge 10240) {
+    if ((Get-W11AdkSetupPlan).Legacy -and (Get-W11AdkSetupPlan).Supported) {
+        Write-Host ''
+        Write-Host 'oscdimg.exe (Windows ADK) is required. On Windows 7/8.x only the older official ADK (Windows 10, version 1607) installs / Cần oscdimg.exe; trên Win7/8 chỉ cài được ADK cũ (bản 1607):'
+        Write-Host '  [1] Try it (Deployment Tools only) / Thử cài (chỉ Deployment Tools)'
+        Write-Host "  [Q] Quit and copy oscdimg.exe into $(Join-Path $here 'tools') / Thoát rồi tự chép oscdimg.exe vào thư mục tools"
+        $c = Read-Host 'Choice / Lựa chọn'
+        if ($c -eq '1') { $OscdimgPath = Install-W11Oscdimg -Method AdkSetup } else { exit 1 }
+    } elseif ((Get-W11OsBuild) -ge 10240) {
         Write-Host ''
         Write-Host 'oscdimg.exe (Windows ADK) is required / Cần oscdimg.exe (Windows ADK):'
         Write-Host '  [1] Download official ADK installer, install only Deployment Tools / Tải bộ cài ADK chính thức, chỉ cài Deployment Tools'

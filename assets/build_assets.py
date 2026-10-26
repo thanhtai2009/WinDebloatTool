@@ -126,6 +126,11 @@ ICONS = {
     'package': '''<path d="M3.5 8.2L12 4l8.5 4.2v8.6L12 21l-8.5-4.2z" fill="#F7D79B" stroke="#8A5A12" stroke-width="1.4" stroke-linejoin="round"/>
   <path d="M3.5 8.2L12 12.4l8.5-4.2M12 12.4V21" fill="none" stroke="#8A5A12" stroke-width="1.4" stroke-linejoin="round"/>
   <path d="M12 1.2v6.3M9.4 5l2.6 2.6L14.6 5" fill="none" stroke="#0F6CBD" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>''',
+    # Simple mode "Start everything": a rocket
+    'rocket': '''<path d="M12 2.2c3.6 2.2 5.3 5.9 4.6 10.6l-2.1 3.4H9.5l-2.1-3.4C6.7 8.1 8.4 4.4 12 2.2z" fill="#E8F1FB" stroke="#0B4F8C" stroke-width="1.3" stroke-linejoin="round"/>
+  <circle cx="12" cy="8.6" r="2" fill="#0F6CBD" stroke="#0B4F8C" stroke-width="1"/>
+  <path d="M7.6 11.8l-3 3.4.4 3.2 3.9-2.2M16.4 11.8l3 3.4-.4 3.2-3.9-2.2" fill="#C42B1C" stroke="#86190F" stroke-width="1" stroke-linejoin="round"/>
+  <path d="M10 17.2q2 4.8 4 0z" fill="#FFB900" stroke="#C56A00" stroke-width="0.9" stroke-linejoin="round"/>''',
 }
 SIZES_BTN = [16, 20, 24, 32]
 SIZES_ICO = [16, 20, 24, 32, 40, 48, 64, 128, 256]

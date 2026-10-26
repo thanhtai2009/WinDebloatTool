@@ -652,7 +652,7 @@ public class W11MockImg { public int Width = 16; }
 public class W11MockCtl {
     public W11MockImg Image;
     public string Name = ""; public string Text = ""; public W11MockFont Font = new W11MockFont();
-    public int Left, Top, Width = 10, Height = 10; public int DropDownWidth, HorizontalExtent; public bool AutoScroll;
+    public int Left, Top, Width = 10, Height = 10; public int DropDownWidth, HorizontalExtent; public bool AutoScroll; public bool Visible = true;
     public ArrayList Items = new ArrayList(); public W11MockCtl Parent;
     public int Right { get { return Left + Width; } } public int Bottom { get { return Top + Height; } }
     public void SetBounds(int x, int y, int w, int h) { Left = x; Top = y; Width = w; Height = h; }
@@ -676,7 +676,7 @@ $gSrcKeys = @{
     btnUpdScan = 'btn.updScan'; lblUpdInfo = 'lbl.updNotScanned'; chkUpdBoot = 'chk.updBoot'; chkUpdWinre = 'chk.updWinre'; chkResetBase = 'chk.resetBase'; lblUpdNote = 'lbl.updNote'
     grpPreset = 'grp.preset'; cbPreset = ''; btnPresetApply = 'btn.presetApply'; btnPresetLoad = 'btn.presetLoad'; btnPresetSave = 'btn.presetSave'; lblPresetDesc = ''
     grpOutput = 'grp.output'; tbOut = ''; btnOut = 'btn.saveAs'
-    btnCheck = 'btn.check'; btnOsc = 'btn.osc'; btnStart = 'btn.start'; btnCancel = 'btn.cancel'; pb = ''; lblStatus = 'status.ready'; cbUiLang = ''; lnkLog = 'lnk.log'; tbLog = ''; lblWatermark = ''
+    btnCheck = 'btn.check'; btnOsc = 'btn.osc'; btnStart = 'btn.start'; btnCancel = 'btn.cancel'; pb = ''; lblStatus = 'status.ready'; cbUiLang = ''; lnkSimple = 'lnk.simple'; lnkLog = 'lnk.log'; tbLog = ''; lblWatermark = ''
 }
 $inner = @{
     grpSource = @('picMs', 'rbLocal', 'lblTargetOs', 'cbOs', 'lblOs', 'tbIso', 'btnIso', 'rbDl', 'lnkMs', 'btnFetch', 'lblVersion', 'cbRelease', 'lblArch', 'cbArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'lblAria2')
@@ -691,8 +691,8 @@ $pages = @{
     tpUnattend = @('chkUnattend', 'chkLocalAcc', 'lblUser', 'tbUser', 'lblPass', 'tbPass', 'lblPassWarn', 'chkBypassNro', 'chkBypassChecks', 'chkSkipPrivacy', 'chkFirstLogon', 'lblRegion', 'cbRegion', 'lblKeyboard', 'cbKeyboard')
     tpUpdates = @('chkUpdates', 'lblUpdFolder', 'tbUpd', 'btnUpdBrowse', 'btnUpdScan', 'lblUpdInfo', 'chkUpdBoot', 'chkUpdWinre', 'chkResetBase', 'lblUpdNote')
 }
-$top = @('grpSource', 'grpApps', 'grpOptions', 'grpPreset', 'grpOutput', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'pb', 'lblStatus', 'cbUiLang', 'picLog', 'lnkLog', 'tbLog')
-$oneLine = @('rbLocal', 'lblTargetOs', 'btnIso', 'rbDl', 'lnkMs', 'btnFetch', 'lblVersion', 'lblArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'btnAppDef', 'btnAppAll', 'btnAppNone', 'rbEdAll', 'rbEdCustom', 'btnEd', 'btnOut', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'lnkLog',
+$top = @('grpSource', 'grpApps', 'grpOptions', 'grpPreset', 'grpOutput', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'pb', 'lblStatus', 'cbUiLang', 'lnkSimple', 'picLog', 'lnkLog', 'tbLog')
+$oneLine = @('rbLocal', 'lblTargetOs', 'btnIso', 'rbDl', 'lnkMs', 'btnFetch', 'lblVersion', 'lblArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'btnAppDef', 'btnAppAll', 'btnAppNone', 'rbEdAll', 'rbEdCustom', 'btnEd', 'btnOut', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'lnkLog', 'lnkSimple',
     'btnPresetApply', 'btnPresetLoad', 'btnPresetSave', 'lblUser', 'lblPass', 'lblRegion', 'lblKeyboard', 'lblUpdFolder', 'btnUpdBrowse', 'btnUpdScan')
 $saveUi = $script:ui; $layBad = @()
 foreach ($c in $codes) {
@@ -701,7 +701,7 @@ foreach ($c in $codes) {
         $mf = New-Object W11MockForm; $mf.ClientSize.Width = $sz[0]; $mf.ClientSize.Height = $sz[1]
         $mu = @{ form = $mf }
         foreach ($k in $gSrcKeys.Keys) { $o = New-Object W11MockCtl; $o.Name = $k; if ($gSrcKeys[$k]) { $o.Text = T $gSrcKeys[$k] '' }; $mu[$k] = $o }
-        foreach ($k in $script:W11ButtonIcons.Keys) { $mu[$k].Image = New-Object W11MockImg }   # 16 px icons
+        foreach ($k in $script:W11ButtonIcons.Keys) { if ($mu[$k]) { $mu[$k].Image = New-Object W11MockImg } }   # 16 px icons (Simple-window buttons are not in this window)
         $mu.rbEdHP.Text = 'Home + Pro'; $mu.lblWatermark.Text = $script:W11Watermark; $mu.lblWatermark.Font.Height = 13
         if ($c -eq 'km') { $mf.Font.Height = 22; foreach ($k in $gSrcKeys.Keys) { $mu[$k].Font.Height = 22 } }   # taller Khmer font
         $script:ui = $mu; $script:LayoutScale = 1.0
@@ -1297,5 +1297,171 @@ $authOk = @()
 foreach ($l in @('vi', 'en', 'zh-CN', 'km')) { $lt14 = Import-W11Lang $l; if (-not ($lt14['tip.author'] -match 'TaiNT13@PNC STG \(thanhtai2009\)' -and $lt14['tip.author'] -match 'Rufus' -and $lt14['tip.author'] -notmatch '@\w+\.(vn|com)')) { $authOk += $l } }
 $gsrc15 = [IO.File]::ReadAllText((Join-Path $root 'lib/Gui.ps1'))
 Assert ($authOk.Count -eq 0 -and $gsrc15 -match "SetToolTip\(\`$ui\.lblWatermark, \(T 'tip\.author'\)\)" -and $gsrc15 -match "W11Watermark = 'Designed by TaiNT13@PNC STG'") "watermark unchanged, author tooltip in 4 languages without e-mail addresses ($($authOk -join ','))"
+# 16) 1.1: Simple mode - edition choice, ISO language, oscdimg / ADK, settings, plan, simulated run, layout
+$codes16 = @('vi', 'en', 'zh-CN', 'km')
+function New-TImg($i, $n, $e) { New-W11Obj @{ Index = $i; Name = $n; EditionId = $e } }
+$en16 = @((New-TImg 1 'Windows 11 Home' 'Core'), (New-TImg 2 'Windows 11 Home N' 'CoreN'), (New-TImg 3 'Windows 11 Home Single Language' 'CoreSingleLanguage'), (New-TImg 4 'Windows 11 Education' 'Education'),
+    (New-TImg 5 'Windows 11 Education N' 'EducationN'), (New-TImg 6 'Windows 11 Pro' 'Professional'), (New-TImg 7 'Windows 11 Pro N' 'ProfessionalN'), (New-TImg 8 'Windows 11 Pro Education' 'ProfessionalEducation'), (New-TImg 9 'Windows 11 Pro for Workstations' 'ProfessionalWorkstation'))
+$sel = @(Select-W11HomeProImages $en16)
+Assert ($sel.Count -eq 2 -and $sel[0].Index -eq 1 -and $sel[1].Index -eq 6) 'Home + Pro by edition id: Core + Professional only (N, single language, education, workstations left out)'
+$zh16 = @((New-TImg 1 'Windows 11 家庭中文版' 'CoreCountrySpecific'), (New-TImg 2 'Windows 11 家庭版' 'Core'), (New-TImg 3 'Windows 11 家庭单语言版' 'CoreSingleLanguage'), (New-TImg 4 'Windows 11 专业版' 'Professional'), (New-TImg 5 'Windows 11 专业版 N' 'ProfessionalN'))
+$sel = @(Select-W11HomeProImages $zh16)
+Assert ($sel.Count -eq 2 -and $sel[0].Index -eq 2 -and $sel[1].Index -eq 4) 'Home + Pro: Chinese edition names, id decides (China edition / N / single language skipped)'
+$noId = @((New-TImg 1 'Windows 11 Famille' ''), (New-TImg 2 'Windows 11 Famille N' ''), (New-TImg 3 'Windows 11 Famille Unilingue' ''), (New-TImg 4 'Windows 11 Éducation' ''), (New-TImg 5 'Windows 11 Professionnel' ''), (New-TImg 6 'Windows 11 Professionnel N' ''), (New-TImg 7 'Windows 11 Professionnel Éducation' ''), (New-TImg 8 'Windows 11 Professionnel pour les Stations de travail' ''))
+$sel = @(Select-W11HomeProImages $noId)
+Assert ($sel.Count -eq 2 -and $sel[0].Index -eq 1 -and $sel[1].Index -eq 5) 'Home + Pro without edition ids: French names (N, Unilingue, Éducation, Stations de travail skipped)'
+$noId2 = @((New-TImg 1 'Windows 10 家庭版' ''), (New-TImg 2 'Windows 10 家庭单语言版' ''), (New-TImg 3 'Windows 10 教育版' ''), (New-TImg 4 'Windows 10 专业版' ''), (New-TImg 5 'Windows 10 Домашняя для одного языка' ''), (New-TImg 6 'Windows 10 Pro N' ''))
+$sel = @(Select-W11HomeProImages $noId2)
+Assert ($sel.Count -eq 2 -and $sel[0].Index -eq 1 -and $sel[1].Index -eq 4 -and @(Select-W11HomeProImages @((New-TImg 1 'Windows 11 Education' 'Education'))).Count -eq 0) 'Home + Pro without ids: Chinese names; nothing selected when the image has neither'
+$mg = @(Merge-W11EditionIds -Images @((New-TImg 1 '' ''), (New-TImg 2 'Windows 11 Pro' 'Professional')) -XmlInfo @((New-W11Obj @{ Index = 1; Name = 'Windows 11 Home'; EditionId = 'Core' }), (New-W11Obj @{ Index = 2; Name = 'X'; EditionId = 'Y' })))
+Assert ($mg[0].EditionId -eq 'Core' -and $mg[0].Name -eq 'Windows 11 Home' -and $mg[1].EditionId -eq 'Professional' -and $mg[1].Name -eq 'Windows 11 Pro') 'missing edition ids (translated DISM labels) filled from the WIM XML, existing values kept'
+$coreSrc16 = [IO.File]::ReadAllText((Join-Path $root 'lib/Core.ps1'))
+Assert ($coreSrc16 -match "selected = @\(Select-W11HomeProImages -Images \`$all\)" -and $coreSrc16 -match 'Merge-W11EditionIds -Images \$all -XmlInfo @\(Get-W11WimXmlInfo -Path \$srcImage\)') 'engine: -EditionMode HomePro uses the same selection (+ XML edition ids)'
+
+# ISO language
+Assert ((@(Get-W11IsoLanguagePrefs -UiLang vi) -join '|') -eq 'Vietnamese|English International|English' -and (@(Get-W11IsoLanguagePrefs -UiLang en) -join '|') -eq 'English|English International' -and (@(Get-W11IsoLanguagePrefs -UiLang zh-CN) -join '|') -eq 'Chinese Simplified|English International|English' -and (@(Get-W11IsoLanguagePrefs -UiLang km) -join '|') -eq 'English International|English' -and (@(Get-W11IsoLanguagePrefs -UiLang vi -Choice 'Thai') -join '|') -eq 'Thai|English International|English') 'ISO language: follows the UI language (vi -> Vietnamese if offered, else English International), explicit choice first'
+$skus16 = @((New-W11Obj @{ Id = '1'; Language = 'Arabic' }), (New-W11Obj @{ Id = '2'; Language = 'English' }), (New-W11Obj @{ Id = '3'; Language = 'English International' }), (New-W11Obj @{ Id = '4'; Language = 'Chinese Simplified' }))
+Assert ((Select-W11IsoSku $skus16 @(Get-W11IsoLanguagePrefs vi)).Id -eq '3' -and (Select-W11IsoSku $skus16 @(Get-W11IsoLanguagePrefs zh-CN)).Id -eq '4' -and (Select-W11IsoSku $skus16 @(Get-W11IsoLanguagePrefs en)).Id -eq '2' -and $null -eq (Select-W11IsoSku @($skus16[0]) @('Thai'))) 'ISO language: Microsoft has no Vietnamese ISO -> English International; Chinese / English direct; none -> $null'
+$cat16 = @((New-W11Obj @{ Os = 'Win11'; Arch = 'x64'; Available = $false; Name = 'old' }), (New-W11Obj @{ Os = 'Win11'; Arch = 'x64'; Available = $true; Name = 'new' }), (New-W11Obj @{ Os = 'Win11'; Arch = 'arm64'; Available = $true; Name = 'arm' }), (New-W11Obj @{ Os = 'Win10'; Arch = 'x86'; Available = $true; Name = 'w10x86' }))
+Assert ((Get-W11SimpleEntry $cat16 Win11 x64).Name -eq 'new' -and (Get-W11SimpleEntry $cat16 Win11 (Get-W11SimpleArch Win11 arm64)).Name -eq 'arm' -and (Get-W11SimpleEntry $cat16 Win10 (Get-W11SimpleArch Win10 x86)).Name -eq 'w10x86' -and (Get-W11SimpleArch Win11 x86) -eq 'x64' -and $null -eq (Get-W11SimpleEntry $cat16 Win10 x64)) 'newest offered release for the OS and this PC (arm64 -> arm64 ISO, 32-bit Windows 10 -> x86)'
+Assert ((Get-W11SimpleEntry @(Get-MsReleaseCatalog -Os Win11) Win11 x64).EditionId -eq '3813' -and (Get-W11SimpleEntry @(Get-MsReleaseCatalog -Os Win10) Win10 x64).EditionId -eq '2618') 'Simple mode uses the newest catalog entries (Win11 3813, Win10 2618)'
+
+# oscdimg discovery + ADK command line
+$oc = @(Get-W11OscdimgCandidates -Hint 'C:\my\oscdimg.exe' -Arch amd64 -KitRoots @('C:\PF86\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools', 'C:\PF86\Windows Kits\8.1\Assessment and Deployment Kit\Deployment Tools') -ToolRoot 'C:\Tool')
+Assert ($oc.Count -eq 7 -and $oc[0] -eq 'C:\my\oscdimg.exe' -and $oc[1] -eq 'C:\Tool\tools\oscdimg.exe' -and $oc[2] -eq 'C:\Tool\tools\Oscdimg\oscdimg.exe' -and $oc[3] -eq 'C:\PF86\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\oscdimg.exe' -and $oc[4] -like '*\10\*\x86\Oscdimg\oscdimg.exe' -and $oc[5] -like '*\8.1\*\amd64\Oscdimg\oscdimg.exe') "oscdimg: given path -> tools\ -> tools\Oscdimg\ -> ADK 10 / 8.1 Deployment Tools (host arch first) ($($oc.Count))"
+$oa = @(Get-W11OscdimgCandidates -Arch arm64 -KitRoots @('K') -ToolRoot '')
+Assert (($oa -join '|') -eq 'K\arm64\Oscdimg\oscdimg.exe|K\amd64\Oscdimg\oscdimg.exe|K\x86\Oscdimg\oscdimg.exe') 'oscdimg on ARM64: arm64 folder first, then amd64, x86'
+$tdir16 = Join-Path ([IO.Path]::GetTempPath()) ('w11s_' + [guid]::NewGuid().ToString('N')); $null = New-Item -ItemType Directory -Path (Join-Path $tdir16 'tools') -Force
+[IO.File]::WriteAllText((Join-W11Path (Join-W11Path $tdir16 'tools') 'oscdimg.exe'), 'x')
+$saveRoot16 = $script:W11Root; $script:W11Root = $tdir16
+$fo = Find-W11Oscdimg
+$script:W11Root = $saveRoot16
+Assert ($fo -and $fo.EndsWith('oscdimg.exe') -and $fo.StartsWith($tdir16)) 'Find-W11Oscdimg: picks up tools\oscdimg.exe'
+$a26 = Get-W11AdkSetupPlan -HostBuild 26100; $a7 = Get-W11AdkSetupPlan -HostBuild 7601; $a6 = Get-W11AdkSetupPlan -HostBuild 6002
+$aip = Get-W11AdkSetupPlan -HostBuild 19045 -InstallPath 'D:\Win Kits'
+Assert ($a26.Url -eq 'https://go.microsoft.com/fwlink/?linkid=2289980' -and $a26.Arguments -eq '/quiet /norestart /ceip off /features OptionId.DeploymentTools' -and -not $a26.Legacy -and $a26.Supported -and (@($a26.SuccessCodes) -join ',') -eq '0,3010' -and $a26.FileName -eq 'adksetup.exe') 'ADK on Windows 10/11: official current installer (go.microsoft.com), Deployment Tools only, quiet, no restart; 0/3010 = success'
+Assert ($a7.Legacy -and $a7.Supported -and $a7.Url -eq 'https://go.microsoft.com/fwlink/p/?LinkId=526740' -and $a7.Arguments -eq $a26.Arguments -and -not $a6.Supported -and $aip.Arguments -eq '/quiet /norestart /ceip off /features OptionId.DeploymentTools /installpath "D:\Win Kits"') 'ADK on Windows 7 SP1 / 8.x: official ADK 1607 (best effort); Vista: not supported; /installpath quoted'
+$instSrc = $coreSrc16.Substring($coreSrc16.IndexOf('function Install-W11Oscdimg'), 6000)
+Assert ($instSrc -match 'Test-W11Admin' -and $instSrc -match 'no internet' -and $instSrc -match 'Test-W11MicrosoftSignature' -and $instSrc -match 'SuccessCodes -notcontains' -and $instSrc -match 'copy oscdimg\.exe|Copy oscdimg\.exe' -and $coreSrc16 -match 'Get-AuthenticodeSignature -FilePath') 'Install-W11Oscdimg: admin check, no-internet message, Microsoft signature (where the cmdlet exists), exit codes, Win7 fallback message'
+
+# settings: remembered mode
+$saveRoot16 = $script:W11Root; $script:W11Root = $tdir16
+$st16 = Set-W11ModeSetting -Settings @{ Language = 'en' } -Mode 'Simple' -Remember $true
+$sp16 = Save-W11Settings $st16
+$rd16 = Read-W11Settings
+$off = Set-W11ModeSetting -Settings @{} -Mode 'Advanced' -Remember $false
+Assert ($sp16 -and $rd16.Mode -eq 'Simple' -and $rd16.RememberMode -eq '1' -and $rd16.Language -eq 'en' -and (Get-W11StartMode -Settings $rd16) -eq 'Simple' -and (Get-W11StartMode -Mode 'advanced' -Settings $rd16) -eq 'Advanced' -and (Get-W11StartMode -Settings $off) -eq '' -and (Get-W11StartMode -Settings @{}) -eq '' -and (Get-W11StartMode -Settings @{ RememberMode = '1'; Mode = 'bogus' }) -eq '') 'settings: mode remembered (settings.psd1 round trip); -Mode wins; not remembered / unknown -> ask'
+$script:W11Root = $saveRoot16
+
+# plan
+$pl = Get-W11SimplePlan -Os Win11 -UiLang vi -OutputFolder 'C:\Users\u\Desktop\WinDebloat\' -HostArch amd64 -HostBuild 22631 -FreeGB 40
+$pl2 = Get-W11SimplePlan -Os Win10 -UiLang en -LangChoice 'Japanese' -OutputFolder 'D:\iso' -HostArch x86 -HostBuild 7601 -FreeGB 12 -IsoPath 'D:\a.iso'
+Assert ($pl.Os -eq 'Win11' -and $pl.Arch -eq 'x64' -and $pl.EditionMode -eq 'HomePro' -and $pl.Preset -eq 'safe' -and $pl.OutputFolder -eq 'C:\Users\u\Desktop\WinDebloat' -and $pl.WorkDir -eq 'C:\Users\u\Desktop\WinDebloat\WinDebloat_work' -and (@($pl.Steps) -join ',') -eq 'check,oscdimg,download,build' -and -not $pl.LowSpace -and $pl.LangPrefs[0] -eq 'Vietnamese' -and -not $pl.Adk.Legacy -and $pl.BuildMinFreeGB -eq 10) 'Simple plan: Win11 x64, Home + Pro, safe preset, work folder inside the output folder, 4 steps'
+Assert ($pl2.Arch -eq 'x86' -and (@($pl2.Steps) -join ',') -eq 'check,oscdimg,build' -and $pl2.LowSpace -and $pl2.MinFreeGB -eq 15 -and $pl2.LangPrefs[0] -eq 'Japanese' -and $pl2.Adk.Legacy) 'Simple plan: own ISO -> no download step; < 15 GB -> low-space warning; Win7 host -> legacy ADK'
+Assert ((Get-W11SimpleDefaultFolder -Desktop $tdir16 -ToolRoot 'T') -eq (Join-Path $tdir16 'WinDebloat') -and (Get-W11SimpleDefaultFolder -Desktop (Join-Path $tdir16 'none') -ToolRoot 'T') -eq (Join-Path 'T' 'output')) 'Simple output folder: Desktop\WinDebloat, else <tool>\output'
+
+# simulated Simple run (Microsoft, ADK and the engine mocked)
+$fnNames = @('Find-W11Oscdimg', 'Install-W11Oscdimg', 'Get-MsReleaseCatalog', 'Update-MsEntryLanguages', 'Set-MsEntryLanguages', 'Invoke-MsIsoDownload', 'Invoke-Win11Debloat', 'New-W11Directory')
+$saveFn = @{}; foreach ($n in $fnNames) { $saveFn[$n] = (Get-Item "function:$n").ScriptBlock }
+$script:sim = @{ Calls = @(); Osc = $null; DlFail = $false; Args = $null; Steps = @() }
+function Find-W11Oscdimg { param([string]$Hint) $script:sim.Calls += 'find'; return $script:sim.Osc }
+function Install-W11Oscdimg { param($Method) $script:sim.Calls += "install:$Method"; $script:sim.Osc = 'C:\ADK\oscdimg.exe'; return 'C:\ADK\oscdimg.exe' }
+function Get-MsReleaseCatalog { param([string[]]$Os) $script:sim.Calls += "catalog:$($Os -join ',')"; return @((New-W11Obj @{ Os = 'Win11'; Arch = 'x64'; Available = $true; Name = '26H2'; Release = 'Windows 11 (latest)'; EditionId = '3813' })) }
+function Update-MsEntryLanguages { param($Entry) $script:sim.Calls += 'langs'; if ($script:sim.DlFail) { return (New-W11Obj @{ Ok = $false; Error = 'Sentinel blocked'; EditionId = '3813'; NotOffered = $false }) }; return (New-W11Obj @{ Ok = $true; EditionId = '3813'; Skus = $skus16; Hashes = @{}; NotOffered = $false }) }
+function Set-MsEntryLanguages { param($Catalog, $Result) }
+function Invoke-MsIsoDownload { param($Entry, $Sku, $Folder, $Sync, $Options) $script:sim.Calls += "download:$($Sku.Language):$Folder"; $script:sim.Steps += $Sync.Step; return (Join-W11Path $Folder 'Win11_26H2_EnglishInternational_x64.iso') }
+function Invoke-Win11Debloat { $script:sim.Calls += 'build'; $script:sim.Args = $args; $h = @{}; for ($i = 0; $i -lt $args.Count; $i++) { if ([string]$args[$i] -match '^-(\w+):?$') { $h[$matches[1]] = $args[$i + 1]; $i++ } }; $script:sim.Args = $h; $script:sim.Steps += $h.Sync.Step; return (New-W11Obj @{ OutputIso = $h.OutputIso; Sha256 = 'AB'; DryRun = $false }) }
+function New-W11Directory { param($Path) $script:sim.Calls += "mkdir:$Path" }
+$sy16 = [hashtable]::Synchronized(@{ LogQueue = [Collections.Queue]::Synchronized((New-Object Collections.Queue)); Cancel = $false; Step = ''; Percent = 0; Status = '' })
+$r16 = Invoke-W11SimpleBuild -Plan $pl -Sync $sy16
+$a16 = $script:sim.Args
+$runOk = ((@($script:sim.Calls) -join '>') -eq 'mkdir:C:\Users\u\Desktop\WinDebloat>find>install:AdkSetup>catalog:Win11>langs>download:English International:C:\Users\u\Desktop\WinDebloat>build')
+Assert ($runOk -and $r16.Stage -eq 'done' -and -not $r16.DownloadFailed -and $r16.Sku.Language -eq 'English International') "simulated Simple run: oscdimg installed first, newest Win11, English International (no Vietnamese ISO), then build ($(@($script:sim.Calls) -join '>'))"
+Assert ($a16.IsoPath -eq 'C:\Users\u\Desktop\WinDebloat\Win11_26H2_EnglishInternational_x64.iso' -and $a16.OutputIso -eq 'C:\Users\u\Desktop\WinDebloat\Win11_26H2_EnglishInternational_x64_debloated.iso' -and $a16.EditionMode -eq 'HomePro' -and $a16.Preset -eq 'safe' -and $a16.TargetOs -eq 'Win11' -and $a16.OscdimgPath -eq 'C:\ADK\oscdimg.exe' -and $a16.MinFreeGB -eq 10 -and $a16.WorkDir -eq 'C:\Users\u\Desktop\WinDebloat\WinDebloat_work' -and $a16.WorkDirConflict -eq 'NewFolder' -and -not $a16.ContainsKey('RemoveApps') -and -not $a16.ContainsKey('Tweaks')) 'simulated Simple run: engine gets Home + Pro, preset safe (default apps / tweaks / compression), oscdimg path, output next to the download'
+Assert ((@($script:sim.Steps) -join ',') -eq 'download,build' -and $sy16.Step -eq 'done') 'simulated Simple run: $sync.Step drives the GUI step text (download -> build -> done)'
+$script:sim = @{ Calls = @(); Osc = 'C:\tools\oscdimg.exe'; DlFail = $true; Args = $null; Steps = @() }
+$r16b = Invoke-W11SimpleBuild -Plan $pl -Sync $sy16
+Assert ($r16b.DownloadFailed -and $r16b.Error -match 'Sentinel' -and $r16b.Stage -eq 'download' -and (@($script:sim.Calls) -notcontains 'build') -and (@($script:sim.Calls) -notcontains 'install:AdkSetup')) 'simulated Simple run: Microsoft refuses -> DownloadFailed (no throw, no build) so the GUI can offer the checked mirror'
+$script:sim = @{ Calls = @(); Osc = $null; DlFail = $false; Args = $null; Steps = @() }
+$r16c = Invoke-W11SimpleBuild -Plan $pl2 -IsoPath 'D:\a.iso' -Sync $sy16 -DryRun -MinFreeGB 0
+Assert ((@($script:sim.Calls) -join '>') -eq 'find>build' -and $script:sim.Args.DryRun -eq $true -and $script:sim.Args.IsoPath -eq 'D:\a.iso' -and $script:sim.Args.TargetOs -eq 'Win10' -and $script:sim.Args.MinFreeGB -eq 0 -and -not $script:sim.Args.ContainsKey('OscdimgPath')) 'Simple dry run with own ISO: nothing installed, created or downloaded; low space accepted -> MinFreeGB 0'
+$script:sim = @{ Calls = @(); Osc = $null; DlFail = $false; Args = $null; Steps = @() }
+$r16d = Invoke-W11SimpleBuild -Plan $pl -Sync $sy16 -DryRun
+Assert ((@($script:sim.Calls) -join '>') -eq 'find>catalog:Win11' -and $r16d.DryRun -and $r16d.Entry.Name -eq '26H2') 'Simple dry run: shows the plan (ADK command, release, language) without installing or downloading'
+$sy16.Cancel = $true
+$canc = $false; try { $null = Invoke-W11SimpleBuild -Plan $pl -Sync $sy16 } catch [System.OperationCanceledException] { $canc = $true }
+$sy16.Cancel = $false; $script:W11D.Sync = $null
+Assert ($canc -and (@($script:sim.Calls) -notcontains 'build')) 'Simple run: Cancel stops before the next step'
+foreach ($n in $fnNames) { Set-Item "function:$n" $saveFn[$n] }
+
+# GUI: mode chooser, switch links, Simple window layout, console switches
+$gs16 = [IO.File]::ReadAllText((Join-Path $root 'lib/Gui.ps1'))
+Assert ($gs16 -match 'function Show-W11ModeChooser' -and $gs16 -match "'@mode\.remember'" -and $gs16 -match "Switch-W11Mode 'Simple'" -and $gs16 -match "Switch-W11Mode 'Advanced'" -and $gs16 -match "'@lnk\.simple'" -and $gs16 -match "'@simple\.toAdvanced'" -and $gs16 -match 'Get-W11StartMode -Mode \$Mode -Settings \$script:Settings' -and $gs16 -match "btnGo = 'rocket'") 'GUI: mode chooser with "remember", switch links both ways, -Mode / remembered mode skip the chooser, rocket icon on START'
+Assert ($gs16 -match "lblWatermark = New-W11Watermark" -and $gs16 -match "SetToolTip\(\`$ui\.lblWatermark, \(T 'tip\.author'\)\)" -and ([regex]::Matches($gs16, 'New-W11Watermark')).Count -ge 3) 'Simple window and chooser keep the watermark (docked, untranslated) with the author tooltip'
+foreach ($ep in @('WinDebloatTool.ps1', 'Win11DebloatTool.ps1')) {
+    $es = [IO.File]::ReadAllText((Join-Path $root $ep))
+    Assert ($es -match "\[ValidateSet\('Simple', 'Advanced'\)\]\[string\]\`$Mode" -and $es -match '\[switch\]\$Simple' -and $es -match '\[string\]\$OutputFolder' -and $es -match "\[string\]\`$IsoLanguage = 'auto'") "${ep}: -Mode Simple|Advanced, -Simple, -OutputFolder, -IsoLanguage"
+}
+$ms = [IO.File]::ReadAllText((Join-Path $root 'WinDebloatTool.ps1'))
+Assert ($ms -match 'Show-W11Gui -Mode \$Mode' -and $ms -match 'Invoke-W11SimpleBuild -Plan \$plan' -and $ms -match 'exit 3') 'console: -Mode opens the GUI in that mode, -Simple runs the Simple flow (download failure -> mirror hint, exit 3)'
+$isoMiss = @($script:W11IsoLanguages | Where-Object { $_ -ne 'auto' -and -not $script:W11IsoLangKeys.ContainsKey($_) })
+Assert ($isoMiss.Count -eq 0) 'every ISO language of the Simple list has a translated name'
+$stepMiss = @()
+foreach ($l in $codes16) { $lt16 = Import-W11Lang $l; foreach ($sk in @('check', 'oscdimg', 'download', 'verify', 'build', 'done', 'cancelling', 'cancelled', 'failed')) { if (-not $lt16.ContainsKey("simple.step.$sk")) { $stepMiss += "$l/$sk" } } }
+Assert ($stepMiss.Count -eq 0) "Simple step texts in vi, en, zh-CN, km ($($stepMiss -join ','))"
+
+$sKeys = @{ lblTitle = 'simple.title'; lblIntro = 'simple.intro'; lblSOs = 'simple.os'; cbSOs = ''; lblSLang = 'simple.lang'; cbSLang = 'simple.langAuto'; lblSOut = 'simple.out'; tbSOut = ''; btnSOut = 'btn.browse'; lblSpace = 'simple.freeLow'
+    btnGo = 'simple.start'; btnCancel = 'btn.cancel'; pb = ''; lblStep = 'simple.step.oscdimg'; lblStatus = ''; lnkSLog = 'simple.showLog'; lblResult = 'simple.result'; btnOpen = 'simple.openFolder'; tbLog = ''; lnkAdvanced = 'simple.toAdvanced'; cbUiLang = ''; lblWatermark = '' }
+$sTop = @('lblTitle', 'lblIntro', 'lblSOs', 'cbSOs', 'lblSLang', 'cbSLang', 'lblSOut', 'tbSOut', 'btnSOut', 'lblSpace', 'btnGo', 'btnCancel', 'pb', 'lblStep', 'lblStatus', 'lnkSLog', 'lblResult', 'btnOpen', 'tbLog', 'lnkAdvanced', 'cbUiLang')
+$sOne = @('lblSOs', 'lblSLang', 'lblSOut', 'btnSOut', 'btnGo', 'btnCancel', 'lnkSLog', 'btnOpen', 'lnkAdvanced')
+$saveUi = $script:ui; $sBad = @()
+foreach ($c in $codes16) {
+    Set-W11Language $c
+    foreach ($sz in @(@(624, 561), @(684, 561), @(1264, 961))) {
+        $mf = New-Object W11MockForm; $mf.ClientSize.Width = $sz[0]; $mf.ClientSize.Height = $sz[1]
+        $mu = @{ form = $mf }
+        foreach ($k in $sKeys.Keys) { $o = New-Object W11MockCtl; $o.Name = $k; if ($sKeys[$k]) { $o.Text = T $sKeys[$k] '15' '25' }; $mu[$k] = $o }
+        foreach ($k in @('btnGo', 'btnSOut', 'btnCancel', 'btnOpen')) { $mu[$k].Image = New-Object W11MockImg }
+        $mu.lblWatermark.Text = $script:W11Watermark; $mu.lblWatermark.Height = 19
+        $mu.btnGo.Font.Height = 21; $mu.lblTitle.Font.Height = 23
+        if ($c -eq 'km') { $mf.Font.Height = 22; foreach ($k in $sKeys.Keys) { $mu[$k].Font.Height = [Math]::Max(22, $mu[$k].Font.Height) } }
+        $script:ui = $mu; $script:LayoutScale = 1.0
+        Set-W11SimpleLayout
+        $wmTop = $sz[1] - $mu.lblWatermark.Height
+        $tag = "simple $c $($sz[0])x$($sz[1])"
+        foreach ($k in $sOne) { $need = Get-W11TextWidth $mu[$k].Text $null; if ($mu[$k].Image) { $need += 22 }; if ($need -gt $mu[$k].Width) { $sBad += "$tag ${k}: text wider than control" } }
+        foreach ($k in @('lblTitle', 'lblIntro')) { if ($mu[$k].Height -lt (Get-W11TextHeight $mu[$k].Text $null $mu[$k].Width)) { $sBad += "$tag ${k}: cut" } }
+        for ($i = 0; $i -lt $sTop.Count; $i++) {
+            $a = $mu[$sTop[$i]]
+            if ($a.Width -le 0 -or $a.Height -le 0) { $sBad += "$tag $($a.Name): empty" }
+            if ($a.Left -lt 0 -or $a.Right -gt $sz[0] -or $a.Bottom -gt $wmTop) { $sBad += "$tag $($a.Name) outside / under the watermark" }
+            for ($j = $i + 1; $j -lt $sTop.Count; $j++) {
+                $b = $mu[$sTop[$j]]
+                if ($a.Left -lt $b.Right -and $b.Left -lt $a.Right -and $a.Top -lt $b.Bottom -and $b.Top -lt $a.Bottom) { $sBad += "$tag overlap $($a.Name) / $($b.Name)" }
+            }
+        }
+        if ($mu.tbLog.Height -lt 40 -or $mu.pb.Right -ne $sz[0] - 14 -or $mu.btnCancel.Right -ne $sz[0] - 14 -or $mu.btnGo.Width -lt 200) { $sBad += "$tag log / progress / START size ($($mu.tbLog.Height) $($mu.pb.Right) $($mu.btnCancel.Right) $($mu.btnGo.Width))" }
+    }
+}
+$script:ui = $saveUi
+Assert ($sBad.Count -eq 0) "Simple window layout: 4 languages x 3 sizes (incl. minimum) - texts fit, no overlaps, log box below, nothing under the watermark ($(@($sBad | Select-Object -First 6) -join '; '))"
+$cBad = @()
+foreach ($c in $codes16) {
+    Set-W11Language $c
+    $mf = New-Object W11MockForm; $mf.ClientSize.Width = 640; $mf.ClientSize.Height = 300
+    $mc = @{ form = $mf }
+    foreach ($k in @('lblHead', 'btnSimple', 'btnAdvanced', 'lblSimple', 'lblAdvanced', 'chkRemember', 'cbUiLang', 'lblWatermark')) { $o = New-Object W11MockCtl; $o.Name = $k; $mc[$k] = $o }
+    $mc.lblHead.Text = T 'mode.title'; $mc.btnSimple.Text = T 'mode.simple'; $mc.btnAdvanced.Text = T 'mode.advanced'; $mc.lblSimple.Text = T 'mode.simpleDesc'; $mc.lblAdvanced.Text = T 'mode.advancedDesc'; $mc.chkRemember.Text = T 'mode.remember'; $mc.lblWatermark.Height = 19
+    if ($c -eq 'km') { $mf.Font.Height = 22; foreach ($k in @($mc.Keys | Where-Object { $_ -ne 'form' })) { $mc[$k].Font.Height = 22 } }
+    $script:mc = $mc; $script:LayoutScale = 1.0
+    $hh = Set-W11ChooserLayout
+    $ks = @('lblHead', 'btnSimple', 'btnAdvanced', 'lblSimple', 'lblAdvanced', 'chkRemember', 'cbUiLang')
+    for ($i = 0; $i -lt $ks.Count; $i++) { $a = $mc[$ks[$i]]; if ($a.Right -gt 640 -or $a.Bottom -gt $hh - 19) { $cBad += "$c $($a.Name) outside" }; for ($j = $i + 1; $j -lt $ks.Count; $j++) { $b = $mc[$ks[$j]]; if ($a.Left -lt $b.Right -and $b.Left -lt $a.Right -and $a.Top -lt $b.Bottom -and $b.Top -lt $a.Bottom) { $cBad += "$c overlap $($a.Name)/$($b.Name)" } } }
+    if ((Get-W11TextWidth $mc.chkRemember.Text $null) + 24 -gt $mc.chkRemember.Width) { $cBad += "$c remember cut" }
+    if ($mc.lblSimple.Height -lt (Get-W11TextHeight $mc.lblSimple.Text $null $mc.lblSimple.Width)) { $cBad += "$c description cut" }
+}
+Set-W11Language 'vi'
+Assert ($cBad.Count -eq 0) "mode chooser layout: 4 languages - window height follows the text, nothing cut or overlapping ($(@($cBad | Select-Object -First 6) -join '; '))"
+Remove-Item -LiteralPath $tdir16 -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "Failures: $script:fail"
 exit $script:fail

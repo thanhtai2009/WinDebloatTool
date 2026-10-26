@@ -29,6 +29,7 @@ aria2, used for fast ISO downloads.
 - [Features](#features)
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
+- [Simple mode](#simple-mode)
 - [Using the GUI](#using-the-gui)
 - [Console mode](#console-mode)
 - [Presets](#presets)
@@ -97,13 +98,52 @@ aria2, used for fast ISO downloads.
    `Get-ChildItem -Recurse 'C:\path\to\WinDebloatTool' | Unblock-File`
 3. Double-click **`run.bat`** and accept the administrator prompt. You can also run
    `WinDebloatTool.ps1` from an elevated PowerShell.
-4. Choose a source ISO, check the apps and options, then click **START**.
+4. Pick a mode. **Simple** does everything with one button (see [Simple mode](#simple-mode)).
+   **Advanced** is the full window: choose a source ISO, check the apps and options, then click **START**.
 5. Write the finished ISO to a USB stick with **Rufus** or **Ventoy**, or use it in a virtual machine.
 
 A build takes about 20–60 minutes. The output folder then contains the ISO, `<name>.iso.sha256`, a
 `WinDebloat_<time>.log` file and `kept_indexN.txt`, the list of apps left in each edition.
 
+## Simple mode
+When the tool starts it asks **Simple** or **Advanced**. Tick *Remember my choice* to skip the question next
+time; the choice is stored in `settings.psd1` next to the tool, or in `%APPDATA%\WinDebloatTool` when the tool
+folder is read-only. *Switch to Advanced* (Simple window) and *Simple mode* (Advanced window) change the mode
+at any time.
+
+The Simple window has three choices and one **START** button:
+- **Windows:** Windows 11 (default) or Windows 10. The architecture follows this PC (x64, arm64 for Windows 11
+  on ARM, x86 for Windows 10 on 32-bit Windows).
+- **ISO language:** *Automatic* follows the interface language: Vietnamese → Vietnamese if Microsoft offers it
+  (it currently does not), otherwise English International; English → English (United States); 简体中文 →
+  Chinese Simplified; Khmer → English International. A short list lets you pick another language.
+- **Save to folder:** Desktop\WinDebloat by default (or `<tool>\output`). The free space is shown; below about
+  15 GB the tool warns before it starts.
+
+**START** then:
+1. finds `oscdimg.exe` (tools folder, then the Windows ADK folders). If it is missing, it downloads the
+   official `adksetup.exe` from Microsoft (go.microsoft.com), checks that it is signed by Microsoft, and runs
+   `adksetup.exe /quiet /norestart /ceip off /features OptionId.DeploymentTools` (Deployment Tools only). On
+   Windows 7 SP1 / 8.x the older official ADK for Windows 10, version 1607 is tried; if that fails, copy
+   `oscdimg.exe` into the `tools` folder.
+2. downloads the newest official ISO from Microsoft (aria2 when available) and checks its SHA256 against
+   Microsoft's table. If Microsoft refuses, you can use the mirror copy of the original file (SHA256 checked,
+   see [Download sources](#download-sources)) or the Microsoft page.
+3. keeps only **Home** and **Pro** (by edition ID `Core` / `Professional`, so N, Single Language and other
+   editions are left out, also on translated media), removes apps and applies tweaks with the **Safe** preset
+   (the default selection, default compression) and builds `<iso name>_debloated.iso` in the same folder.
+
+A progress bar and the current step are shown; *Show log* opens the log, **Cancel** stops safely after the
+current step (the ADK installer and a running DISM command finish first). At the end *Open folder* shows the
+new ISO. Administrator rights (run.bat) and internet are needed; a build takes about 30–90 minutes.
+
+Console: `run.bat -Mode Simple` opens the Simple window directly (`-Mode Advanced` the full window), and
+`run.bat -Simple -OutputFolder D:\ISO [-TargetOs Win10] [-IsoLanguage "English International"] [-IsoPath D:\my.iso] [-DryRun]`
+runs the same flow without a window.
+
 ## Using the GUI
+The full (**Advanced**) window:
+
 **1. Source ISO**
 - **Local ISO file:** click *Browse...* and pick an ISO you already have.
 - **Download the official ISO from Microsoft:** choose the version and architecture, click *Load languages*,
@@ -134,7 +174,8 @@ selection quickly. Apps that are not in the image are skipped and logged.
 the source.
 
 Bottom row: **System check** reports Windows, PowerShell, .NET, TLS 1.2, DISM, oscdimg and free space.
-**Install oscdimg** installs the ADK Deployment Tools. **START** and **Cancel** control the build, and
+**Install oscdimg** installs the ADK Deployment Tools (Windows 7 / 8.x: the older official ADK 1607).
+*Simple mode* (next to the language box) switches to the Simple window. **START** and **Cancel** control the build, and
 *Open the log folder* opens the logs.
 
 ## Console mode

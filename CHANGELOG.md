@@ -26,13 +26,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   skipped. Nothing is downloaded.
 - **Presets**: built-in *An toàn / Safe* and *Gọn tối đa / Aggressive*, save and load your own `.json`
   (never with a password); `-Preset` on the console.
-- New button icons (`sliders`, `package`); new tests for the JSON reader, data files, answer file, presets,
+- **Simple mode**: at start the tool asks *Simple* or *Advanced* (*Remember my choice* stores it in
+  `settings.psd1`; switch links in both windows; `-Mode Simple|Advanced`). The Simple window has Windows 11/10,
+  ISO language (follows the UI language; Vietnamese falls back to English International because Microsoft
+  has no Vietnamese ISO) and an output folder with a free-space check. One **START** button installs oscdimg
+  if needed, downloads the newest official ISO from Microsoft (SHA256 checked; mirror offer if Microsoft
+  refuses), keeps Home + Pro and applies the Safe preset, with progress, step text, log, Cancel and
+  *Open folder*. Console: `-Simple` (with `-OutputFolder`, `-IsoLanguage`, `-IsoPath`, `-DryRun`).
+- **Automatic oscdimg**: the official ADK installer is checked for a Microsoft signature (where
+  `Get-AuthenticodeSignature` exists), exit codes 0 / 3010 are accepted, missing administrator rights and no
+  internet give clear messages; Windows 7 SP1 / 8.x hosts try the official ADK for Windows 10, version 1607
+  (best effort), otherwise a "copy oscdimg into tools" message.
+- New button icons (`sliders`, `package`, `rocket`); new tests for the JSON reader, data files, answer file, presets,
   update ordering / failure handling and a mocked pipeline with updates, WinRE, `boot.wim` and a preset.
 
 ### Changed
 - The options area is now a tab control (Options / Unattended setup / Updates) with a preset row below the
   lists; pages scroll instead of clipping text at large fonts.
 - `boot.wim` is serviced on a copy outside the ISO tree; on any failure the original is kept.
+- *Home + Pro* is chosen by edition ID `Core` / `Professional` (edition IDs from the WIM XML when DISM
+  prints translated labels; localized names as a fallback), so N / Single Language editions are never kept.
 - README: "About the author" section; the watermark shows a tooltip about the author (4 languages).
 - License and README copyright line: "Copyright (c) 2026 TaiNT13@PNC STG & WinDebloat Tool contributors".
 

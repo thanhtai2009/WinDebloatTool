@@ -49,7 +49,7 @@
     'grp.output' = '4. ISO đầu ra'
     'btn.saveAs' = 'Lưu thành...'
     'btn.check' = 'Kiểm tra máy'
-    'btn.osc' = 'Cài oscdimg'
+    'btn.osc' = 'Tự cài oscdimg'
     'btn.start' = 'BẮT ĐẦU'
     'btn.cancel' = 'Huỷ'
     'status.ready' = 'Sẵn sàng'
@@ -161,4 +161,67 @@ Tối đa 20 ký tự, không chứa các ký tự " / \ [ ] : ; | = , + * ? < >
 {0}'
     'lvl.aggressive' = 'mạnh tay'
     'w.packages' = '{0} gói'
+    'mode.title' = 'Bạn muốn dùng chế độ nào?'
+    'mode.simple' = 'Đơn giản'
+    'mode.advanced' = 'Nâng cao'
+    'mode.simpleDesc' = 'Chỉ một nút bấm: tự tải ISO Windows mới nhất từ Microsoft, giữ Home + Pro, gỡ ứng dụng và tinh chỉnh theo mặc định, tự cài oscdimg rồi tạo ISO mới.'
+    'mode.advancedDesc' = 'Toàn quyền tuỳ chỉnh: chọn ISO và phiên bản, chọn từng ứng dụng, tinh chỉnh, file trả lời, bản cập nhật, mẫu cấu hình...'
+    'mode.remember' = 'Nhớ lựa chọn (lần sau không hỏi lại)'
+    'lnk.simple' = 'Chế độ Đơn giản'
+    'simple.title' = 'Tạo ISO Windows gọn nhẹ chỉ với một nút bấm'
+    'simple.intro' = 'Chọn phiên bản Windows, ngôn ngữ ISO và nơi lưu rồi bấm BẮT ĐẦU. Công cụ sẽ tải ISO mới nhất từ Microsoft (kiểm tra SHA256), chỉ giữ Home + Pro, gỡ ứng dụng thừa và áp dụng tinh chỉnh theo mẫu An toàn, tự cài oscdimg nếu chưa có rồi tạo ISO mới. Cần quyền quản trị và Internet; mất khoảng 30-90 phút.'
+    'simple.os' = 'Windows:'
+    'simple.lang' = 'Ngôn ngữ ISO:'
+    'simple.langAuto' = 'Tự động (tiếng Việt nếu Microsoft có, nếu không thì tiếng Anh quốc tế)'
+    'simple.out' = 'Lưu vào thư mục:'
+    'simple.free' = 'Còn trống {0} GB'
+    'simple.freeLow' = 'Chỉ còn {0} GB trống - nên có ít nhất {1} GB'
+    'simple.start' = 'BẮT ĐẦU'
+    'simple.showLog' = 'Xem log'
+    'simple.hideLog' = 'Ẩn log'
+    'simple.openFolder' = 'Mở thư mục'
+    'simple.toAdvanced' = 'Chuyển sang Nâng cao'
+    'simple.ready' = 'Sẵn sàng. Bấm BẮT ĐẦU.'
+    'simple.result' = 'ISO mới: {0}'
+    'simple.step.check' = 'Đang kiểm tra...'
+    'simple.step.oscdimg' = 'Bước 1/3: chuẩn bị oscdimg (tự cài Windows ADK Deployment Tools nếu chưa có)'
+    'simple.step.download' = 'Bước 2/3: tải ISO từ Microsoft và kiểm tra SHA256'
+    'simple.step.verify' = 'Đang kiểm tra SHA256 của file ISO từ mirror...'
+    'simple.step.build' = 'Bước 3/3: giữ Home + Pro, gỡ ứng dụng, tinh chỉnh và tạo ISO'
+    'simple.step.done' = 'Hoàn tất!'
+    'simple.step.cancelling' = 'Đang huỷ... (chờ bước hiện tại kết thúc)'
+    'simple.step.cancelled' = 'Đã huỷ.'
+    'simple.step.failed' = 'Có lỗi - bấm "Xem log" để xem chi tiết.'
+    'msg.simpleConfirm' = 'Chế độ Đơn giản sẽ:
+- Tải {0} ({1}, {2}) mới nhất từ Microsoft
+- Chỉ giữ Home + Pro, gỡ ứng dụng và tinh chỉnh theo mẫu An toàn
+- Tự cài oscdimg (Windows ADK Deployment Tools) nếu chưa có
+- Lưu ISO tải về và ISO mới vào: {3}
+
+Có thể mất 30-90 phút. Tiếp tục?'
+    'msg.simpleLowSpace' = 'Ổ đĩa chỉ còn {0} GB trống, nên có ít nhất {1} GB (ISO tải về + thư mục tạm + ISO mới).
+Vẫn tiếp tục?'
+    'msg.simpleDlFailed' = 'Không tải được ISO từ Microsoft:
+{0}'
+    'msg.simpleFolderBad' = 'Không dùng được thư mục này (hãy chọn một thư mục trên ổ đĩa trong máy):
+{0}'
+    'msg.simpleNeedAdmin' = 'Cần quyền quản trị để tạo ISO và cài oscdimg.
+Hãy đóng công cụ và mở lại bằng run.bat (tự xin quyền quản trị).'
+    'msg.oscNeedAdmin' = 'Cài Windows ADK cần quyền quản trị.
+Hãy mở lại công cụ bằng run.bat (tự xin quyền quản trị).'
+    'msg.oscLegacy' = 'Không tìm thấy oscdimg.exe. Windows ADK hiện tại không cài được trên Windows 7/8.x, nên công cụ sẽ thử bản ADK chính thức cũ hơn: {0} (chỉ cài Deployment Tools).
+Nếu không cài được, hãy chép oscdimg.exe từ một máy Windows 10/11 đã cài ADK (Deployment Tools\amd64\Oscdimg) vào:
+{1}
+
+Thử cài ngay?'
+    'isoLang.enIntl' = 'Tiếng Anh quốc tế (English International)'
+    'isoLang.en' = 'Tiếng Anh - Mỹ (English)'
+    'isoLang.zhCn' = 'Tiếng Trung giản thể (Chinese Simplified)'
+    'isoLang.zhTw' = 'Tiếng Trung phồn thể (Chinese Traditional)'
+    'isoLang.th' = 'Tiếng Thái (Thai)'
+    'isoLang.ja' = 'Tiếng Nhật (Japanese)'
+    'isoLang.ko' = 'Tiếng Hàn (Korean)'
+    'isoLang.fr' = 'Tiếng Pháp (French)'
+    'isoLang.de' = 'Tiếng Đức (German)'
+    'isoLang.es' = 'Tiếng Tây Ban Nha (Spanish)'
 }

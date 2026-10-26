@@ -29,6 +29,7 @@ thứ ba duy nhất đi kèm là aria2, dùng để tải ISO nhanh hơn.
 - [Tính năng](#tính-năng)
 - [Yêu cầu](#yêu-cầu)
 - [Bắt đầu nhanh](#bắt-đầu-nhanh)
+- [Chế độ Đơn giản](#chế-độ-đơn-giản)
 - [Hướng dẫn giao diện](#hướng-dẫn-giao-diện)
 - [Chế độ dòng lệnh](#chế-độ-dòng-lệnh)
 - [Mẫu cấu hình](#mẫu-cấu-hình)
@@ -97,13 +98,52 @@ thứ ba duy nhất đi kèm là aria2, dùng để tải ISO nhanh hơn.
    `Get-ChildItem -Recurse 'C:\duong\dan\WinDebloatTool' | Unblock-File`
 3. Bấm đúp **`run.bat`** và đồng ý cấp quyền Administrator. Cũng có thể chạy `WinDebloatTool.ps1` từ
    PowerShell đang chạy với quyền Administrator.
-4. Chọn ISO nguồn, chọn ứng dụng và tuỳ chọn, rồi bấm **BẮT ĐẦU**.
+4. Chọn chế độ. **Đơn giản** làm hết mọi việc chỉ với một nút bấm (xem [Chế độ Đơn giản](#chế-độ-đơn-giản)).
+   **Nâng cao** là giao diện đầy đủ: chọn ISO nguồn, chọn ứng dụng và tuỳ chọn, rồi bấm **BẮT ĐẦU**.
 5. Ghi ISO ra USB bằng **Rufus** hoặc **Ventoy**, hoặc dùng cho máy ảo.
 
 Mỗi lần tạo mất khoảng 20–60 phút. Thư mục đầu ra sẽ có file ISO, `<tên>.iso.sha256`, file nhật ký
 `WinDebloat_<giờ>.log` và các file `kept_indexN.txt` (danh sách ứng dụng còn lại trong từng phiên bản).
 
+## Chế độ Đơn giản
+Khi mở, công cụ hỏi bạn muốn dùng chế độ **Đơn giản** hay **Nâng cao**. Đánh dấu *Nhớ lựa chọn* để lần sau
+không hỏi lại; lựa chọn được lưu trong `settings.psd1` cạnh công cụ, hoặc trong `%APPDATA%\WinDebloatTool` nếu
+thư mục công cụ không ghi được. Có thể đổi chế độ bất cứ lúc nào bằng liên kết *Chuyển sang Nâng cao* (cửa sổ
+Đơn giản) hoặc *Chế độ Đơn giản* (cửa sổ Nâng cao).
+
+Cửa sổ Đơn giản chỉ có ba lựa chọn và một nút **BẮT ĐẦU**:
+- **Windows:** Windows 11 (mặc định) hoặc Windows 10. Kiến trúc theo máy đang dùng (x64; arm64 với Windows 11
+  trên máy ARM; x86 với Windows 10 trên Windows 32-bit).
+- **Ngôn ngữ ISO:** *Tự động* theo ngôn ngữ giao diện: tiếng Việt → ISO tiếng Việt nếu Microsoft có (hiện
+  Microsoft không có), nếu không thì English International; English → English (Mỹ); 简体中文 → Chinese
+  Simplified; tiếng Khmer → English International. Có danh sách ngắn để chọn ngôn ngữ khác.
+- **Lưu vào thư mục:** mặc định là Desktop\WinDebloat (hoặc `<thư mục công cụ>\output`). Dung lượng trống được
+  hiển thị; nếu dưới khoảng 15 GB, công cụ sẽ cảnh báo trước khi chạy.
+
+Bấm **BẮT ĐẦU**, công cụ sẽ:
+1. tìm `oscdimg.exe` (thư mục tools, rồi các thư mục Windows ADK). Nếu chưa có, công cụ tải `adksetup.exe`
+   chính thức của Microsoft (go.microsoft.com), kiểm tra chữ ký số của Microsoft rồi chạy
+   `adksetup.exe /quiet /norestart /ceip off /features OptionId.DeploymentTools` (chỉ cài Deployment Tools).
+   Trên Windows 7 SP1 / 8.x, công cụ thử bản ADK chính thức cũ hơn (ADK cho Windows 10, bản 1607); nếu không
+   được, hãy chép `oscdimg.exe` vào thư mục `tools`.
+2. tải ISO mới nhất từ Microsoft (dùng aria2 nếu có) và đối chiếu SHA256 với bảng mã Microsoft công bố. Nếu
+   Microsoft từ chối, bạn có thể dùng bản sao file gốc trên mirror (có kiểm tra SHA256, xem
+   [Nguồn tải ISO](#nguồn-tải-iso)) hoặc mở trang Microsoft.
+3. chỉ giữ **Home** và **Pro** (theo EditionID `Core` / `Professional`, nên bản N, Single Language và các
+   phiên bản khác bị bỏ, kể cả với ISO ngôn ngữ khác), gỡ ứng dụng và áp dụng tinh chỉnh theo mẫu **An toàn**
+   (lựa chọn mặc định, nén mặc định) rồi tạo `<tên iso>_debloated.iso` trong cùng thư mục.
+
+Trong lúc chạy có thanh tiến trình và tên bước hiện tại; *Xem log* hiện nhật ký, **Huỷ** dừng an toàn sau bước
+hiện tại (bộ cài ADK và lệnh DISM đang chạy sẽ chạy xong trước). Khi xong, bấm *Mở thư mục* để thấy ISO mới.
+Cần quyền quản trị (mở bằng run.bat) và Internet; mỗi lần tạo mất khoảng 30–90 phút.
+
+Dòng lệnh: `run.bat -Mode Simple` mở thẳng cửa sổ Đơn giản (`-Mode Advanced` mở giao diện đầy đủ), còn
+`run.bat -Simple -OutputFolder D:\ISO [-TargetOs Win10] [-IsoLanguage "English International"] [-IsoPath D:\my.iso] [-DryRun]`
+chạy cùng quy trình đó mà không mở cửa sổ.
+
 ## Hướng dẫn giao diện
+Giao diện đầy đủ (chế độ **Nâng cao**):
+
 **1. ISO nguồn**
 - **File ISO có sẵn trên máy:** bấm *Chọn...* để chọn file ISO.
 - **Tải ISO gốc từ Microsoft:** chọn phiên bản và kiến trúc, bấm *Lấy ngôn ngữ*, chọn ngôn ngữ rồi bấm

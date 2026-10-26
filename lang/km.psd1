@@ -161,4 +161,67 @@
 {0}'
     'lvl.aggressive' = 'ខ្លាំង'
     'w.packages' = '{0} កញ្ចប់'
+    'mode.title' = 'តើអ្នកចង់ប្រើរបៀបណា?'
+    'mode.simple' = 'ងាយស្រួល'
+    'mode.advanced' = 'កម្រិតខ្ពស់'
+    'mode.simpleDesc' = 'ចុចប៊ូតុងតែមួយ៖ ទាញយក ISO Windows ចុងក្រោយពី Microsoft រក្សាទុក Home + Pro លុបកម្មវិធី និងកែសម្រួលតាមលំនាំដើម (សុវត្ថិភាព) ដំឡើង oscdimg ដោយស្វ័យប្រវត្តិ ហើយបង្កើត ISO ថ្មី។'
+    'mode.advancedDesc' = 'គ្រប់គ្រងពេញលេញ៖ ជ្រើស ISO និងកំណែ ជ្រើសកម្មវិធី និងការកែសម្រួលនីមួយៗ ឯកសារចម្លើយ ការធ្វើបច្ចុប្បន្នភាព គំរូកំណត់...'
+    'mode.remember' = 'ចងចាំជម្រើសរបស់ខ្ញុំ (មិនសួរម្ដងទៀត)'
+    'lnk.simple' = 'របៀបងាយស្រួល'
+    'simple.title' = 'បង្កើត ISO Windows ស្រាលដោយចុចប៊ូតុងតែមួយ'
+    'simple.intro' = 'ជ្រើស Windows ភាសា ISO និងថតរក្សាទុក រួចចុច ចាប់ផ្ដើម។ កម្មវិធីនឹងទាញយក ISO ចុងក្រោយពី Microsoft (ពិនិត្យ SHA256) រក្សាតែ Home + Pro លុបកម្មវិធីមិនចាំបាច់ និងកែសម្រួលតាមគំរូ សុវត្ថិភាព ដំឡើង oscdimg បើមិនទាន់មាន ហើយបង្កើត ISO ថ្មី។ ត្រូវការសិទ្ធិអ្នកគ្រប់គ្រង និងអ៊ីនធឺណិត ប្រហែល 30-90 នាទី។'
+    'simple.os' = 'Windows៖'
+    'simple.lang' = 'ភាសា ISO៖'
+    'simple.langAuto' = 'ស្វ័យប្រវត្តិ (អង់គ្លេស អន្តរជាតិ)'
+    'simple.out' = 'រក្សាទុកក្នុងថត៖'
+    'simple.free' = 'ទំហំទំនេរ {0} GB'
+    'simple.freeLow' = 'នៅសល់តែ {0} GB - គួរមានយ៉ាងហោចណាស់ {1} GB'
+    'simple.start' = 'ចាប់ផ្ដើម'
+    'simple.showLog' = 'បង្ហាញកំណត់ហេតុ'
+    'simple.hideLog' = 'លាក់កំណត់ហេតុ'
+    'simple.openFolder' = 'បើកថត'
+    'simple.toAdvanced' = 'ប្ដូរទៅកម្រិតខ្ពស់'
+    'simple.ready' = 'រួចរាល់។ ចុច ចាប់ផ្ដើម។'
+    'simple.result' = 'ISO ថ្មី៖ {0}'
+    'simple.step.check' = 'កំពុងពិនិត្យ...'
+    'simple.step.oscdimg' = 'ជំហាន 1/3៖ រៀបចំ oscdimg (ដំឡើង Windows ADK Deployment Tools បើមិនទាន់មាន)'
+    'simple.step.download' = 'ជំហាន 2/3៖ ទាញយក ISO ពី Microsoft និងពិនិត្យ SHA256'
+    'simple.step.verify' = 'កំពុងពិនិត្យ SHA256 នៃ ISO ពី mirror...'
+    'simple.step.build' = 'ជំហាន 3/3៖ រក្សា Home + Pro លុបកម្មវិធី កែសម្រួល និងបង្កើត ISO'
+    'simple.step.done' = 'រួចរាល់!'
+    'simple.step.cancelling' = 'កំពុងបោះបង់... (រង់ចាំជំហានបច្ចុប្បន្នបញ្ចប់)'
+    'simple.step.cancelled' = 'បានបោះបង់។'
+    'simple.step.failed' = 'មានបញ្ហា - ចុច "បង្ហាញកំណត់ហេតុ" ដើម្បីមើលលម្អិត។'
+    'msg.simpleConfirm' = 'របៀបងាយស្រួលនឹង៖
+- ទាញយក {0} ចុងក្រោយ ({1}, {2}) ពី Microsoft
+- រក្សាតែ Home + Pro លុបកម្មវិធី និងកែសម្រួលតាមគំរូ សុវត្ថិភាព
+- ដំឡើង oscdimg (Windows ADK Deployment Tools) បើមិនទាន់មាន
+- រក្សាទុក ISO ដែលបានទាញយក និង ISO ថ្មីក្នុង៖ {3}
+
+អាចចំណាយពេល 30-90 នាទី។ បន្តទេ?'
+    'msg.simpleLowSpace' = 'ថាសនេះនៅសល់តែ {0} GB គួរមានយ៉ាងហោចណាស់ {1} GB (ISO ដែលបានទាញយក + ថតបណ្ដោះអាសន្ន + ISO ថ្មី)។
+នៅតែបន្តទេ?'
+    'msg.simpleDlFailed' = 'មិនអាចទាញយក ISO ពី Microsoft បានទេ៖
+{0}'
+    'msg.simpleFolderBad' = 'មិនអាចប្រើថតនេះបានទេ (សូមជ្រើសថតនៅលើថាសក្នុងម៉ាស៊ីន)៖
+{0}'
+    'msg.simpleNeedAdmin' = 'ត្រូវការសិទ្ធិអ្នកគ្រប់គ្រងដើម្បីបង្កើត ISO និងដំឡើង oscdimg។
+សូមបិទកម្មវិធី ហើយបើកម្ដងទៀតដោយ run.bat (វានឹងស្នើសុំសិទ្ធិ)។'
+    'msg.oscNeedAdmin' = 'ការដំឡើង Windows ADK ត្រូវការសិទ្ធិអ្នកគ្រប់គ្រង។
+សូមបើកកម្មវិធីម្ដងទៀតដោយ run.bat (វានឹងស្នើសុំសិទ្ធិ)។'
+    'msg.oscLegacy' = 'រកមិនឃើញ oscdimg.exe ទេ។ Windows ADK បច្ចុប្បន្នមិនអាចដំឡើងលើ Windows 7/8.x បានទេ ដូច្នេះកម្មវិធីនឹងសាកល្បងកំណែផ្លូវការចាស់ជាង {0} (តែ Deployment Tools)។
+បើមិនបាន សូមចម្លង oscdimg.exe ពីកុំព្យូទ័រ Windows 10/11 ដែលមាន ADK (Deployment Tools\amd64\Oscdimg) ទៅ៖
+{1}
+
+សាកល្បងឥឡូវនេះទេ?'
+    'isoLang.enIntl' = 'អង់គ្លេស អន្តរជាតិ (English International)'
+    'isoLang.en' = 'អង់គ្លេស - អាមេរិក (English)'
+    'isoLang.zhCn' = 'ចិនសាមញ្ញ (Chinese Simplified)'
+    'isoLang.zhTw' = 'ចិនបុរាណ (Chinese Traditional)'
+    'isoLang.th' = 'ថៃ (Thai)'
+    'isoLang.ja' = 'ជប៉ុន (Japanese)'
+    'isoLang.ko' = 'កូរ៉េ (Korean)'
+    'isoLang.fr' = 'បារាំង (French)'
+    'isoLang.de' = 'អាល្លឺម៉ង់ (German)'
+    'isoLang.es' = 'អេស្ប៉ាញ (Spanish)'
 }

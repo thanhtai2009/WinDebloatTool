@@ -161,4 +161,67 @@
 {0}'
     'lvl.aggressive' = '激进'
     'w.packages' = '{0} 个包'
+    'mode.title' = '选择使用模式'
+    'mode.simple' = '简单'
+    'mode.advanced' = '高级'
+    'mode.simpleDesc' = '一键完成：从 Microsoft 下载最新官方 Windows ISO，保留 Home + Pro，按默认（安全）设置删除应用并应用调整，必要时自动安装 oscdimg，然后生成新 ISO。'
+    'mode.advancedDesc' = '完全自定义：选择 ISO 和版本，逐项选择应用和调整、应答文件、更新、配置模板……'
+    'mode.remember' = '记住我的选择（下次不再询问）'
+    'lnk.simple' = '简单模式'
+    'simple.title' = '一键生成精简版 Windows ISO'
+    'simple.intro' = '选择 Windows 版本、ISO 语言和保存位置，然后点击“开始”。工具会从 Microsoft 下载最新 ISO（校验 SHA256），只保留 Home + Pro，删除多余应用并应用“安全”模板的调整，缺少 oscdimg 时自动安装，然后生成新 ISO。需要管理员权限和网络，约需 30-90 分钟。'
+    'simple.os' = 'Windows：'
+    'simple.lang' = 'ISO 语言：'
+    'simple.langAuto' = '自动（简体中文）'
+    'simple.out' = '保存到文件夹：'
+    'simple.free' = '可用空间 {0} GB'
+    'simple.freeLow' = '仅剩 {0} GB 可用空间，建议至少 {1} GB'
+    'simple.start' = '开始'
+    'simple.showLog' = '显示日志'
+    'simple.hideLog' = '隐藏日志'
+    'simple.openFolder' = '打开文件夹'
+    'simple.toAdvanced' = '切换到高级模式'
+    'simple.ready' = '就绪。请点击“开始”。'
+    'simple.result' = '新 ISO：{0}'
+    'simple.step.check' = '正在检查……'
+    'simple.step.oscdimg' = '第 1/3 步：准备 oscdimg（缺少时自动安装 Windows ADK Deployment Tools）'
+    'simple.step.download' = '第 2/3 步：从 Microsoft 下载 ISO 并校验 SHA256'
+    'simple.step.verify' = '正在校验镜像 ISO 的 SHA256……'
+    'simple.step.build' = '第 3/3 步：保留 Home + Pro、删除应用、应用调整并生成 ISO'
+    'simple.step.done' = '完成！'
+    'simple.step.cancelling' = '正在取消……（等待当前步骤结束）'
+    'simple.step.cancelled' = '已取消。'
+    'simple.step.failed' = '出错了，点击“显示日志”查看详情。'
+    'msg.simpleConfirm' = '简单模式将：
+- 从 Microsoft 下载最新的 {0}（{1}，{2}）
+- 只保留 Home + Pro，按“安全”模板删除应用并应用调整
+- 缺少 oscdimg 时自动安装（Windows ADK Deployment Tools）
+- 下载的 ISO 和新 ISO 保存到：{3}
+
+可能需要 30-90 分钟。是否继续？'
+    'msg.simpleLowSpace' = '此磁盘仅剩 {0} GB 可用空间，建议至少 {1} GB（下载的 ISO + 临时文件夹 + 新 ISO）。
+仍要继续吗？'
+    'msg.simpleDlFailed' = '无法从 Microsoft 下载 ISO：
+{0}'
+    'msg.simpleFolderBad' = '无法使用此文件夹（请选择本机磁盘上的文件夹）：
+{0}'
+    'msg.simpleNeedAdmin' = '生成 ISO 和安装 oscdimg 需要管理员权限。
+请关闭本工具，再通过 run.bat 启动（会自动请求权限）。'
+    'msg.oscNeedAdmin' = '安装 Windows ADK 需要管理员权限。
+请通过 run.bat 重新启动本工具（会自动请求权限）。'
+    'msg.oscLegacy' = '未找到 oscdimg.exe。当前的 Windows ADK 无法安装在 Windows 7/8.x 上，因此将尝试较旧的官方版本 {0}（仅 Deployment Tools）。
+如果安装失败，请从已安装 ADK 的 Windows 10/11 电脑复制 oscdimg.exe（Deployment Tools\amd64\Oscdimg）到：
+{1}
+
+现在尝试安装吗？'
+    'isoLang.enIntl' = '英语 - 国际（English International）'
+    'isoLang.en' = '英语 - 美国（English）'
+    'isoLang.zhCn' = '简体中文'
+    'isoLang.zhTw' = '繁体中文'
+    'isoLang.th' = '泰语（Thai）'
+    'isoLang.ja' = '日语（Japanese）'
+    'isoLang.ko' = '韩语（Korean）'
+    'isoLang.fr' = '法语（French）'
+    'isoLang.de' = '德语（German）'
+    'isoLang.es' = '西班牙语（Spanish）'
 }

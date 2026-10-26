@@ -39,6 +39,7 @@ $script:W11ButtonIcons = @{
     btnCheck = 'shield-check'; btnOsc = 'wrench'; btnStart = 'broom'; btnCancel = 'stop'
     btnPresetApply = 'sliders'; btnPresetLoad = 'folder-open'; btnPresetSave = 'save'; btnUpdBrowse = 'folder-open'; btnUpdScan = 'package'
     picMs = 'globe'; picLog = 'folder'
+    btnGo = 'rocket'; btnSOut = 'folder-open'; btnOpen = 'folder'   # Simple window
 }
 
 function Get-W11DpiScale {
@@ -342,7 +343,13 @@ function Set-W11Layout {
         $pw = & $picW $ui.picLog
         if ($ui.picLog) { $ui.picLog.SetBounds($ui.lnkLog.Left - [Math]::Max(1, $pw), $ys, [Math]::Max(1, $pw), $statusH) }
         $ui.cbUiLang.SetBounds($ui.lnkLog.Left - $pw - (& $px 10) - (& $px 150), $ys, (& $px 150), $rowH)
-        $ui.lblStatus.SetBounds($M, $ys + (& $px 3), [Math]::Max(50, $ui.cbUiLang.Left - (& $px 10) - $M), $statusH - (& $px 3))
+        $xs = $ui.cbUiLang.Left - (& $px 10)
+        if ($ui.lnkSimple) {
+            $w = & $lblW $ui.lnkSimple
+            $ui.lnkSimple.SetBounds($xs - $w, $ys + (& $px 3), $w, $statusH - (& $px 3))
+            $xs = $ui.lnkSimple.Left - (& $px 10)
+        }
+        $ui.lblStatus.SetBounds($M, $ys + (& $px 3), [Math]::Max(50, $xs - $M), $statusH - (& $px 3))
         $yl = $ys + $statusH + (& $px 4)
         $ui.tbLog.SetBounds($M, $yl, $gw, [Math]::Max((& $px 60), $ch - $wm.Height - (& $px 6) - $yl))
     } finally {
@@ -766,7 +773,8 @@ function Select-W11Mirror {
 }
 
 function Invoke-W11MirrorOffer {
-    param([object[]]$Choices)
+    # -OnFile { param($Path, $Mirror) ... } replaces the default 'verify, then use as source' (Simple mode)
+    param([object[]]$Choices, [scriptblock]$OnFile)
     $m = Select-W11Mirror $Choices
     if (-not $m) { return }
     $hostName = Get-MsUrlHost $m.Url
@@ -781,6 +789,7 @@ function Invoke-W11MirrorOffer {
     $dir = Get-W11DownloadFolder $script:Settings
     if (Test-W11PathText $dir -Container) { $d.InitialDirectory = $dir }
     if ($d.ShowDialog($script:ui.form) -ne 'OK') { return }
+    if ($OnFile) { & $OnFile $d.FileName $m; return }
     Start-W11MirrorVerify -Path $d.FileName -Mirror $m
 }
 
@@ -1187,10 +1196,18 @@ function Set-W11UiTexts {
 function Invoke-W11OscInstall {
     # official Microsoft source only: adksetup.exe /features OptionId.DeploymentTools, or winget Microsoft.WindowsADK
     param([switch]$ThenStart)
-    if ((Get-W11OsBuild) -lt 10240) { Show-W11Msg (T 'msg.oscWin7' (Join-Path $script:W11Root 'tools')) 'Warning' | Out-Null; return }
-    $ans = [string](Show-W11Msg (T 'msg.oscPrompt' $script:AdkUrl) 'Question' 'YesNoCancel')
-    if ($ans -eq 'Cancel') { return }
-    $m = 'AdkSetup'; if ($ans -eq 'No') { $m = 'Winget' }
+    $plan = Get-W11AdkSetupPlan
+    if (-not $plan.Supported) { Show-W11Msg (T 'msg.oscWin7' (Join-Path $script:W11Root 'tools')) 'Warning' | Out-Null; return }
+    if (-not (Test-W11Admin)) { Show-W11Msg (T 'msg.oscNeedAdmin') 'Warning' | Out-Null; return }
+    $m = 'AdkSetup'
+    if ($plan.Legacy) {
+        # Windows 7 SP1 / 8.x: only the older official ADK (Windows 10, version 1607) can install here
+        if ([string](Show-W11Msg (T 'msg.oscLegacy' $plan.Version (Join-Path $script:W11Root 'tools')) 'Question' 'YesNo') -ne 'Yes') { return }
+    } else {
+        $ans = [string](Show-W11Msg (T 'msg.oscPrompt' $script:AdkUrl) 'Question' 'YesNoCancel')
+        if ($ans -eq 'Cancel') { return }
+        if ($ans -eq 'No') { $m = 'Winget' }
+    }
     $script:AfterOsc = [bool]$ThenStart
     $script:ui.lblStatus.Text = T 'status.oscInstalling'
     [void](Start-W11Job -Name 'Install ADK' -Script '$null = Install-W11Oscdimg -Method $JobArgs.Method' -JobArgs @{ Method = $m } -OnDone {
@@ -1202,28 +1219,568 @@ function Invoke-W11OscInstall {
         })
 }
 
-function Show-W11Gui {
+#region ---------- Simple mode / mode chooser ----------
+# Microsoft language name -> language-file key (the combo shows a translated name, the engine gets Microsoft's name)
+$script:W11IsoLangKeys = @{
+    'English International' = 'isoLang.enIntl'; 'English' = 'isoLang.en'; 'Chinese Simplified' = 'isoLang.zhCn'; 'Chinese Traditional' = 'isoLang.zhTw'
+    'Thai' = 'isoLang.th'; 'Japanese' = 'isoLang.ja'; 'Korean' = 'isoLang.ko'; 'French' = 'isoLang.fr'; 'German' = 'isoLang.de'; 'Spanish' = 'isoLang.es'
+}
+
+function Get-W11StartMode {
+    # -Mode Simple|Advanced wins; else the remembered mode (when 'remember' is on); '' = ask with the chooser
+    param([string]$Mode, [hashtable]$Settings)
+    if ($Mode -match '^(?i)simple$') { return 'Simple' }
+    if ($Mode -match '^(?i)advanced$') { return 'Advanced' }
+    if ($Settings -and [string]$Settings.RememberMode -eq '1') {
+        if ([string]$Settings.Mode -match '^(?i)simple$') { return 'Simple' }
+        if ([string]$Settings.Mode -match '^(?i)advanced$') { return 'Advanced' }
+    }
+    return ''
+}
+
+function Set-W11ModeSetting {
+    # remembers the mode (strings only: settings.psd1 is a data file); returns the settings table
+    param([hashtable]$Settings, [string]$Mode, [bool]$Remember)
+    if (-not $Settings) { $Settings = @{} }
+    $Settings.Mode = $Mode
+    if ($Remember) { $Settings.RememberMode = '1' } else { $Settings.RememberMode = '0' }
+    return $Settings
+}
+
+function Initialize-W11GuiSession {
+    # once per process: WinForms setup, one log file, the shared $sync table, settings, language, config
+    if ($script:GuiSession) { return }
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
     [Windows.Forms.Application]::EnableVisualStyles()
     try { [Windows.Forms.Application]::SetUnhandledExceptionMode([Windows.Forms.UnhandledExceptionMode]::CatchException) } catch { $null = $_ }
-    $script:H = @{}
-    $script:PendingJob = $null; $script:TickFailed = $false
     $script:W11D.LogPath = Get-W11GuiLogPath
-
     $script:Sync = [hashtable]::Synchronized(@{
             LogQueue = [Collections.Queue]::Synchronized((New-Object Collections.Queue))
-            Percent = 0; Status = ''; Cancel = $false; Result = $null; Error = $null; UiLang = 'vi'
+            Percent = 0; Status = ''; Step = ''; Cancel = $false; Result = $null; Error = $null; UiLang = 'vi'; MirrorCheck = $null
         })
     $script:W11D.Sync = $script:Sync
     $script:Job = $null
     $script:Settings = Read-W11Settings
     Set-W11Language ([string]$script:Settings.Language)
     $script:InstalledFonts = Get-W11InstalledFonts
+    $script:Cfg = Get-W11Config
+    $script:GuiSession = $true
+}
+
+function New-W11Watermark {
+    # bottom-docked, never translated, author tooltip (same as the Advanced window)
+    $w = New-Object Windows.Forms.Label
+    $w.Name = 'lblWatermark'
+    $w.AutoSize = $false
+    $w.UseMnemonic = $false
+    $w.Dock = 'Bottom'
+    $w.TextAlign = 'MiddleRight'
+    $w.Padding = New-Object Windows.Forms.Padding 0, 0, 12, 2
+    $w.ForeColor = [Drawing.SystemColors]::GrayText
+    $w.BackColor = [Drawing.Color]::Transparent
+    $w.Font = New-Object Drawing.Font 'Segoe UI', 7.5
+    $w.Text = $script:W11Watermark
+    $w.Height = $w.Font.Height + 6
+    return $w
+}
+
+function Set-W11ChooserLayout {
+    # mode chooser: heading, two big buttons side by side with their description below, remember box + language
+    $ui = $script:mc
+    if (-not $ui -or -not $ui.form) { return }
+    $f = $ui.form
+    $s = Get-W11DpiScale
+    $px = { param([double]$v) [int][Math]::Round($v * $s) }
+    $M = & $px 16; $gap = & $px 16
+    $cw = $f.ClientSize.Width
+    $colW = [int](($cw - 2 * $M - $gap) / 2)
+    $y = $M
+    $h = Get-W11TextHeight $ui.lblHead.Text $ui.lblHead.Font ($cw - 2 * $M)
+    $ui.lblHead.SetBounds($M, $y, $cw - 2 * $M, $h); $y += $h + (& $px 12)
+    $bH = [Math]::Max((& $px 56), $ui.btnSimple.Font.Height + (& $px 26))
+    $ui.btnSimple.SetBounds($M, $y, $colW, $bH)
+    $ui.btnAdvanced.SetBounds($M + $colW + $gap, $y, $colW, $bH)
+    $y += $bH + (& $px 8)
+    $h1 = Get-W11TextHeight $ui.lblSimple.Text $ui.lblSimple.Font $colW
+    $h2 = Get-W11TextHeight $ui.lblAdvanced.Text $ui.lblAdvanced.Font $colW
+    $ui.lblSimple.SetBounds($M, $y, $colW, $h1)
+    $ui.lblAdvanced.SetBounds($M + $colW + $gap, $y, $colW, $h2)
+    $y += [Math]::Max($h1, $h2) + (& $px 14)
+    $rowH = [Math]::Max((& $px 23), $f.Font.Height + (& $px 8))
+    $lw = (Get-W11TextWidth $ui.chkRemember.Text $ui.chkRemember.Font) + (& $px 24)
+    $ui.cbUiLang.SetBounds($cw - $M - (& $px 150), $y, (& $px 150), $rowH)
+    $ui.chkRemember.SetBounds($M, $y, [Math]::Min($lw, $ui.cbUiLang.Left - $gap - $M), $rowH)
+    $y += $rowH + $M
+    $wmH = 0; if ($ui.lblWatermark) { $wmH = $ui.lblWatermark.Height }
+    return ($y + $wmH)
+}
+
+function Set-W11ChooserTexts {
+    $ui = $script:mc
+    $fam = Get-W11FontFor -Code $script:UiLang -Installed $script:InstalledFonts
+    $ui.form.Font = New-Object Drawing.Font $fam, 9
+    $ui.lblHead.Font = New-Object Drawing.Font $fam, 12, ([Drawing.FontStyle]::Bold)
+    foreach ($b in @($ui.btnSimple, $ui.btnAdvanced)) { $b.Font = New-Object Drawing.Font $fam, 12, ([Drawing.FontStyle]::Bold) }
+    $ui.lblWatermark.Font = New-Object Drawing.Font $fam, 7.5
+    $ui.form.Text = T 'app.title' $script:W11D.Version
+    foreach ($c in $ui.form.Controls) { if ($c.Tag -is [string] -and ([string]$c.Tag).StartsWith('@')) { $c.Text = T ([string]$c.Tag).Substring(1) } }
+    $ui.tip.SetToolTip($ui.lblWatermark, (T 'tip.author'))
+    $ui.tip.SetToolTip($ui.cbUiLang, (T 'tip.uiLang'))
+    $h = Set-W11ChooserLayout
+    $ui.form.ClientSize = New-Object Drawing.Size $ui.form.ClientSize.Width, $h
+}
+
+function Show-W11ModeChooser {
+    # 'Simple', 'Advanced' or '' (window closed)
+    $ui = @{}
+    $script:mc = $ui
+    $f = New-Object Windows.Forms.Form
+    $f.StartPosition = 'CenterScreen'; $f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.MinimizeBox = $true
+    $f.ClientSize = New-Object Drawing.Size ([int](640 * (Get-W11DpiScale))), 300
+    $f.Font = New-Object Drawing.Font 'Segoe UI', 9
+    Set-W11FormIcon $f
+    $ui.form = $f
+    $ui.tip = New-Object Windows.Forms.ToolTip
+    $ui.lblHead = New-W11Ctl Label '@mode.title' 0 0 10 10
+    $ui.btnSimple = New-W11Ctl Button '@mode.simple' 0 0 10 10
+    $ui.btnAdvanced = New-W11Ctl Button '@mode.advanced' 0 0 10 10
+    foreach ($p in @(@($ui.btnSimple, 'rocket'), @($ui.btnAdvanced, 'sliders'))) {
+        $img = Get-W11IconImage $p[1]
+        if ($img) { $p[0].Image = $img; $p[0].ImageAlign = 'MiddleCenter'; $p[0].TextAlign = 'MiddleCenter'; $p[0].TextImageRelation = 'ImageBeforeText' }
+    }
+    $ui.lblSimple = New-W11Ctl Label '@mode.simpleDesc' 0 0 10 10
+    $ui.lblAdvanced = New-W11Ctl Label '@mode.advancedDesc' 0 0 10 10
+    foreach ($l in @($ui.lblSimple, $ui.lblAdvanced)) { $l.ForeColor = [Drawing.SystemColors]::GrayText }
+    $ui.chkRemember = New-W11Ctl CheckBox '@mode.remember' 0 0 10 10
+    $ui.chkRemember.Checked = ([string]$script:Settings.RememberMode -eq '1')
+    $ui.cbUiLang = New-W11Ctl ComboBox '' 0 0 150 23
+    $ui.cbUiLang.DropDownStyle = 'DropDownList'
+    foreach ($lg in $script:W11Langs) { [void]$ui.cbUiLang.Items.Add($lg.Name) }
+    for ($i = 0; $i -lt $script:W11Langs.Count; $i++) { if ($script:W11Langs[$i].Code -eq $script:UiLang) { $ui.cbUiLang.SelectedIndex = $i } }
+    $ui.lblWatermark = New-W11Watermark
+    $f.Controls.AddRange(@($ui.lblHead, $ui.btnSimple, $ui.btnAdvanced, $ui.lblSimple, $ui.lblAdvanced, $ui.chkRemember, $ui.cbUiLang, $ui.lblWatermark))
+    $script:ChosenMode = ''
+    $ui.btnSimple.Add_Click({ $script:ChosenMode = 'Simple'; $script:mc.form.Close() })
+    $ui.btnAdvanced.Add_Click({ $script:ChosenMode = 'Advanced'; $script:mc.form.Close() })
+    $ui.cbUiLang.Add_SelectedIndexChanged({
+            try {
+                $i = $script:mc.cbUiLang.SelectedIndex
+                if ($i -lt 0 -or $script:W11Langs[$i].Code -eq $script:UiLang) { return }
+                Set-W11Language $script:W11Langs[$i].Code
+                $script:Settings.Language = $script:UiLang
+                $null = Save-W11Settings $script:Settings
+                Set-W11ChooserTexts
+            } catch { $null = $_ }
+        })
+    Set-W11ChooserTexts
+    [void]$f.ShowDialog()
+    $mode = $script:ChosenMode
+    if ($mode) {
+        $script:Settings = Set-W11ModeSetting -Settings $script:Settings -Mode $mode -Remember ([bool]$ui.chkRemember.Checked)
+        $null = Save-W11Settings $script:Settings
+        Write-W11Log -En "Mode chosen: $mode (remember: $([bool]$ui.chkRemember.Checked))" -Vi "Đã chọn chế độ: $mode"
+    }
+    $f.Dispose()
+    return $mode
+}
+
+function Switch-W11Mode {
+    # switch link in either window: closes it and opens the other one (never while a task runs)
+    param([string]$To)
+    if ($script:Job) { Show-W11Msg (T 'msg.jobRunning') 'Warning' | Out-Null; return }
+    $script:NextMode = $To
+    if ([string]$script:Settings.RememberMode -eq '1') { $script:Settings.Mode = $To; $null = Save-W11Settings $script:Settings }
+    Write-W11Log -En "Switching to $To mode" -Vi "Chuyển sang chế độ $To"
+    $script:ui.form.Close()
+}
+
+function Get-W11SimpleLangItems {
+    # combo items of the Simple window: [0] automatic (follows the UI language), then the fixed list
+    $items = @(T 'simple.langAuto')
+    foreach ($n in @($script:W11IsoLanguages | Where-Object { $_ -ne 'auto' })) { $k = $script:W11IsoLangKeys[$n]; if ($k) { $items += (T $k) } else { $items += $n } }
+    return $items
+}
+
+function Get-W11SimpleLangChoice {
+    $i = $script:ui.cbSLang.SelectedIndex
+    if ($i -le 0) { return 'auto' }
+    return @($script:W11IsoLanguages | Where-Object { $_ -ne 'auto' })[$i - 1]
+}
+
+function Set-W11SimpleLayout {
+    <# Simple window: title + intro, three input rows, big START + Cancel, progress, step, status, log link,
+       result + Open folder, log box (when shown), bottom row with the switch link and the UI language. #>
+    $ui = $script:ui
+    if (-not $ui -or -not $ui.form -or -not $ui.btnGo) { return }
+    $f = $ui.form
+    $cw = $f.ClientSize.Width; $ch = $f.ClientSize.Height
+    if ($cw -lt 300 -or $ch -lt 300) { return }
+    $s = Get-W11DpiScale
+    $px = { param([double]$v) [int][Math]::Round($v * $s) }
+    $tw = { param($c) (Get-W11TextWidth $c.Text $c.Font) }
+    $imgW = { param($c) if ($c.Image) { $c.Image.Width + (& $px 6) } else { 0 } }
+    $btnW = { param($c, [int]$min) [Math]::Max((& $px $min), (& $tw $c) + (& $imgW $c) + (& $px 24)) }
+    $lblW = { param($c) (& $tw $c) + (& $px 4) }
+    $M = & $px 14; $gap = & $px 8
+    $rowH = [Math]::Max((& $px 23), $f.Font.Height + (& $px 8))
+    $bh = [Math]::Max((& $px 27), $f.Font.Height + (& $px 11))
+    $fullW = $cw - 2 * $M
+    $f.SuspendLayout()
+    try {
+        $y = $M
+        $h = Get-W11TextHeight $ui.lblTitle.Text $ui.lblTitle.Font $fullW; $ui.lblTitle.SetBounds($M, $y, $fullW, $h); $y += $h + (& $px 4)
+        $h = Get-W11TextHeight $ui.lblIntro.Text $ui.lblIntro.Font $fullW; $ui.lblIntro.SetBounds($M, $y, $fullW, $h); $y += $h + (& $px 12)
+        $lw = [Math]::Max([Math]::Max((& $lblW $ui.lblSOs), (& $lblW $ui.lblSLang)), (& $lblW $ui.lblSOut)) + (& $px 6)
+        $x = $M + $lw; $rest = $cw - $M - $x
+        $ui.lblSOs.SetBounds($M, $y + (& $px 3), $lw, $rowH - (& $px 3))
+        $ui.cbSOs.SetBounds($x, $y, [Math]::Min((& $px 220), $rest), $rowH); $y += [Math]::Max($rowH, $bh) + (& $px 4)
+        $ui.lblSLang.SetBounds($M, $y + (& $px 3), $lw, $rowH - (& $px 3))
+        $ui.cbSLang.SetBounds($x, $y, [Math]::Min((& $px 420), $rest), $rowH); $y += [Math]::Max($rowH, $bh) + (& $px 4)
+        $w = & $btnW $ui.btnSOut 100
+        $ui.lblSOut.SetBounds($M, $y + (& $px 3), $lw, $rowH - (& $px 3))
+        $ui.btnSOut.SetBounds($cw - $M - $w, $y - (& $px 2), $w, $bh)
+        $ui.tbSOut.SetBounds($x, $y, [Math]::Max((& $px 60), $ui.btnSOut.Left - $gap - $x), $rowH); $y += [Math]::Max($rowH, $bh) + (& $px 2)
+        $ui.lblSpace.SetBounds($x, $y, $rest, $rowH - (& $px 4)); $y += $rowH + (& $px 8)
+        $bigH = [Math]::Max((& $px 46), $ui.btnGo.Font.Height + (& $px 22))
+        $wc = & $btnW $ui.btnCancel 110
+        $ui.btnCancel.SetBounds($cw - $M - $wc, $y, $wc, $bigH)
+        $ui.btnGo.SetBounds($M, $y, $ui.btnCancel.Left - $gap - $M, $bigH); $y += $bigH + (& $px 8)
+        $ui.pb.SetBounds($M, $y, $fullW, (& $px 20)); $y += (& $px 20) + (& $px 6)
+        $h = [Math]::Max($rowH, $ui.lblStep.Font.Height + (& $px 6)); $ui.lblStep.SetBounds($M, $y, $fullW, $h); $y += $h
+        $ui.lblStatus.SetBounds($M, $y, $fullW, $rowH - (& $px 4)); $y += $rowH
+        $w = & $btnW $ui.btnOpen 120
+        $ui.btnOpen.SetBounds($cw - $M - $w, $y, $w, $bh)
+        $wl = & $lblW $ui.lnkSLog
+        $ui.lnkSLog.SetBounds($M, $y + (& $px 4), $wl, $rowH - (& $px 4))
+        $ui.lblResult.SetBounds($ui.lnkSLog.Right + $gap * 2, $y + (& $px 4), [Math]::Max((& $px 40), $ui.btnOpen.Left - $gap - $ui.lnkSLog.Right - $gap * 2), $rowH - (& $px 4))
+        $y += [Math]::Max($rowH, $bh) + (& $px 6)
+        $wmH = 0; if ($ui.lblWatermark) { $wmH = $ui.lblWatermark.Height }
+        $yb = $ch - $wmH - (& $px 4) - $rowH
+        $ui.cbUiLang.SetBounds($cw - $M - (& $px 150), $yb, (& $px 150), $rowH)
+        $wa = & $lblW $ui.lnkAdvanced
+        $ui.lnkAdvanced.SetBounds($M, $yb + (& $px 4), [Math]::Min($wa, $ui.cbUiLang.Left - $gap - $M), $rowH - (& $px 4))
+        $ui.tbLog.SetBounds($M, $y, $fullW, [Math]::Max((& $px 40), $yb - $gap - $y))
+        $script:SimpleContentBottom = $y
+    } finally {
+        $f.ResumeLayout($true)
+    }
+}
+
+function Invoke-W11SimpleLayout {
+    try { Set-W11SimpleLayout }
+    catch { if (-not $script:LayoutFailed) { $script:LayoutFailed = $true; Show-W11Error -Context 'layout' -ErrorRecord $_ } }
+}
+
+function Update-W11SimpleSpace {
+    # free space of the drive of the chosen folder (the folder may not exist yet)
+    $ui = $script:ui
+    $dir = Resolve-W11FullPath (ConvertTo-W11CleanPath $ui.tbSOut.Text)
+    $ui.lblSpace.ForeColor = [Drawing.SystemColors]::GrayText
+    if (-not $dir) { $ui.lblSpace.Text = ''; return $null }
+    try { $free = Get-W11FreeGB -Path $dir } catch { $ui.lblSpace.Text = Get-W11LocalText $_.Exception.Message $script:UiLang; $ui.lblSpace.ForeColor = [Drawing.Color]::Firebrick; return $null }
+    if ($free -lt $script:W11SimpleMinFreeGB) { $ui.lblSpace.Text = T 'simple.freeLow' $free $script:W11SimpleMinFreeGB; $ui.lblSpace.ForeColor = [Drawing.Color]::Firebrick }
+    else { $ui.lblSpace.Text = T 'simple.free' $free }
+    return $free
+}
+
+function Set-W11SimpleStepText {
+    # step line from $sync.Step + overall progress (download 5-45 %, build 45-100 %, build only 0-100 %)
+    $ui = $script:ui
+    $st = [string]$script:Sync.Step
+    if (-not $st -or -not $script:Job -or $script:Job.Background) { return }
+    $ui.lblStep.Text = T ('simple.step.' + $st)
+    $p = [int]$script:Sync.Percent; if ($p -lt 0) { $p = 0 }; if ($p -gt 100) { $p = 100 }
+    $v = $p
+    if ($script:SimpleHasDownload) {
+        switch ($st) { 'check' { $v = 0 } 'oscdimg' { $v = 2 } 'download' { $v = 5 + [int]($p * 0.4) } 'build' { $v = 45 + [int]($p * 0.55) } 'done' { $v = 100 } }
+    }
+    $ui.pb.Value = [Math]::Max(0, [Math]::Min(100, $v))
+}
+
+function Set-W11SimpleTexts {
+    $ui = $script:ui
+    $fam = Get-W11FontFor -Code $script:UiLang -Installed $script:InstalledFonts
+    $ui.form.Font = New-Object Drawing.Font $fam, 9
+    $ui.lblTitle.Font = New-Object Drawing.Font $fam, 13, ([Drawing.FontStyle]::Bold)
+    $ui.btnGo.Font = New-Object Drawing.Font $fam, 12, ([Drawing.FontStyle]::Bold)
+    $ui.lblStep.Font = New-Object Drawing.Font $fam, 9.5, ([Drawing.FontStyle]::Bold)
+    $ui.lblWatermark.Font = New-Object Drawing.Font $fam, 7.5
+    $ui.lblWatermark.Text = $script:W11Watermark
+    $ui.form.Text = (T 'app.title' $script:W11D.Version) + ' - ' + (T 'mode.simple')
+    foreach ($c in $ui.form.Controls) { if ($c.Tag -is [string] -and ([string]$c.Tag).StartsWith('@')) { $c.Text = T ([string]$c.Tag).Substring(1) } }
+    if ($ui.tbLog.Visible) { $ui.lnkSLog.Text = T 'simple.hideLog' } else { $ui.lnkSLog.Text = T 'simple.showLog' }
+    $i = $ui.cbSLang.SelectedIndex; if ($i -lt 0) { $i = 0 }
+    $ui.cbSLang.Items.Clear(); foreach ($t in @(Get-W11SimpleLangItems)) { [void]$ui.cbSLang.Items.Add($t) }
+    $ui.cbSLang.SelectedIndex = $i
+    $ui.tip.SetToolTip($ui.lblWatermark, (T 'tip.author'))
+    $ui.tip.SetToolTip($ui.cbUiLang, (T 'tip.uiLang'))
+    if (-not $script:Job) { $ui.lblStep.Text = T 'simple.ready'; $ui.lblStatus.Text = '' }
+    if ($script:SimpleIso) { $ui.lblResult.Text = T 'simple.result' $script:SimpleIso }
+    $null = Update-W11SimpleSpace
+    Invoke-W11SimpleLayout
+}
+
+function Start-W11SimpleJob {
+    # runs a Simple-mode plan (or only its build, with an ISO that passed the mirror SHA256 check)
+    param($Plan, $Mirror, [string]$MirrorPath)
+    $script:Sync.Step = 'check'; $script:Sync.MirrorCheck = $null
+    $script:SimpleHasDownload = (-not $Mirror)
+    $script:ui.btnOpen.Visible = $false; $script:ui.lblResult.Text = ''; $script:SimpleIso = $null
+    $script:ui.pb.Value = 0
+    $opts = Get-MsAria2Options -Config $script:Cfg
+    $code = '$sync.Result = Invoke-W11SimpleBuild -Plan $JobArgs.Plan -Sync $sync -DownloadOptions $JobArgs.Options'
+    if ($Mirror) {
+        $script:Sync.Step = 'verify'
+        $code = @'
+$v = Test-MsMirrorFile -Path $JobArgs.Path -Mirror $JobArgs.Mirror
+$sync.MirrorCheck = $v
+if ($v.Ok) { $sync.Result = Invoke-W11SimpleBuild -Plan $JobArgs.Plan -IsoPath $v.Path -Sync $sync }
+'@
+    }
+    [void](Start-W11Job -Name 'Simple mode' -Script $code -JobArgs @{ Plan = $Plan; Options = $opts; Mirror = $Mirror; Path = $MirrorPath } -OnDone { Complete-W11SimpleRun })
+}
+
+function Complete-W11SimpleRun {
+    $ui = $script:ui
+    $r = $script:Sync.Result
+    $mc = $script:Sync.MirrorCheck
+    if ($script:Sync.Error) {
+        if ($script:Sync.Cancel) { $ui.lblStep.Text = T 'simple.step.cancelled'; $ui.lblStatus.Text = ''; return }
+        $ui.lblStep.Text = T 'simple.step.failed'
+        Show-W11Msg (T 'msg.failed' (Get-W11LocalText $script:Sync.Error $script:UiLang)) 'Error' | Out-Null
+        return
+    }
+    if ($mc -and -not $mc.Ok) {
+        $ui.lblStep.Text = T 'simple.step.failed'
+        if ($mc.Deleted) { Show-W11Msg (T 'msg.mirrorBad' $mc.Path $mc.Hash $mc.Expected) 'Error' | Out-Null }
+        else { Show-W11Msg (T 'msg.mirrorBadKept' $mc.Path $mc.Error) 'Error' | Out-Null }
+        return
+    }
+    if ($r -and $r.DownloadFailed) { $ui.lblStep.Text = T 'simple.step.failed'; Show-W11SimpleMirror $r; return }
+    if ($r -and $r.Build) {
+        $ui.pb.Value = 100
+        $ui.lblStep.Text = T 'simple.step.done'
+        $script:SimpleIso = [string]$r.Build.OutputIso
+        $ui.lblResult.Text = T 'simple.result' $script:SimpleIso
+        $ui.btnOpen.Visible = $true
+        Show-W11Msg (T 'msg.done' $r.Build.OutputIso $r.Build.Sha256) | Out-Null
+    }
+}
+
+function Show-W11SimpleMirror {
+    # Microsoft could not deliver: offer the SHA256-checked mirror copy (user downloads it in the browser) or the Microsoft page
+    param($Result)
+    $plan = $script:SimplePlan
+    $rel = ''; if ($Result.Entry) { $rel = $Result.Entry.Name }
+    $choices = @(Get-MsMirrorCandidates -Config $script:Cfg -Os $plan.Os -Arch $plan.Arch -ReleaseName $rel)
+    $txt = T 'msg.simpleDlFailed' (Get-W11LocalText ([string]$Result.Error) $script:UiLang)
+    $logTxt = ''; if ($script:W11D.LogPath) { $logTxt = "`n`n" + (T 'msg.logFile' $script:W11D.LogPath) }
+    if ($choices.Count -gt 0) {
+        $ans = [string](Show-W11Msg ($txt + "`n`n" + (T 'q.tryMirror') + $logTxt) 'Warning' 'YesNoCancel')
+        if ($ans -eq 'Yes') { Invoke-W11MirrorOffer $choices -OnFile { param($p, $m) Start-W11SimpleJob -Plan $script:SimplePlan -Mirror $m -MirrorPath $p } }
+        elseif ($ans -eq 'No') { Start-Process $script:MsDl.Pages[$plan.Os] }
+        return
+    }
+    if ([string](Show-W11Msg ($txt + "`n`n" + (T 'q.openMs') + $logTxt) 'Warning' 'YesNo') -eq 'Yes') { Start-Process $script:MsDl.Pages[$plan.Os] }
+}
+
+function Show-W11SimpleGui {
+    $script:H = @{}
+    $script:PendingJob = $null; $script:TickFailed = $false; $script:LayoutFailed = $false
+    $script:SimpleIso = $null; $script:SimplePlan = $null; $script:SimpleHasDownload = $true
+    $ui = @{}
+    $script:ui = $ui
+    $sc = Get-W11DpiScale
+    $f = New-Object Windows.Forms.Form
+    $f.ClientSize = New-Object Drawing.Size ([int](700 * $sc)), ([int](600 * $sc))
+    $f.MinimumSize = New-Object Drawing.Size ([int](640 * $sc)), ([int](600 * $sc))
+    $f.StartPosition = 'CenterScreen'
+    $f.Font = New-Object Drawing.Font 'Segoe UI', 9
+    Set-W11FormIcon $f
+    $ui.form = $f
+    $ui.tip = New-Object Windows.Forms.ToolTip
+    $ui.lblTitle = New-W11Ctl Label '@simple.title' 0 0 10 10
+    $ui.lblIntro = New-W11Ctl Label '@simple.intro' 0 0 10 10
+    $ui.lblIntro.ForeColor = [Drawing.SystemColors]::GrayText
+    $ui.lblSOs = New-W11Ctl Label '@simple.os' 0 0 10 10
+    $ui.cbSOs = New-W11Ctl ComboBox '' 0 0 10 10
+    [void]$ui.cbSOs.Items.Add('Windows 11'); [void]$ui.cbSOs.Items.Add('Windows 10')
+    $ui.lblSLang = New-W11Ctl Label '@simple.lang' 0 0 10 10
+    $ui.cbSLang = New-W11Ctl ComboBox '' 0 0 10 10
+    foreach ($cb in @($ui.cbSOs, $ui.cbSLang)) { $cb.DropDownStyle = 'DropDownList' }
+    $ui.cbSLang.DropDownWidth = [int](360 * $sc)
+    $ui.lblSOut = New-W11Ctl Label '@simple.out' 0 0 10 10
+    $ui.tbSOut = New-W11Ctl TextBox '' 0 0 10 10
+    $ui.btnSOut = New-W11Ctl Button '@btn.browse' 0 0 10 10
+    $ui.lblSpace = New-W11Ctl Label '' 0 0 10 10
+    $ui.lblSpace.AutoEllipsis = $true
+    $ui.btnGo = New-W11Ctl Button '@simple.start' 0 0 10 10
+    $ui.btnCancel = New-W11Ctl Button '@btn.cancel' 0 0 10 10
+    $ui.btnCancel.Enabled = $false
+    $ui.pb = New-W11Ctl ProgressBar '' 0 0 10 10
+    $ui.pb.Minimum = 0; $ui.pb.Maximum = 100
+    $ui.lblStep = New-W11Ctl Label '@simple.ready' 0 0 10 10
+    $ui.lblStep.AutoEllipsis = $true
+    $ui.lblStatus = New-W11Ctl Label '' 0 0 10 10
+    $ui.lblStatus.AutoEllipsis = $true
+    $ui.lblStatus.ForeColor = [Drawing.SystemColors]::GrayText
+    $ui.lnkSLog = New-W11Ctl LinkLabel '@simple.showLog' 0 0 10 10
+    $ui.lblResult = New-W11Ctl Label '' 0 0 10 10
+    $ui.lblResult.AutoEllipsis = $true
+    $ui.btnOpen = New-W11Ctl Button '@simple.openFolder' 0 0 10 10
+    $ui.btnOpen.Visible = $false
+    $ui.tbLog = New-W11Ctl TextBox '' 0 0 10 10
+    $ui.tbLog.Multiline = $true; $ui.tbLog.ScrollBars = 'Both'; $ui.tbLog.ReadOnly = $true; $ui.tbLog.WordWrap = $false
+    $ui.tbLog.MaxLength = 2147483647
+    $ui.tbLog.Font = New-Object Drawing.Font 'Consolas', 8.5
+    $ui.tbLog.Visible = $false
+    $ui.lnkAdvanced = New-W11Ctl LinkLabel '@simple.toAdvanced' 0 0 10 10
+    $ui.cbUiLang = New-W11Ctl ComboBox '' 0 0 150 23
+    $ui.cbUiLang.DropDownStyle = 'DropDownList'
+    foreach ($lg in $script:W11Langs) { [void]$ui.cbUiLang.Items.Add($lg.Name) }
+    $ui.lblWatermark = New-W11Watermark
+    $f.Controls.AddRange(@($ui.lblTitle, $ui.lblIntro, $ui.lblSOs, $ui.cbSOs, $ui.lblSLang, $ui.cbSLang, $ui.lblSOut, $ui.tbSOut, $ui.btnSOut, $ui.lblSpace, $ui.btnGo, $ui.btnCancel,
+            $ui.pb, $ui.lblStep, $ui.lblStatus, $ui.lnkSLog, $ui.lblResult, $ui.btnOpen, $ui.tbLog, $ui.lnkAdvanced, $ui.cbUiLang, $ui.lblWatermark))
+    Set-W11ControlIcons
+    $script:BusyControls = @($ui.cbSOs, $ui.cbSLang, $ui.tbSOut, $ui.btnSOut, $ui.btnGo, $ui.lnkAdvanced, $ui.cbUiLang)
+
+    # remembered choices
+    $st = $script:Settings
+    $ui.cbSOs.SelectedIndex = 0; if ([string]$st.SimpleOs -eq 'Win10') { $ui.cbSOs.SelectedIndex = 1 }
+    foreach ($t in @(Get-W11SimpleLangItems)) { [void]$ui.cbSLang.Items.Add($t) }
+    $li = 0; $ln = @($script:W11IsoLanguages | Where-Object { $_ -ne 'auto' })
+    for ($i = 0; $i -lt $ln.Count; $i++) { if ($ln[$i] -eq [string]$st.SimpleIsoLanguage) { $li = $i + 1 } }
+    $ui.cbSLang.SelectedIndex = $li
+    $dir = [string]$st.SimpleFolder
+    if (-not $dir) { $dir = Get-W11SimpleDefaultFolder }
+    $ui.tbSOut.Text = $dir
+    for ($i = 0; $i -lt $script:W11Langs.Count; $i++) { if ($script:W11Langs[$i].Code -eq $script:UiLang) { $ui.cbUiLang.SelectedIndex = $i } }
+    Set-W11SimpleTexts
+    $f.Add_Resize({ Invoke-W11SimpleLayout })
+
+    # ---------- events ----------
+    $script:H['cbUiLang.SelectedIndexChanged'] = {
+        $i = $script:ui.cbUiLang.SelectedIndex
+        if ($i -lt 0) { return }
+        $code = $script:W11Langs[$i].Code
+        if ($code -eq $script:UiLang) { return }
+        Set-W11Language $code
+        Set-W11SimpleTexts
+        $script:Settings.Language = $code
+        $null = Save-W11Settings $script:Settings
+    }
+    $ui.cbUiLang.Add_SelectedIndexChanged({ Invoke-W11Handler 'cbUiLang.SelectedIndexChanged' })
+    $script:H['tbSOut.Leave'] = { $null = Update-W11SimpleSpace }
+    $ui.tbSOut.Add_Leave({ Invoke-W11Handler 'tbSOut.Leave' })
+    $script:H['btnSOut.Click'] = {
+        $d = New-Object Windows.Forms.FolderBrowserDialog
+        $d.Description = T 'simple.out'
+        $cur = Resolve-W11FullPath (ConvertTo-W11CleanPath $script:ui.tbSOut.Text)
+        if ($cur -and (Test-W11PathText $cur -Container)) { $d.SelectedPath = $cur }
+        if ($d.ShowDialog($script:ui.form) -ne 'OK') { return }
+        $script:ui.tbSOut.Text = [string]$d.SelectedPath
+        $null = Update-W11SimpleSpace
+    }
+    $ui.btnSOut.Add_Click({ Invoke-W11Handler 'btnSOut.Click' })
+    $script:H['lnkSLog.LinkClicked'] = {
+        $u = $script:ui
+        $show = -not $u.tbLog.Visible
+        $u.tbLog.Visible = $show
+        if ($show) { $u.lnkSLog.Text = T 'simple.hideLog' } else { $u.lnkSLog.Text = T 'simple.showLog' }
+        $add = [int](220 * (Get-W11DpiScale))
+        if ($u.form.WindowState -eq 'Normal') {
+            if ($show) { $u.form.Height = $u.form.Height + $add }
+            elseif ($u.form.Height - $add -ge $u.form.MinimumSize.Height) { $u.form.Height = $u.form.Height - $add }
+        }
+        Invoke-W11SimpleLayout
+    }
+    $ui.lnkSLog.Add_LinkClicked({ Invoke-W11Handler 'lnkSLog.LinkClicked' })
+    $script:H['btnOpen.Click'] = {
+        $p = $script:SimpleIso
+        if (Test-W11PathText $p -Leaf) { Start-Process 'explorer.exe' -ArgumentList ('/select,"' + $p + '"') }
+        elseif ($script:SimplePlan) { Start-Process 'explorer.exe' -ArgumentList ('"' + $script:SimplePlan.OutputFolder + '"') }
+    }
+    $ui.btnOpen.Add_Click({ Invoke-W11Handler 'btnOpen.Click' })
+    $script:H['lnkAdvanced.LinkClicked'] = { Switch-W11Mode 'Advanced' }
+    $ui.lnkAdvanced.Add_LinkClicked({ Invoke-W11Handler 'lnkAdvanced.LinkClicked' })
+    $script:H['btnCancel.Click'] = {
+        $script:Sync.Cancel = $true
+        $script:ui.lblStep.Text = T 'simple.step.cancelling'
+        Write-W11Log -Level WARN -En 'Cancel requested - downloads stop at once; the ADK install and DISM steps finish their current step first.' -Vi 'Đã yêu cầu huỷ - việc tải dừng ngay, cài ADK và các bước DISM sẽ dừng sau bước hiện tại.'
+    }
+    $ui.btnCancel.Add_Click({ Invoke-W11Handler 'btnCancel.Click' })
+    $script:H['btnGo.Click'] = {
+        $u = $script:ui
+        $dir = Resolve-W11FullPath (ConvertTo-W11CleanPath $u.tbSOut.Text)
+        if (-not $dir) { Show-W11Msg (T 'msg.simpleFolderBad' $u.tbSOut.Text) 'Warning' | Out-Null; return }
+        if ($dir.StartsWith('\\')) { Show-W11Msg (T 'msg.simpleFolderBad' $dir) 'Warning' | Out-Null; return }
+        if (-not (Test-W11Admin)) { Show-W11Msg (T 'msg.simpleNeedAdmin') 'Warning' | Out-Null; return }
+        $free = Update-W11SimpleSpace
+        if ($null -eq $free) { Show-W11Msg (T 'msg.simpleFolderBad' $dir) 'Warning' | Out-Null; return }
+        try { New-W11Directory $dir } catch { Show-W11Msg ((T 'msg.simpleFolderBad' $dir) + "`n" + (Get-W11LocalText $_.Exception.Message $script:UiLang)) 'Warning' | Out-Null; return }
+        $u.tbSOut.Text = $dir
+        $os = 'Win11'; if ($u.cbSOs.SelectedIndex -eq 1) { $os = 'Win10' }
+        $plan = Get-W11SimplePlan -Os $os -UiLang $script:UiLang -LangChoice (Get-W11SimpleLangChoice) -OutputFolder $dir -FreeGB $free
+        if ($plan.LowSpace) {
+            if ([string](Show-W11Msg (T 'msg.simpleLowSpace' $free $plan.MinFreeGB) 'Warning' 'YesNo') -ne 'Yes') { return }
+            $plan.BuildMinFreeGB = 0
+            Write-W11Log -Level WARN -En "Low free space accepted by the user: $free GB" -Vi "Người dùng vẫn tiếp tục dù chỉ còn $free GB trống"
+        }
+        $langTxt = $u.cbSLang.Text
+        $osTxt = 'Windows 11'; if ($os -eq 'Win10') { $osTxt = 'Windows 10' }
+        if ([string](Show-W11Msg (T 'msg.simpleConfirm' $osTxt $plan.Arch $langTxt $dir) 'Question' 'YesNo') -ne 'Yes') { return }
+        $script:Settings.SimpleFolder = $dir; $script:Settings.SimpleOs = $os; $script:Settings.SimpleIsoLanguage = $plan.LangChoice
+        $null = Save-W11Settings $script:Settings
+        $script:SimplePlan = $plan
+        $u.tbLog.Clear()
+        Start-W11SimpleJob -Plan $plan
+    }
+    $ui.btnGo.Add_Click({ Invoke-W11Handler 'btnGo.Click' })
+    $f.Add_FormClosing({
+            param($s, $e)
+            if ($script:Job) { Show-W11Msg (T 'msg.jobRunning') 'Warning' | Out-Null; $e.Cancel = $true }
+        })
+    $timer = New-Object Windows.Forms.Timer
+    $timer.Interval = 300
+    $timer.Add_Tick({ Invoke-W11Tick; try { Set-W11SimpleStepText } catch { $null = $_ } })
+    $timer.Start()
+    $script:H['form.Shown'] = {
+        Write-W11Log -En 'Simple mode: choose Windows, ISO language and a folder, then press START.' -Vi 'Chế độ Đơn giản: chọn Windows, ngôn ngữ ISO và thư mục lưu rồi bấm BẮT ĐẦU.'
+        if ($script:W11D.LogPath) { Write-W11Log -En "Log file: $($script:W11D.LogPath)" -Vi 'File nhật ký (gửi file này khi cần hỗ trợ)' }
+        Write-W11Log -En ("WinDebloat Tool $($script:W11D.Version) | Host: Windows build $(Get-W11OsBuild), PowerShell $($PSVersionTable.PSVersion), CLR $($PSVersionTable.CLRVersion) | UI language: $($script:UiLang)")
+        $osc = Find-W11Oscdimg
+        if ($osc) { Write-W11Log -En "oscdimg: $osc" } else { Write-W11Log -En 'oscdimg.exe not found yet - START installs the Windows ADK Deployment Tools first.' -Vi 'Chưa có oscdimg.exe - khi bấm BẮT ĐẦU công cụ sẽ tự cài Windows ADK Deployment Tools trước.' }
+    }
+    $f.Add_Shown({ Invoke-W11Handler 'form.Shown' })
+    [void]$f.ShowDialog()
+    $timer.Stop()
+    $f.Dispose()
+}
+
+function Show-W11Gui {
+    <# Starts the GUI: mode from -Mode, else the remembered one, else the chooser. A window's switch link
+       closes it and opens the other mode; closing a window ends the program. #>
+    param([string]$Mode)
+    Initialize-W11GuiSession
+    $m = Get-W11StartMode -Mode $Mode -Settings $script:Settings
+    if (-not $m) { $m = Show-W11ModeChooser }
+    while ($m -eq 'Simple' -or $m -eq 'Advanced') {
+        $script:NextMode = $null
+        if ($m -eq 'Simple') { Show-W11SimpleGui } else { Show-W11AdvancedGui }
+        $m = $script:NextMode
+    }
+}
+#endregion
+
+function Show-W11AdvancedGui {
+    # the full window (every option); shared session state comes from Initialize-W11GuiSession
+    Initialize-W11GuiSession
+    $script:H = @{}
+    $script:PendingJob = $null; $script:TickFailed = $false; $script:LayoutFailed = $false
     $script:Catalog = @(Get-MsReleaseCatalog)
     $script:ReleaseItems = @()
-    $cfg = Get-W11Config
-    $script:Cfg = $cfg
+    $cfg = $script:Cfg
 
     $ui = @{}
     $script:ui = $ui
@@ -1405,6 +1962,7 @@ function Show-W11Gui {
     $ui.lnkLog = New-W11Ctl LinkLabel '@lnk.log' 740 618 230 20
     $ui.lnkLog.TextAlign = 'MiddleRight'
     $ui.picLog = New-Object Windows.Forms.PictureBox
+    $ui.lnkSimple = New-W11Ctl LinkLabel '@lnk.simple' 0 0 10 10   # switch to Simple mode (placed by Set-W11Layout)
     $ui.tbLog = New-W11Ctl TextBox '' 10 642 960 164
     $ui.tbLog.Multiline = $true; $ui.tbLog.ScrollBars = 'Both'; $ui.tbLog.ReadOnly = $true; $ui.tbLog.WordWrap = $false
     $ui.tbLog.MaxLength = 2147483647
@@ -1424,7 +1982,7 @@ function Show-W11Gui {
     $ui.lblWatermark.Font = New-Object Drawing.Font 'Segoe UI', 7.5
     $ui.lblWatermark.Text = $script:W11Watermark
     $ui.lblWatermark.Height = $ui.lblWatermark.Font.Height + 6
-    $f.Controls.AddRange(@($g1, $g2, $g3, $g5, $g4, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnCancel, $ui.pb, $ui.lblStatus, $ui.cbUiLang, $ui.picLog, $ui.lnkLog, $ui.tbLog, $ui.lblWatermark))
+    $f.Controls.AddRange(@($g1, $g2, $g3, $g5, $g4, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnCancel, $ui.pb, $ui.lblStatus, $ui.cbUiLang, $ui.lnkSimple, $ui.picLog, $ui.lnkLog, $ui.tbLog, $ui.lblWatermark))
     Set-W11ControlIcons
 
     $script:Presets = @(Get-W11BuiltinPresets); $script:ActivePreset = $null; $script:ActivePresetPath = $null; $script:UpdateScan = $null; $script:NoResetBaseAsk = $false
@@ -1454,8 +2012,10 @@ function Show-W11Gui {
     }
     $ui.lnkLog.Add_LinkClicked({ Invoke-W11Handler 'lnkLog.LinkClicked' })
     $ui.picLog.Add_Click({ Invoke-W11Handler 'lnkLog.LinkClicked' })
+    $script:H['lnkSimple.LinkClicked'] = { Switch-W11Mode 'Simple' }
+    $ui.lnkSimple.Add_LinkClicked({ Invoke-W11Handler 'lnkSimple.LinkClicked' })
 
-    $script:BusyControls = @($ui.cbOs, $ui.btnIso, $ui.btnFetch, $ui.btnDownload, $ui.cbRelease, $ui.cbArch, $ui.chkAria2, $ui.btnEd, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnOut, $ui.clbApps, $ui.clbTweaks,
+    $script:BusyControls = @($ui.lnkSimple, $ui.cbOs, $ui.btnIso, $ui.btnFetch, $ui.btnDownload, $ui.cbRelease, $ui.cbArch, $ui.chkAria2, $ui.btnEd, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnOut, $ui.clbApps, $ui.clbTweaks,
         $ui.cbPreset, $ui.btnPresetApply, $ui.btnPresetLoad, $ui.btnPresetSave, $ui.btnUpdBrowse, $ui.btnUpdScan)
 
     # ---------- events ----------
@@ -1795,4 +2355,5 @@ $sync.Result = $r
     $f.Add_Shown({ Invoke-W11Handler 'form.Shown' })
     [void]$f.ShowDialog()
     $timer.Stop()
+    $f.Dispose()
 }

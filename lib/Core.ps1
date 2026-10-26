@@ -20,7 +20,12 @@ $script:W11D = @{
     HiveDefault  = 'HKLM\W11D_DEFAULT'      # Users\Default\NTUSER.DAT (template for new users)
     HiveSystem   = 'HKLM\W11D_SYSTEM'       # Windows\System32\config\SYSTEM (loaded only when a tweak needs it)
     HiveDefProf  = 'HKLM\W11D_DEFPROFILE'   # Windows\System32\config\DEFAULT (.DEFAULT profile, same)
-    AdkSetupUrl  = 'https://go.microsoft.com/fwlink/?linkid=2289980'   # official current ADK online installer
+    AdkSetupUrl  = 'https://go.microsoft.com/fwlink/?linkid=2289980'   # official current ADK online installer (10.1.26100.9457, Sep 2026)
+    AdkVersion   = '10.1.26100.9457'
+    # Windows 7 SP1 / 8.x hosts: the current ADK does not install there; the ADK for Windows 10, version 1607
+    # (republished May 2025, official link from learn.microsoft.com "Other ADK downloads") is tried instead.
+    AdkLegacyUrl = 'https://go.microsoft.com/fwlink/p/?LinkId=526740'
+    AdkLegacyVersion = '10.1.14393 (ADK for Windows 10, version 1607)'
     Dism         = $null    # selected dism.exe
     DismCanAppx  = $false   # $false -> manual (registry + folder) app removal
 }
@@ -804,17 +809,21 @@ function Get-W11HostArch {
     switch ($a) { 'ARM64' { return 'arm64' } 'x86' { return 'x86' } default { return 'amd64' } }
 }
 
-function Find-W11Oscdimg {
-    param([string]$Hint)
-    $arch = Get-W11HostArch
+function Get-W11OscdimgCandidates {
+    <# Where oscdimg.exe is looked for, best first: the given path, <tool>\tools, <tool>\tools\Oscdimg, then every
+       ADK "Deployment Tools\<arch>\Oscdimg" (host architecture first, then amd64, x86). No file access. #>
+    param([string]$Hint, [string]$Arch = (Get-W11HostArch), [string[]]$KitRoots = (Get-W11KitRoots), [string]$ToolRoot = $script:W11Root)
     $c = @()
     if ($Hint) { $c += $Hint }
-    $c += (Join-Path $script:W11Root 'tools\oscdimg.exe')
-    $c += (Join-Path $script:W11Root 'tools\Oscdimg\oscdimg.exe')
-    foreach ($k in Get-W11KitRoots) {
-        foreach ($a in @($arch, 'amd64', 'x86')) { $c += (Join-Path $k "$a\Oscdimg\oscdimg.exe") }
-    }
-    foreach ($x in $c) { if ($x -and (Test-Path -LiteralPath $x)) { return $x } }
+    if ($ToolRoot) { $t = Join-W11Path $ToolRoot 'tools'; $c += (Join-W11Path $t 'oscdimg.exe'); $c += (Join-W11Path (Join-W11Path $t 'Oscdimg') 'oscdimg.exe') }
+    $archs = @($Arch); foreach ($a in @('amd64', 'x86')) { if ($archs -notcontains $a) { $archs += $a } }
+    foreach ($k in @($KitRoots)) { if (-not $k) { continue }; foreach ($a in $archs) { $c += (Join-W11Path (Join-W11Path (Join-W11Path $k $a) 'Oscdimg') 'oscdimg.exe') } }
+    return $c
+}
+
+function Find-W11Oscdimg {
+    param([string]$Hint)
+    foreach ($x in @(Get-W11OscdimgCandidates -Hint $Hint)) { if ($x -and (Test-Path -LiteralPath $x)) { return $x } }
     $cmd = Get-Command oscdimg.exe -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Definition }
     return $null
@@ -931,36 +940,79 @@ function Get-W11Capabilities {
     return $r
 }
 
+function Get-W11AdkSetupPlan {
+    <# Which official ADK installer to use on this host and how to call it (no network):
+       Windows 10/11 -> current ADK; Windows 7 SP1 / 8.x -> ADK for Windows 10 1607 (best effort); older -> not supported.
+       Only the "Deployment Tools" feature is installed (oscdimg.exe + DISM). #>
+    param([int]$HostBuild = (Get-W11OsBuild), [string]$InstallPath)
+    $a = '/quiet /norestart /ceip off /features OptionId.DeploymentTools'
+    if ($InstallPath) { $a += (' /installpath {0}' -f (ConvertTo-W11Arg $InstallPath)) }
+    $legacy = ($HostBuild -lt 10240)
+    $url = $script:W11D.AdkSetupUrl; $ver = $script:W11D.AdkVersion
+    if ($legacy) { $url = $script:W11D.AdkLegacyUrl; $ver = $script:W11D.AdkLegacyVersion }
+    return (New-W11Obj @{ Url = $url; Version = $ver; Arguments = $a; Legacy = $legacy; Supported = ($HostBuild -ge 7601)
+            SuccessCodes = @(0, 3010); FileName = 'adksetup.exe' })
+}
+
+function Test-W11MicrosoftSignature {
+    # Authenticode check of a downloaded installer: valid and signed by Microsoft Corporation.
+    # Returns @{ Ok; Status; Signer; Checked } - Checked = $false when Get-AuthenticodeSignature is not available.
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not (Get-Command Get-AuthenticodeSignature -ErrorAction SilentlyContinue)) { return (New-W11Obj @{ Ok = $true; Status = 'NotChecked'; Signer = ''; Checked = $false }) }
+    $sig = Get-AuthenticodeSignature -FilePath $Path
+    $subj = ''; if ($sig.SignerCertificate) { $subj = [string]$sig.SignerCertificate.Subject }
+    $ok = ([string]$sig.Status -eq 'Valid' -and $subj -match 'O=Microsoft Corporation')
+    return (New-W11Obj @{ Ok = $ok; Status = [string]$sig.Status; Signer = $subj; Checked = $true })
+}
+
 function Install-W11Oscdimg {
-    <# Installs ONLY "Deployment Tools" of the official Windows ADK (contains oscdimg.exe + DISM).
-       Windows 10/11 hosts only (the current ADK does not install on 7/8.x). #>
+    <# Installs ONLY "Deployment Tools" of the official Windows ADK (contains oscdimg.exe + DISM), downloaded from
+       Microsoft (go.microsoft.com) and checked to be signed by Microsoft. Windows 10/11: current ADK; Windows 7 SP1 /
+       8.x: ADK for Windows 10 1607 (best effort - if it fails, copy oscdimg.exe into tools\). Needs administrator
+       rights and internet. Returns the path of oscdimg.exe. #>
     param([ValidateSet('AdkSetup', 'Winget')][string]$Method = 'AdkSetup')
-    if ((Get-W11OsBuild) -lt 10240) { throw 'The current Windows ADK only installs on Windows 10/11. Copy oscdimg.exe into tools\ manually / ADK mới chỉ cài được trên Win10/11, hãy tự chép oscdimg.exe vào thư mục tools\' }
-    $feature = '/quiet /norestart /ceip off /features OptionId.DeploymentTools'
+    $already = Find-W11Oscdimg
+    if ($already) { Write-W11Log -Level OK -En "oscdimg already available: $already" -Vi 'Đã có oscdimg'; return $already }
+    $plan = Get-W11AdkSetupPlan
+    $toolsDir = Join-Path $script:W11Root 'tools'
+    if (-not $plan.Supported) { throw "This Windows version cannot install the Windows ADK. Copy oscdimg.exe into $toolsDir / Phiên bản Windows này không cài được Windows ADK, hãy chép oscdimg.exe vào $toolsDir" }
+    if (-not (Test-W11Admin)) { throw 'Installing the Windows ADK needs administrator rights: start the tool with run.bat (it asks for them) / Cài Windows ADK cần quyền quản trị: hãy mở công cụ bằng run.bat (tự xin quyền)' }
     if ($Method -eq 'Winget') {
+        if ($plan.Legacy) { throw 'winget is not available on this Windows version / Windows này không có winget' }
         $wg = Get-Command winget.exe -ErrorAction SilentlyContinue
         if (-not $wg) { throw 'winget not found / Không tìm thấy winget' }
         Write-W11Log -Level STEP -En 'Installing Windows ADK Deployment Tools via winget...' -Vi 'Đang cài ADK Deployment Tools bằng winget...'
-        $res = Invoke-W11Process -FilePath $wg.Definition -Arguments ('install --id Microsoft.WindowsADK -e --accept-package-agreements --accept-source-agreements --override "{0}"' -f $feature)
+        $res = Invoke-W11Process -FilePath $wg.Definition -Arguments ('install --id Microsoft.WindowsADK -e --accept-package-agreements --accept-source-agreements --override "{0}"' -f $plan.Arguments)
         Write-W11Log -En "winget exit code: $($res.ExitCode)"
     } else {
-        if (-not (Enable-W11Tls12)) { throw 'TLS 1.2 not available / Không có TLS 1.2' }
-        $exe = Join-Path $env:TEMP 'adksetup.exe'
-        Write-W11Log -Level STEP -En "Downloading official ADK installer: $($script:W11D.AdkSetupUrl)" -Vi 'Đang tải bộ cài ADK chính thức...'
+        if (-not (Enable-W11Tls12)) { throw 'TLS 1.2 is not available, so Microsoft cannot be reached (Windows 7: install KB3140245 and .NET 4.5.2+) / Không có TLS 1.2 nên không kết nối được Microsoft (Win7: cài KB3140245 và .NET 4.5.2+)' }
+        $tmp = $env:TEMP; if (-not $tmp) { $tmp = $script:W11Root }
+        $exe = Join-Path $tmp $plan.FileName
+        if ($plan.Legacy) { Write-W11Log -Level WARN -En "Windows 7/8.x host: trying $($plan.Version). If it does not install, copy oscdimg.exe into $toolsDir" -Vi "Máy Win7/8: thử $($plan.Version); nếu không cài được, hãy chép oscdimg.exe vào $toolsDir" }
+        Write-W11Log -Level STEP -En "Downloading the official ADK installer $($plan.Version): $($plan.Url)" -Vi 'Đang tải bộ cài ADK chính thức của Microsoft...'
         $wc = New-Object Net.WebClient
-        try { $wc.DownloadFile($script:W11D.AdkSetupUrl, $exe) } finally { $wc.Dispose() }
-        $sig = Get-AuthenticodeSignature -FilePath $exe
-        if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
+        try { $wc.DownloadFile($plan.Url, $exe) }
+        catch { throw "Could not download the ADK installer (no internet, proxy or firewall?): $($_.Exception.Message) / Không tải được bộ cài ADK (mất mạng, proxy hoặc tường lửa?)" }
+        finally { $wc.Dispose() }
+        $sig = Test-W11MicrosoftSignature -Path $exe
+        if (-not $sig.Ok) {
             Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue
-            throw "adksetup.exe signature check failed ($($sig.Status)) / Chữ ký số của adksetup.exe không hợp lệ ($($sig.Status))"
+            throw "adksetup.exe signature check failed ($($sig.Status) $($sig.Signer)) / Chữ ký số của adksetup.exe không hợp lệ ($($sig.Status))"
         }
-        Write-W11Log -Level OK -En 'Signature OK (Microsoft Corporation). Installing Deployment Tools only (several minutes)...' -Vi 'Chữ ký hợp lệ. Đang cài Deployment Tools (vài phút)...'
-        $p = Start-Process -FilePath $exe -ArgumentList $feature -Wait -PassThru
+        if ($sig.Checked) { Write-W11Log -Level OK -En "Signature OK ($($sig.Signer))." -Vi 'Chữ ký số hợp lệ (Microsoft Corporation).' }
+        else { Write-W11Log -Level WARN -En 'Get-AuthenticodeSignature is not available - signature not checked (downloaded over HTTPS from go.microsoft.com).' -Vi 'Không kiểm tra được chữ ký số trên máy này (đã tải qua HTTPS từ go.microsoft.com).' }
+        Write-W11Log -Level STEP -En "Installing Deployment Tools only (several minutes): adksetup.exe $($plan.Arguments)" -Vi 'Đang cài Deployment Tools (mất vài phút)...'
+        $p = Start-Process -FilePath $exe -ArgumentList $plan.Arguments -Wait -PassThru
         Write-W11Log -En "adksetup exit code: $($p.ExitCode)"
+        if ($plan.SuccessCodes -notcontains [int]$p.ExitCode) {
+            $why = "adksetup.exe failed (exit code $($p.ExitCode)). Log: %TEMP%\adk\*.log"
+            if ($plan.Legacy) { $why += ". Copy oscdimg.exe from a Windows 10/11 PC (ADK\Deployment Tools\amd64\Oscdimg) into $toolsDir" }
+            throw "$why / Cài ADK lỗi (mã $($p.ExitCode))"
+        }
     }
     $found = Find-W11Oscdimg
-    if (-not $found) { throw 'oscdimg.exe still not found after ADK install / Vẫn không tìm thấy oscdimg.exe' }
-    Write-W11Log -Level OK -En "oscdimg: $found"
+    if (-not $found) { throw "oscdimg.exe still not found after the ADK install. Copy it into $toolsDir / Vẫn không thấy oscdimg.exe sau khi cài ADK, hãy chép vào $toolsDir" }
+    Write-W11Log -Level OK -En "oscdimg: $found" -Vi 'Đã có oscdimg'
     return $found
 }
 #endregion
@@ -2075,6 +2127,205 @@ function Resolve-W11PresetRef {
 }
 #endregion
 
+#region ---------- Simple mode (one-screen flow: download -> Home + Pro -> defaults -> ISO) ----------
+# Edition names used when an image has no edition id (Home / Pro in some languages of the official media)
+$script:W11HomeNames = @('Home', 'Famille', 'Hogar', 'Domácnost', 'Familiale', 'Домашняя', '家庭版', '家用版', 'ホーム', '홈')
+$script:W11ProNames = @('Pro', 'Professional', 'Professionnel', 'Профессиональная', '专业版', '專業版', 'プロ')
+# never kept by Home + Pro: N (no media apps), single language, China, education, workstations, enterprise
+$script:W11NotHomeProRx = '(?i)(\bN\b|single\s*language|unilingue|un\s+solo\s+idioma|einzelsprache|одного\s+языка|单语言|單一語言|中文版|country\s*specific|china|中国|ducation|ducación|bildung|для\s+образовательных|образовательн|教育|workstation|stations\s+de\s+travail|estaciones\s+de\s+trabajo|для\s+рабочих|工作站|enterprise|entreprise|企业|企業|\bS\b|\bSE\b|team|IoT)'
+
+function Merge-W11EditionIds {
+    # fills a missing EditionId / Name of DISM image info from the WIM XML (same index)
+    param([object[]]$Images, [object[]]$XmlInfo)
+    $byIdx = @{}; foreach ($x in @($XmlInfo)) { if ($x) { $byIdx[[int]$x.Index] = $x } }
+    foreach ($i in @($Images)) {
+        if (-not $i) { continue }
+        $x = $byIdx[[int]$i.Index]
+        if (-not $x) { continue }
+        if (-not $i.EditionId -and $x.EditionId) { $i.EditionId = $x.EditionId }
+        if (-not $i.Name -and $x.Name) { $i.Name = $x.Name }
+    }
+    return $Images
+}
+
+function Get-W11EditionKind {
+    <# 'Home', 'Pro' or $null for one image. The edition id decides (Core / Professional exactly: CoreN,
+       ProfessionalN, CoreSingleLanguage, CoreCountrySpecific, ProfessionalEducation... are not standard Home / Pro).
+       Without an edition id the (possibly translated) name is used. #>
+    param($Image)
+    $id = [string]$Image.EditionId
+    if ($id) {
+        if ($id -eq 'Core') { return 'Home' }
+        if ($id -eq 'Professional') { return 'Pro' }
+        return $null
+    }
+    $n = [string]$Image.Name
+    if (-not $n -or $n -match $script:W11NotHomeProRx) { return $null }
+    foreach ($w in $script:W11HomeNames) { if ($n -match ('(?i)(^|[\s(])' + [regex]::Escape($w) + '($|[\s)])') -or ($w -match '[^\x00-\x7F]' -and $n.Contains($w))) { return 'Home' } }
+    foreach ($w in $script:W11ProNames) { if ($n -match ('(?i)(^|[\s(])' + [regex]::Escape($w) + '($|[\s)])') -or ($w -match '[^\x00-\x7F]' -and $n.Contains($w))) { return 'Pro' } }
+    return $null
+}
+
+function Select-W11HomeProImages {
+    # the standard Home and Pro images of an install.wim/esd (first of each), in index order
+    param([object[]]$Images)
+    $hm = $null; $pro = $null
+    foreach ($i in @($Images | Where-Object { $_ } | Sort-Object Index)) {
+        $k = Get-W11EditionKind $i
+        if ($k -eq 'Home' -and -not $hm) { $hm = $i }
+        elseif ($k -eq 'Pro' -and -not $pro) { $pro = $i }
+    }
+    return @(@($hm, $pro) | Where-Object { $_ } | Sort-Object Index)
+}
+
+# ISO languages offered in Simple mode (Microsoft's language names). 'auto' follows the UI language.
+$script:W11IsoLanguages = @('auto', 'English International', 'English', 'Chinese Simplified', 'Chinese Traditional', 'Thai', 'Japanese', 'Korean', 'French', 'German', 'Spanish')
+
+function Get-W11IsoLanguagePrefs {
+    <# Ordered Microsoft language names to try. auto: vi -> Vietnamese (if Microsoft offers it) then English
+       International; zh-CN -> Chinese Simplified; en -> English (United States); km -> English International.
+       English International and English are always the last fallbacks. #>
+    param([string]$UiLang = 'vi', [string]$Choice = 'auto')
+    $l = @()
+    if ($Choice -and $Choice -ne 'auto') { $l += $Choice }
+    else {
+        switch ($UiLang) {
+            'vi' { $l += 'Vietnamese'; $l += 'English International' }
+            'zh-CN' { $l += 'Chinese Simplified' }
+            'en' { $l += 'English' }
+            default { $l += 'English International' }
+        }
+    }
+    foreach ($x in @('English International', 'English')) { if ($l -notcontains $x) { $l += $x } }
+    return $l
+}
+
+function Select-W11IsoSku {
+    # first SKU whose Language matches the preference list (case-insensitive); $null when none
+    param([object[]]$Skus, [string[]]$Prefs)
+    foreach ($p in @($Prefs)) {
+        foreach ($s in @($Skus)) { if ($s -and ([string]$s.Language) -ieq $p) { return $s } }
+    }
+    return $null
+}
+
+function Get-W11SimpleArch {
+    # ISO architecture for this PC: Windows 11 x64 / arm64; Windows 10 x64 (x86 on a 32-bit Windows)
+    param([string]$Os = 'Win11', [string]$HostArch = (Get-W11HostArch))
+    if ($Os -eq 'Win11') { if ($HostArch -eq 'arm64') { return 'arm64' }; return 'x64' }
+    if ($HostArch -eq 'x86') { return 'x86' }
+    return 'x64'
+}
+
+function Get-W11SimpleEntry {
+    # newest release Microsoft still serves for the OS / architecture (catalog is newest first)
+    param([object[]]$Catalog, [string]$Os = 'Win11', [string]$Arch = 'x64')
+    foreach ($e in @($Catalog)) { if ($e -and $e.Os -eq $Os -and $e.Arch -eq $Arch -and $e.Available) { return $e } }
+    return $null
+}
+
+function Get-W11SimpleDefaultFolder {
+    # Desktop\WinDebloat -> <tool>\output
+    param([string]$Desktop = ([Environment]::GetFolderPath('Desktop')), [string]$ToolRoot = $script:W11Root)
+    if ($Desktop -and (Test-W11PathText $Desktop -Container)) { return (Join-Path $Desktop 'WinDebloat') }
+    return (Join-Path $ToolRoot 'output')
+}
+
+$script:W11SimpleMinFreeGB = 15   # ISO download (~6 GB) + work copy; below this Simple mode warns
+$script:W11SimpleBuildMinFreeGB = 10   # checked by the engine once the ISO is on disk (work copy + new ISO); 0 = user accepted low space
+
+function Get-W11SimplePlan {
+    <# Everything Simple mode will do, decided up front (pure; the GUI shows it, the tests check it):
+       newest official ISO for Os + host architecture, language preference, Home + Pro, the Safe preset
+       (= default apps, tweaks, answer file, compression), work folder and output inside OutputFolder. #>
+    param([ValidateSet('Win10', 'Win11')][string]$Os = 'Win11', [string]$UiLang = 'vi', [string]$LangChoice = 'auto',
+        [Parameter(Mandatory = $true)][string]$OutputFolder, [string]$HostArch = (Get-W11HostArch), [int]$HostBuild = (Get-W11OsBuild),
+        [double]$FreeGB = -1, [string]$IsoPath)
+    $dir = $OutputFolder.TrimEnd('\', '/')
+    $steps = @('check', 'oscdimg')
+    if (-not $IsoPath) { $steps += 'download' }
+    $steps += 'build'
+    return (New-W11Obj @{
+            Os = $Os; Arch = (Get-W11SimpleArch -Os $Os -HostArch $HostArch); LangPrefs = @(Get-W11IsoLanguagePrefs -UiLang $UiLang -Choice $LangChoice)
+            LangChoice = $LangChoice; OutputFolder = $dir; DownloadFolder = $dir; WorkDir = (Join-W11Path $dir 'WinDebloat_work')
+            EditionMode = 'HomePro'; Preset = 'safe'; IsoPath = $IsoPath; Steps = $steps; Adk = (Get-W11AdkSetupPlan -HostBuild $HostBuild)
+            MinFreeGB = $script:W11SimpleMinFreeGB; BuildMinFreeGB = $script:W11SimpleBuildMinFreeGB; FreeGB = $FreeGB; LowSpace = ($FreeGB -ge 0 -and $FreeGB -lt $script:W11SimpleMinFreeGB)
+        })
+}
+
+function Set-W11SimpleStep {
+    param([string]$Step)
+    $s = $script:W11D.Sync
+    if ($s) { $s.Step = $Step }
+    Write-W11Log -Level STEP -En "[Simple] step: $Step" -Vi "[Đơn giản] bước: $Step"
+}
+
+function Invoke-W11SimpleBuild {
+    <# Runs a Simple-mode plan: oscdimg (installs the ADK Deployment Tools if needed), download of the newest
+       official ISO from Microsoft (aria2 when available, SHA256 checked against Microsoft's table), then the build
+       with Home + Pro and the Safe preset. A Microsoft download failure does not throw: the result has
+       DownloadFailed = $true so the caller can offer the verified mirror and call again with -IsoPath.
+       Returns @{ Stage; IsoPath; Build; DownloadFailed; Error; Entry; Sku; DryRun }. #>
+    param([Parameter(Mandatory = $true)]$Plan, [string]$IsoPath, [hashtable]$Sync, [switch]$DryRun, [double]$MinFreeGB = -1, [hashtable]$DownloadOptions = @{})
+    if ($Sync) { $script:W11D.Sync = $Sync }
+    if ($MinFreeGB -lt 0 -and $null -ne $Plan.BuildMinFreeGB) { $MinFreeGB = [double]$Plan.BuildMinFreeGB }
+    $res = @{ Stage = 'check'; IsoPath = $IsoPath; Build = $null; DownloadFailed = $false; Error = $null; Entry = $null; Sku = $null; DryRun = [bool]$DryRun }
+    if (-not $IsoPath) { $IsoPath = $Plan.IsoPath; $res.IsoPath = $IsoPath }
+    Set-W11SimpleStep 'check'
+    Write-W11Log -En ("Simple mode: {0} {1}, ISO language {2}, Home + Pro, preset {3}, output folder {4}" -f $Plan.Os, $Plan.Arch, ($Plan.LangPrefs -join ' > '), $Plan.Preset, $Plan.OutputFolder) -Vi 'Chế độ Đơn giản: tải ISO mới nhất, giữ Home + Pro, gỡ ứng dụng và tinh chỉnh theo mặc định'
+    if (-not $DryRun) { New-W11Directory $Plan.OutputFolder }
+    # ---- oscdimg ----
+    $res.Stage = 'oscdimg'; Set-W11SimpleStep 'oscdimg'
+    $osc = Find-W11Oscdimg
+    if ($osc) { Write-W11Log -Level OK -En "oscdimg: $osc" -Vi 'Đã có oscdimg' }
+    elseif ($DryRun) { Write-W11Log -Level DRY -En ("would install the Windows ADK Deployment Tools: {0} {1} ({2})" -f $Plan.Adk.FileName, $Plan.Adk.Arguments, $Plan.Adk.Url) -Vi 'sẽ tự cài ADK Deployment Tools' }
+    else { $osc = Install-W11Oscdimg -Method AdkSetup }
+    Assert-W11NotCancelled
+    # ---- download ----
+    if (-not $IsoPath) {
+        $res.Stage = 'download'; Set-W11SimpleStep 'download'
+        try {
+            $entry = Get-W11SimpleEntry -Catalog @(Get-MsReleaseCatalog -Os @($Plan.Os)) -Os $Plan.Os -Arch $Plan.Arch
+            if (-not $entry) { throw "No $($Plan.Os) $($Plan.Arch) release is offered by Microsoft" }
+            $res.Entry = $entry
+            if ($DryRun) {
+                Write-W11Log -Level DRY -En ("would download {0} [{1}] from Microsoft (language: {2}) into {3}, then check its SHA256" -f $entry.Release, $entry.Arch, ($Plan.LangPrefs -join ' > '), $Plan.DownloadFolder) -Vi 'sẽ tải ISO mới nhất từ Microsoft'
+            } else {
+                $lr = Update-MsEntryLanguages -Entry $entry
+                if (-not $lr.Ok) { throw $lr.Error }
+                Set-MsEntryLanguages -Catalog @($entry) -Result $lr
+                $sku = Select-W11IsoSku -Skus $lr.Skus -Prefs $Plan.LangPrefs
+                if (-not $sku) { throw "Microsoft offers none of these languages: $($Plan.LangPrefs -join ', ')" }
+                if ($sku.Language -ne $Plan.LangPrefs[0]) { Write-W11Log -Level WARN -En "Microsoft does not offer '$($Plan.LangPrefs[0])' for this release - using '$($sku.Language)'" -Vi "Microsoft không có ISO '$($Plan.LangPrefs[0])', dùng '$($sku.Language)'" }
+                $res.Sku = $sku
+                $IsoPath = Invoke-MsIsoDownload -Entry $entry -Sku $sku -Folder $Plan.DownloadFolder -Sync $Sync -Options $DownloadOptions
+                $res.IsoPath = $IsoPath
+            }
+        } catch [System.OperationCanceledException] {
+            throw
+        } catch {
+            if ($Sync -and $Sync.Cancel) { throw (New-Object System.OperationCanceledException 'Cancelled by user / Người dùng đã huỷ') }
+            $res.DownloadFailed = $true; $res.Error = $_.Exception.Message
+            Write-W11Log -Level ERROR -En "Download from Microsoft failed: $($res.Error)" -Vi 'Tải ISO từ Microsoft thất bại'
+            return (New-W11Obj $res)
+        }
+    }
+    Assert-W11NotCancelled
+    # ---- build ----
+    $res.Stage = 'build'; Set-W11SimpleStep 'build'
+    $leaf = 'Windows'; if ($IsoPath) { $leaf = [IO.Path]::GetFileNameWithoutExtension((Get-W11PathLeaf $IsoPath)) }
+    if (-not $IsoPath -and $DryRun) { Write-W11Log -Level DRY -En ("would build {0} with Home + Pro and preset {1} (oscdimg, BIOS + UEFI)" -f (Join-W11Path $Plan.OutputFolder 'Windows_debloated.iso'), $Plan.Preset) -Vi 'sẽ tạo ISO gọn nhẹ'; return (New-W11Obj $res) }
+    $a = @{ IsoPath = $IsoPath; OutputIso = (Join-W11Path $Plan.OutputFolder ($leaf + '_debloated.iso')); WorkDir = $Plan.WorkDir
+        EditionMode = $Plan.EditionMode; TargetOs = $Plan.Os; Preset = $Plan.Preset; DryRun = [bool]$DryRun; WorkDirConflict = 'NewFolder' }
+    if ($MinFreeGB -ge 0) { $a.MinFreeGB = [int]$MinFreeGB }
+    if ($osc) { $a.OscdimgPath = $osc }
+    if ($Sync) { $a.Sync = $Sync }
+    $res.Build = Invoke-Win11Debloat @a
+    $res.Stage = 'done'; Set-W11SimpleStep 'done'
+    return (New-W11Obj $res)
+}
+#endregion
+
 #region ---------- image export / size checks ----------
 function Test-W11PathInside {
     # $true when $Path is $Parent itself or anything below it (case-insensitive, '\' and '/' are the same)
@@ -2543,7 +2794,13 @@ function Invoke-Win11Debloat {
 
         $all = @(Get-W11ImageInfo -ImageFile $srcImage)
         foreach ($e in $all) { Write-W11Log -En ('  [{0}] {1} ({2})' -f $e.Index, $e.Name, $e.EditionId) }
-        if ($EditionMode -eq 'HomePro') { $selected = @($all | Where-Object { $_.EditionId -eq 'Core' -or $_.EditionId -eq 'Professional' }) }
+        if ($EditionMode -eq 'HomePro') {
+            if (@($all | Where-Object { -not $_.EditionId }).Count -gt 0) {
+                # DISM output on a non-English host may use translated labels: take the edition ids from the WIM XML
+                try { $all = @(Merge-W11EditionIds -Images $all -XmlInfo @(Get-W11WimXmlInfo -Path $srcImage)) } catch { Write-W11Log -Level WARN -En "Could not read edition ids from the image XML: $($_.Exception.Message)" }
+            }
+            $selected = @(Select-W11HomeProImages -Images $all)
+        }
         elseif ($EditionMode -eq 'Custom') { $selected = @($all | Where-Object { $Indexes -contains $_.Index }) }
         else { $selected = $all }
         if ($selected.Count -eq 0) { throw 'No edition selected / Không có phiên bản nào được chọn' }
