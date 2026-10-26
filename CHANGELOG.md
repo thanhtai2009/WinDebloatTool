@@ -4,6 +4,45 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.1.0 — 2026-10-26
+
+### Added
+- **App and tweak lists in JSON** (`data/apps.json`, `data/tweaks.json`): names and descriptions in all four
+  UI languages, `level` (safe / aggressive / unsafe), `default`, `os`, build range, registry operations with
+  undo information. The GUI builds its checklists from them and shows the description as a tooltip. Entries
+  with mistakes are skipped with a warning. A small built-in JSON reader keeps PowerShell 2.0 working
+  (ConvertFrom-Json → JavaScriptSerializer → own parser). The 1.0 defaults are unchanged (checked by a test).
+- New optional tweaks (off by default): minimum telemetry, advertising ID, tailored experiences, web search,
+  Recall, Widgets, Reserved Storage, OneDrive setup, and a Windows 11 setup-check bypass (`LabConfig`) that is
+  also written into `boot.wim`. Tweaks can now use the `SYSTEM` and `DEFAULT` hives.
+- **Generated autounattend.xml** (new *Unattended setup* tab and console parameters): local administrator
+  account with an optional password (plain text, with a warning), BypassNRO, skip the TPM / Secure Boot /
+  RAM checks, region and keyboard, skip the privacy questions, and a first-logon script that removes the
+  selected apps again if Setup brought them back. Windows 10 and 11, amd64 and arm64. No disk configuration.
+  Without options the file is identical to the 1.0 template.
+- **Offline updates** (new *Updates* tab, `-UpdatesPath`): integrates `.msu` / `.cab` files from a folder in
+  the order SSU → LCU → .NET; optional `boot.wim` (SSU + LCU) and WinRE (SSU + Safe OS) servicing and
+  `StartComponentCleanup /ResetBase` (with a warning). A package that fails or does not apply is logged and
+  skipped. Nothing is downloaded.
+- **Presets**: built-in *An toàn / Safe* and *Gọn tối đa / Aggressive*, save and load your own `.json`
+  (never with a password); `-Preset` on the console.
+- New button icons (`sliders`, `package`); new tests for the JSON reader, data files, answer file, presets,
+  update ordering / failure handling and a mocked pipeline with updates, WinRE, `boot.wim` and a preset.
+
+### Changed
+- The options area is now a tab control (Options / Unattended setup / Updates) with a preset row below the
+  lists; pages scroll instead of clipping text at large fonts.
+- `boot.wim` is serviced on a copy outside the ISO tree; on any failure the original is kept.
+- License and README copyright line: "Copyright (c) 2026 TaiNT13@PNC STG & WinDebloat Tool contributors".
+
+### Credits
+- [ChrisTitusTech/winutil](https://github.com/ChrisTitusTech/winutil) (MIT) and
+  [farag2/Sophia-Script-for-Windows](https://github.com/farag2/Sophia-Script-for-Windows) (MIT): reference
+  for the new privacy tweaks and the preset idea.
+- [Raphire/Win11Debloat](https://github.com/Raphire/Win11Debloat) (MIT): app list and ratings (as in 1.0).
+- [ntdevlabs/tiny11builder](https://github.com/ntdevlabs/tiny11builder): ideas only (it has no license; no
+  code was copied).
+
 ## 1.0.0 — 2026-10-26
 Initial release.
 

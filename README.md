@@ -31,6 +31,10 @@ aria2, used for fast ISO downloads.
 - [Quick start](#quick-start)
 - [Using the GUI](#using-the-gui)
 - [Console mode](#console-mode)
+- [Presets](#presets)
+- [Offline updates](#offline-updates)
+- [Answer file (autounattend.xml)](#answer-file-autounattendxml)
+- [Editing the app and tweak lists](#editing-the-app-and-tweak-lists)
 - [Supported Windows versions](#supported-windows-versions)
 - [What gets changed](#what-gets-changed)
 - [Download sources](#download-sources)
@@ -52,9 +56,18 @@ aria2, used for fast ISO downloads.
 - **Registry tweaks applied offline:** consumer features, Copilot, the Widgets feed, Teams/Chat
   auto-install, new-user suggestions and the OOBE auto-install tasks are turned off. On Windows 10 it also
   turns off Cortana and web search, sets telemetry to the minimum and hides News and Interests.
+- **More privacy tweaks (optional, off by default):** minimum telemetry, advertising ID, tailored
+  experiences, web results in search, Recall, Widgets, Reserved Storage, OneDrive setup.
 - **Edition choice:** keep all editions, only Home and Pro, or a list of index numbers.
-- **autounattend.xml (optional):** lets you create a local account and skips the Microsoft account
-  screens. Disk, edition and region stay interactive.
+- **Generated autounattend.xml (optional):** local account (optional password), BypassNRO, skip the
+  TPM / Secure Boot / RAM checks, region and keyboard, skip the privacy questions and a first-logon
+  clean-up script. Windows 10 and 11, x64 and ARM64. **Disk partitioning always stays interactive.**
+- **Offline updates (optional):** integrates `.msu` / `.cab` files you downloaded (servicing stack,
+  cumulative update, .NET, Safe OS) in the right order, optionally also into `boot.wim` and WinRE.
+- **Presets:** *Safe* and *Aggressive* built in; save your own choices to a `.json` file and load them
+  again later (in the GUI or with `-Preset`).
+- **Lists in JSON:** apps and tweaks live in `data/apps.json` and `data/tweaks.json`, with names in every
+  UI language. The GUI builds its checklists from them.
 - **Size options:** normal LZX compression (`install.wim`) or ESD compression (`install.esd`, the smallest
   ISO). An `install.wim` over 4 GB can be split for FAT32 USB sticks. Optional WinSxS component cleanup.
 - **Bootable result:** a BIOS + UEFI ISO built with oscdimg, plus its SHA256 file. The **Install oscdimg**
@@ -77,7 +90,7 @@ aria2, used for fast ISO downloads.
 | Internet | Only for downloading an ISO; building from a local ISO works offline |
 
 ## Quick start
-1. Download `WinDebloatTool_v1.0.0.zip` and extract it to a folder.
+1. Download `WinDebloatTool_v1.1.0.zip` and extract it to a folder.
 2. Unblock the files once: right-click the zip → **Properties** → tick **Unblock** *before* extracting.
    Or, after extracting, run in PowerShell 3.0 or newer:
    `Get-ChildItem -Recurse 'C:\path\to\WinDebloatTool' | Unblock-File`
@@ -100,14 +113,21 @@ A build takes about 20–60 minutes. The output folder then contains the ISO, `<
 **2. Apps to remove**: the list matches the detected release. *Defaults*, *All* and *None* change the
 selection quickly. Apps that are not in the image are skipped and logged.
 
-**3. Options**
-- **Editions:** *All*, *Home + Pro*, or *Index:* with numbers such as `1,6`. *List the editions in the ISO*
-  shows the numbers.
-- **Registry tweaks:** check the tweaks you want (see [What gets changed](#what-gets-changed)).
-- **autounattend.xml:** local account, skips the Microsoft account screens (BypassNRO on Windows 11 only).
-- **Component cleanup (slow):** runs `DISM /Cleanup-Image /StartComponentCleanup` on every edition.
-- **ESD compression:** writes `install.esd`, the smallest ISO, but the build takes much longer.
-- **Dry run:** shows what would be done without changing anything.
+**3. Options** has three tabs:
+- **Options**
+  - **Editions:** *All*, *Home + Pro*, or *Index:* with numbers such as `1,6`. *List the editions in the
+    ISO* shows the numbers.
+  - **Registry tweaks:** check the tweaks you want (see [What gets changed](#what-gets-changed)). Hover a
+    tweak to read what it does; *[aggressive]* marks tweaks with side effects.
+  - **Component cleanup (slow):** runs `DISM /Cleanup-Image /StartComponentCleanup` on every edition.
+  - **ESD compression:** writes `install.esd`, the smallest ISO, but the build takes much longer.
+  - **Dry run:** shows what would be done without changing anything.
+- **Unattended setup**: the answer-file options (see [Answer file](#answer-file-autounattendxml)).
+- **Updates**: the folder with your `.msu` / `.cab` files, *Scan packages* to list them in install order, and
+  the options for `boot.wim`, WinRE and ResetBase (see [Offline updates](#offline-updates)).
+
+**Preset** (row under the lists): pick *Safe*, *Aggressive* or a loaded preset and click *Apply*;
+*Open...* loads a preset `.json`, *Save...* stores the current choices (never the password).
 
 **4. Output ISO**: the file to create. If you leave it empty, `<source>_debloated.iso` is created next to
 the source.
@@ -123,6 +143,9 @@ run.bat -NoGui -IsoPath D:\Win11.iso -OutputIso D:\Win11_small.iso -Compression 
 run.bat -NoGui -IsoPath D:\Win10_22H2_English_x64v1.iso -OutputIso D:\Win10_lite.iso -TargetOs Win10
 run.bat -IsoPath D:\Win11.iso -OutputIso D:\out.iso -WhatIf     # dry run
 run.bat -Check                                                 # system check only
+run.bat -NoGui -IsoPath D:\Win11.iso -OutputIso D:\Win11_min.iso -Preset aggressive
+run.bat -NoGui -IsoPath D:\Win11.iso -OutputIso D:\Win11_upd.iso -UpdatesPath D:\Updates -UpdateWinRE
+run.bat -NoGui -IsoPath D:\Win11.iso -OutputIso D:\Win11_auto.iso -LocalUser Tai -SkipPrivacy -Locale vi-VN -FirstLogonCleanup
 ```
 
 | Parameter | Description |
@@ -134,6 +157,19 @@ run.bat -Check                                                 # system check on
 | `-Indexes 1,6` | Index numbers for `-Edition Custom` |
 | `-TargetOs Auto\|Win10\|Win11` | Profile to use (default `Auto`, detected from the image) |
 | `-NoAutounattend` | Do not add `autounattend.xml` |
+| `-Preset safe\|aggressive\|<file.json>` | Use a preset; parameters you give explicitly win over it |
+| `-LocalUser <name>` | Answer file: create this local administrator account |
+| `-LocalPassword <text>` | Its password (stored as plain text on the ISO). Without it you are asked; empty = no password |
+| `-NoBypassNro` | Windows 11: do not set BypassNRO |
+| `-BypassChecks` | Windows 11: skip the TPM / Secure Boot / RAM checks in Setup |
+| `-SkipPrivacy` | Skip the privacy questions (minimum settings) |
+| `-FirstLogonCleanup` | Remove selected apps again at the first logon if Setup brought them back |
+| `-Locale vi-VN` / `-Keyboard 042a:0000042a` | Region (format, location) and keyboard; empty = asked in Setup |
+| `-AutounattendPath <file>` | Use your own answer file instead of the generated one |
+| `-UpdatesPath <folder>` | Integrate the `.msu` / `.cab` files in this folder |
+| `-UpdateBootWim` | Also update `boot.wim` (Windows Setup) with SSU + LCU |
+| `-UpdateWinRE` | Also update WinRE (`Winre.wim`) with SSU + Safe OS |
+| `-ResetBase` | `StartComponentCleanup /ResetBase` after the updates (smaller, updates can no longer be uninstalled) |
 | `-ComponentCleanup` | Run WinSxS component cleanup on every edition |
 | `-Compression Max\|Recovery` | `Max` = LZX `install.wim` (default); `Recovery` = `install.esd`, smallest, slower |
 | `-SplitWimMB <MB>` | Split an `install.wim` over 4 GB into `install*.swm` parts, e.g. `3800` for FAT32 USB |
@@ -145,6 +181,83 @@ run.bat -Check                                                 # system check on
 | `-Check` | System check only |
 
 `Win11DebloatTool.ps1` is an alias of `WinDebloatTool.ps1` with the same parameters.
+
+## Presets
+A preset stores your choices: editions, apps, tweaks, answer-file options (never the password), update
+options, compression and component cleanup.
+
+| Preset | What it does |
+|---|---|
+| **Safe** (`safe`) | The default selection: all editions, default apps and tweaks, LZX compression. |
+| **Aggressive** (`aggressive`) | Home + Pro only, also the optional apps and every tweak except the TPM check bypass, skip privacy questions, first-logon clean-up, ESD compression and component cleanup. Apps marked *unsafe* are never selected. |
+
+In the GUI choose a preset and click **Apply**, or **Save...** / **Open...** your own `.json`. On the
+console use `-Preset safe`, `-Preset aggressive` or `-Preset D:\my.json`; options you pass explicitly win.
+Format (`"schema": "windebloat-preset/1"`):
+
+```json
+{
+  "schema": "windebloat-preset/1",
+  "name": { "vi": "Của tôi", "en": "Mine" },
+  "editions": { "mode": "All | HomePro | Custom", "indexes": [1, 6] },
+  "apps":   { "select": "defaults | level | list | all | none", "level": "safe | aggressive", "ids": [], "exclude": [] },
+  "tweaks": { "select": "list", "ids": ["BypassNRO", "CopilotOff"] },
+  "unattend": { "enabled": true, "localAccount": true, "userName": "Tai", "bypassNro": true, "bypassChecks": false,
+                "skipPrivacy": true, "firstLogonCleanup": true, "locale": "vi-VN", "keyboard": "042a:0000042a" },
+  "updates": { "enabled": false, "folder": "", "bootWim": false, "winre": false, "resetBase": false },
+  "image": { "compression": "Max | Recovery", "componentCleanup": false }
+}
+```
+A preset that contains `"password"` is refused. Unknown app or tweak ids are ignored (they may belong to
+the other Windows version).
+
+## Offline updates
+The tool does **not** download updates. Get them from the
+[Microsoft Update Catalog](https://www.catalog.update.microsoft.com/) (search for the KB of the month,
+matching version and architecture) and put them in one folder:
+
+```
+D:\Updates\
+  ssu\        windows10.0-kb5005112-x64.msu         (servicing stack, if it is a separate file)
+  windows11.0-kb5043080-x64.msu                       (checkpoint cumulative update - older KB first)
+  windows11.0-kb5044284-x64.msu                       (latest cumulative update)
+  netfx\      windows11.0-kb5044033-x64-ndp481.msu   (.NET Framework cumulative update)
+  safeos\     windows11.0-kb5044615-x64.cab          (Safe OS dynamic update, for WinRE)
+```
+The kind comes from the sub-folder (`ssu`, `lcu`, `netfx` / `dotnet`, `safeos` / `winre`) or from the
+file name (`SSU-*`, `*ndp*`, `*netfx*`, `*safeos*`); anything else is treated as a cumulative update. On
+Windows the content of each `.msu` is checked, so a combined SSU + LCU package is recognised. Order:
+**SSU → LCU (oldest KB first) → .NET**. `install.wim` gets SSU + LCU + .NET, `boot.wim` (optional) SSU +
+LCU in every index, WinRE (optional) SSU + Safe OS. A package that does not apply (0x800f081e) or fails is
+logged as a warning and the build continues with the next one.
+
+**ResetBase** runs `DISM /Cleanup-Image /StartComponentCleanup /ResetBase` after the updates: the image is
+smaller, but the integrated updates can no longer be uninstalled. Updates make the build take much
+longer (often 20–40 minutes per edition).
+
+## Answer file (autounattend.xml)
+The **Unattended setup** tab (or the console parameters above) builds `autounattend.xml` for the ISO root.
+Without any option it is the same file as in 1.0 (accept the license, hide the Microsoft account pages,
+BypassNRO on Windows 11).
+
+| Option | Effect |
+|---|---|
+| Local account | Creates a local administrator account. The password is optional and stored as **plain text** in `autounattend.xml` – do not share that ISO. |
+| BypassNRO | Windows 11: allows setup without internet / Microsoft account. |
+| Skip TPM / Secure Boot / RAM checks | Windows 11: sets `LabConfig` while Setup runs (windowsPE pass). For an unsupported PC you can also tick the *Skip the TPM / Secure Boot / RAM / CPU checks in Setup* tweak, which also writes it into `boot.wim`. |
+| Region / keyboard | Format, location and keyboard; leave on *(ask during setup)* to choose there. The setup language is always the image language. |
+| Skip privacy questions | Answers the privacy pages with the minimum settings. |
+| First-logon clean-up | Runs a script once at the first logon that removes the selected apps again if Setup or OOBE brought them back (log: `C:\Windows\Setup\Scripts\W11D-FirstLogon.log`). |
+
+Disk partitioning is **never** automated: you always choose the disk in Setup, so nothing is erased by
+accident.
+
+## Editing the app and tweak lists
+`data/apps.json` and `data/tweaks.json` hold the lists (names in vi, en, zh-CN and km; `level` safe /
+aggressive / unsafe; `default`; `os`; optional `minBuild` / `maxBuild`). Tweaks write to the offline hives
+`SOFTWARE`, `SYSTEM`, `DEFAULT` or `NTUSER` (the default user profile). Entries with mistakes are skipped
+with a warning in the log; `tests\Test-Parse.ps1` validates the files. `config/DebloatConfig.psd1` is only
+used when the JSON files are missing.
 
 ## Supported Windows versions
 **Images (what you can debloat)**
@@ -197,6 +310,20 @@ App Installer (winget).
 | Chat button off | default user `Explorer\Advanced` TaskbarMn = 0 |
 | OOBE install tasks removed | `WindowsUpdate\Orchestrator\UScheduler_Oobe\{OutlookUpdate, DevHomeUpdate, CrossDeviceUpdate}` |
 
+**Optional tweaks (off by default, both Windows versions unless noted)**
+
+| Tweak | Keys |
+|---|---|
+| Telemetry minimum (Windows 11) | `Policies\Microsoft\Windows\DataCollection` AllowTelemetry = 0, DoNotShowFeedbackNotifications = 1 |
+| Advertising ID off | `Policies\...\AdvertisingInfo` DisabledByGroupPolicy = 1; default user AdvertisingInfo Enabled = 0 |
+| Tailored experiences off | default user DisableTailoredExperiencesWithDiagnosticData = 1 |
+| Web search off (Windows 11) | `Policies\...\Windows Search` DisableWebSearch = 1, ConnectedSearchUseWeb = 0; DisableSearchBoxSuggestions = 1 |
+| Recall off (Windows 11) | `Policies\...\WindowsAI` DisableAIDataAnalysis = 1, AllowRecallEnablement = 0 |
+| Widgets off (Windows 11) | `Policies\Microsoft\Dsh` AllowNewsAndInterests = 0 |
+| OneDrive setup off *(aggressive)* | removes default user `Run\OneDriveSetup` |
+| Reserved Storage off *(aggressive)* | `ReserveManager` ShippedWithReserves = 0 |
+| Skip TPM / Secure Boot / RAM / CPU checks *(aggressive, Windows 11)* | `Setup\LabConfig` Bypass*Check = 1 in the image **and in `boot.wim`** (Windows Setup) |
+
 **Registry tweaks – Windows 10**
 
 | Tweak | Keys |
@@ -215,13 +342,14 @@ App Installer (winget).
 pages so you can create a local account. On Windows 11 it also sets BypassNRO during setup. The setup
 language and architecture are set to match the image.
 
-All lists live in [`config/DebloatConfig.psd1`](config/DebloatConfig.psd1) (`Apps` / `Tweaks` for
-Windows 11, `Win10Apps` / `Win10Tweaks` for Windows 10, `Protected` for both). Wildcards are allowed.
+All lists live in [`data/apps.json`](data/apps.json) and [`data/tweaks.json`](data/tweaks.json) (see
+[Editing the app and tweak lists](#editing-the-app-and-tweak-lists)). Wildcards are allowed in app ids.
 
 **How a build works:** mount or extract the ISO → copy it to the work folder → for each kept edition:
-`DISM /Mount-Image` → remove apps → load the offline Registry hives and apply tweaks → optional component
-cleanup → `/Unmount-Image /Commit` → export every kept edition into a new `install.wim` / `install.esd`
-→ add `autounattend.xml` → `oscdimg` (BIOS + UEFI) → SHA256.
+`DISM /Mount-Image` → optional updates (SSU, LCU, .NET) and WinRE → remove apps → load the offline Registry
+hives and apply tweaks → optional component cleanup / ResetBase → `/Unmount-Image /Commit` → export every
+kept edition into a new `install.wim` / `install.esd` → optional `boot.wim` servicing → add
+`autounattend.xml` → `oscdimg` (BIOS + UEFI) → SHA256.
 
 ## Download sources
 1. **Microsoft (always first).** The tool uses the same download service as Microsoft's website. Links are
@@ -281,13 +409,22 @@ In the GUI, click *Open the log folder* (`logs\` in the tool folder). Each build
   Pass sign-in and Game Bar.
 - Core components (Store, Windows Security, Edge, WebView2, runtimes, codecs, App Installer) are protected
   and cannot be removed through the lists.
-- Windows 11 hardware checks (TPM 2.0, Secure Boot, CPU) are **not** bypassed.
+- Windows 11 hardware checks (TPM 2.0, Secure Boot, RAM, CPU) are only bypassed when you tick that option
+  or tweak. A PC that does not meet the requirements may not get feature updates.
+- A password in the answer file is stored as plain text on the ISO.
+- *ResetBase* makes integrated updates permanent (they cannot be uninstalled).
 - Feature updates may bring some apps back; the policies reduce this but cannot prevent it completely.
 - The tool never runs anything it downloads. Your source ISO is never modified.
 
 ## Credits
 - **[Raphire/Win11Debloat](https://github.com/Raphire/Win11Debloat)** (MIT): its app list and safe /
   optional / unsafe ratings were the main reference for the removal lists.
+- **[ChrisTitusTech/winutil](https://github.com/ChrisTitusTech/winutil)** (MIT) and
+  **[farag2/Sophia-Script-for-Windows](https://github.com/farag2/Sophia-Script-for-Windows)** (MIT): reference
+  for the privacy tweaks (telemetry, advertising ID, tailored experiences, Recall, Widgets) and the preset
+  idea.
+- **[ntdevlabs/tiny11builder](https://github.com/ntdevlabs/tiny11builder)**: ideas only (servicing
+  `boot.wim`, the LabConfig keys, update order); it has no license, so no code was taken from it.
 - **[pbatard/Fido](https://github.com/pbatard/Fido)** (GPL-3.0): documented the Microsoft ISO download flow;
   this project implements it independently and contains no Fido code.
 - **[aria2](https://aria2.github.io/)** (GPL-2.0-or-later): bundled unmodified in `tools/aria2/` and run as
@@ -301,7 +438,7 @@ In the GUI, click *Open the log folder* (`logs\` in the tool folder). Each build
 Windows, DISM and the Windows ADK are Microsoft products. Nothing from Microsoft is redistributed here.
 
 ## License
-[MIT](LICENSE) © 2026 WinDebloat Tool contributors. aria2 in `tools/aria2/` keeps its own license (GPL-2.0).
+[MIT](LICENSE) Copyright (c) 2026 TaiNT13@PNC STG & WinDebloat Tool contributors. aria2 in `tools/aria2/` keeps its own license (GPL-2.0).
 
 ---
 
