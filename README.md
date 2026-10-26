@@ -474,8 +474,9 @@ In the GUI, click *Open the log folder* (`logs\` in the tool folder). Each build
   license ([`COPYING`](tools/aria2/COPYING)).
 - **[massgrave.dev](https://massgrave.dev/genuine-installation-media)**: the list of original Microsoft
   files used for the optional mirror fallback.
-- The app and button icons were drawn for this project (SVG sources in `assets/`). The icon is not the
-  Microsoft Windows logo.
+- The app and button icons were drawn for this project (SVG sources and the generator in `assets/`), in a
+  style inspired by Google's Material 3 Expressive design language. No Material Symbols glyphs or Google logos
+  were copied. The icon is not the Microsoft Windows logo.
 
 Windows, DISM and the Windows ADK are Microsoft products. Nothing from Microsoft is redistributed here.
 

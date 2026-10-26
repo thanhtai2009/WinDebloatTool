@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+- New icon set in a Material 3 Expressive style: the app icon (soft four panes on a scalloped "cookie", bold
+  broom, sparkles) and every button icon (bold rounded glyph on a tonal container: squircle, cookie for the
+  main actions, circle for Cancel). Same file names and sizes; all drawn for this project.
+
 ## 1.1.0 — 2026-10-26
 
 ### Added

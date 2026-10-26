@@ -478,8 +478,9 @@ Trong giao diện, bấm *Mở thư mục nhật ký* (thư mục `logs\` trong 
   SHA256 và giấy phép ([`COPYING`](tools/aria2/COPYING)).
 - **[massgrave.dev](https://massgrave.dev/genuine-installation-media)**: danh sách file gốc Microsoft dùng
   cho nguồn tải dự phòng.
-- Biểu tượng ứng dụng và biểu tượng nút được vẽ riêng cho dự án (file SVG gốc trong `assets/`). Biểu tượng
-  không phải logo Windows của Microsoft.
+- Biểu tượng ứng dụng và biểu tượng nút được vẽ riêng cho dự án (file SVG gốc và script tạo trong `assets/`),
+  theo phong cách Material 3 Expressive của Google. Không sao chép glyph Material Symbols hay logo nào của
+  Google. Biểu tượng không phải logo Windows của Microsoft.
 
 Windows, DISM và Windows ADK là sản phẩm của Microsoft. Dự án không phân phối lại bất kỳ thành phần nào
 của Microsoft.
