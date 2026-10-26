@@ -9,7 +9,7 @@ Microsoft tools (DISM, reg.exe, oscdimg from the Windows ADK). The only third-pa
 > Formerly *Win11 Debloat Tool*. Since 0.2.0 the main script is `WinDebloatTool.ps1`;
 > `Win11DebloatTool.ps1` remains as a wrapper and `run.bat` accepts the same parameters as before.
 
-> **Status: early.** 0.3.2 fixes the first real-Windows report (a crash on an empty path field).
+> **Status: early.** 0.3.3 adds the bottom watermark; 0.3.2 fixed the first real-Windows report (a crash on an empty path field).
 > The code was written and statically checked on Linux
 > (PowerShell 7 parser, PSScriptAnalyzer, a custom PowerShell 2.0 compatibility scan, offline unit
 > tests with mocked dism/reg). The same removals and tweaks were applied to a real

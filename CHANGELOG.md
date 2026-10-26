@@ -1,5 +1,15 @@
 ﻿# Changelog
 
+## 0.3.3 - 2026-10-26
+**Watermark.**
+
+- The main window shows *Designed by TaiNT13@PNC STG* at the very bottom (small gray text, right-aligned,
+  docked to the bottom edge so it stays visible when the window is resized). Same text in every interface
+  language (not translated). The log box ends just above it, so nothing overlaps; its height follows the
+  UI font (any DPI / language font) and the colour is the Windows *GrayText* system colour (works with
+  any colour scheme / high contrast). Window minimum height +24 px.
+- Tests: watermark text, docked bottom, not in the language files.
+
 ## 0.3.2 - 2026-10-25
 **Fix for the first real-Windows report, interface language selector, optional mirror fallback.**
 

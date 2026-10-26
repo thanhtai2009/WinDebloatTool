@@ -4,6 +4,19 @@
     SPDX-License-Identifier: MIT
 #>
 
+# watermark at the bottom of the main window: same text in every language (never translated)
+$script:W11Watermark = 'Designed by TaiNT13@PNC STG'
+
+function Set-W11WatermarkLayout {
+    # height follows the font (any DPI / UI font); the log box ends just above the watermark
+    $ui = $script:ui
+    if (-not $ui -or -not $ui.lblWatermark -or -not $ui.tbLog) { return }
+    $wm = $ui.lblWatermark
+    $wm.Height = $wm.Font.Height + 6
+    $h = $ui.form.ClientSize.Height - $wm.Height - 6 - $ui.tbLog.Top
+    if ($h -ge 60) { $ui.tbLog.Height = $h }
+}
+
 function New-W11Ctl {
     # Text '@key' = localized string; the key stays in .Tag so Set-W11UiTexts can switch the language live
     param([string]$Type, [string]$Text, [int]$X, [int]$Y, [int]$W, [int]$H)
@@ -580,6 +593,11 @@ function Set-W11UiTexts {
     $ui.form.Font = New-Object Drawing.Font $fam, 9
     $ui.btnStart.Font = New-Object Drawing.Font $fam, 9, ([Drawing.FontStyle]::Bold)
     $ui.note.Font = New-Object Drawing.Font $fam, 7.5
+    if ($ui.lblWatermark) {
+        $ui.lblWatermark.Font = New-Object Drawing.Font $fam, 7.5
+        $ui.lblWatermark.Text = $script:W11Watermark
+        Set-W11WatermarkLayout
+    }
     $ui.form.Text = T 'app.title' $script:W11D.Version
     $stack = New-Object Collections.Stack
     $stack.Push($ui.form)
@@ -644,10 +662,10 @@ function Show-W11Gui {
     $ui = @{}
     $script:ui = $ui
     $f = New-Object Windows.Forms.Form
-    $f.ClientSize = New-Object Drawing.Size 980, 816
+    $f.ClientSize = New-Object Drawing.Size 980, 840
     $f.StartPosition = 'CenterScreen'
     $f.Font = New-Object Drawing.Font 'Segoe UI', 9
-    $f.MinimumSize = New-Object Drawing.Size 1000, 856
+    $f.MinimumSize = New-Object Drawing.Size 1000, 880
     $ui.form = $f
     $ui.tip = New-Object Windows.Forms.ToolTip
 
@@ -748,7 +766,21 @@ function Show-W11Gui {
     $ui.tbLog.MaxLength = 2147483647
     $ui.tbLog.Font = New-Object Drawing.Font 'Consolas', 8.5
     $ui.tbLog.Anchor = 'Top, Bottom, Left, Right'
-    $f.Controls.AddRange(@($g1, $g2, $g3, $g4, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnCancel, $ui.pb, $ui.lblStatus, $ui.cbUiLang, $ui.lnkLog, $ui.tbLog))
+    # watermark: docked to the bottom edge (stays there on resize), below the log box, system gray text
+    # (follows the Windows colour scheme / high contrast), no '@' key = not translated
+    $ui.lblWatermark = New-Object Windows.Forms.Label
+    $ui.lblWatermark.Name = 'lblWatermark'
+    $ui.lblWatermark.AutoSize = $false
+    $ui.lblWatermark.UseMnemonic = $false
+    $ui.lblWatermark.Dock = 'Bottom'
+    $ui.lblWatermark.TextAlign = 'MiddleRight'
+    $ui.lblWatermark.Padding = New-Object Windows.Forms.Padding 0, 0, 12, 2
+    $ui.lblWatermark.ForeColor = [Drawing.SystemColors]::GrayText
+    $ui.lblWatermark.BackColor = [Drawing.Color]::Transparent
+    $ui.lblWatermark.Font = New-Object Drawing.Font 'Segoe UI', 7.5
+    $ui.lblWatermark.Text = $script:W11Watermark
+    $ui.lblWatermark.Height = $ui.lblWatermark.Font.Height + 6
+    $f.Controls.AddRange(@($g1, $g2, $g3, $g4, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnCancel, $ui.pb, $ui.lblStatus, $ui.cbUiLang, $ui.lnkLog, $ui.tbLog, $ui.lblWatermark))
 
     $script:DetectedOs = $null; $script:DetectedBuild = 0; $script:DetectedSource = $null; $script:ShownOs = $null; $script:LastDlEntry = $null; $script:AutoDownload = $false
     $ui.cbOs.SelectedIndex = 0

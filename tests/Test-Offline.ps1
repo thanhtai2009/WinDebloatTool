@@ -614,6 +614,9 @@ foreach ($c in $codes) {
 $used = @([regex]::Matches($guiSrc, "(?:\bT '|'@)([a-z][A-Za-z0-9]*\.[A-Za-z0-9.]+)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
 $undef = @($used | Where-Object { $enKeys -notcontains $_ })
 Assert ($used.Count -gt 60 -and $undef.Count -eq 0) "every key used in Gui.ps1 ($($used.Count)) exists in the language files (undefined: $($undef -join ','))"
+$wmLit = "'Designed by TaiNT13@PNC STG'"
+$langAll = (@($codes | ForEach-Object { [IO.File]::ReadAllText((Join-Path $langDir "$_.psd1")) }) -join "`n")
+Assert ($guiSrc.Contains('$script:W11Watermark = ' + $wmLit) -and $guiSrc -match "lblWatermark\.Dock = 'Bottom'" -and $guiSrc -match 'lblWatermark\.Text = \$script:W11Watermark' -and -not $langAll.Contains('TaiNT13')) 'watermark: exact text, docked bottom, same in every language (not in lang files)'
 $cfgT = Get-W11Config
 $tIds = @(@($cfgT.Tweaks) + @($cfgT.Win10Tweaks) | ForEach-Object { $_.Id } | Sort-Object -Unique)
 $noTw = @($tIds | Where-Object { $enKeys -notcontains "tweak.$_" })
