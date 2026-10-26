@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F5F5FF"/><stop offset="1" stop-color="#CDD0FF"/></linearGradient>
+    <linearGradient id="hl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.7"/><stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFC8A8"/><stop offset="1" stop-color="#FF9F7A"/></linearGradient>
+    <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8C93F0" stop-opacity="0"/><stop offset="1" stop-color="#8C93F0" stop-opacity="0.85"/></linearGradient>
+  </defs>
+  <path d="M12.28 0.5 H19.72 A11.78 11.78 0 0 1 31.5 12.28 V25.3 A6.2 6.2 0 0 1 25.3 31.5 H6.7 A6.2 6.2 0 0 1 0.5 25.3 V12.28 A11.78 11.78 0 0 1 12.28 0.5 Z" fill="url(#bg)"/>
+  <path d="M12.28 0.5 H19.72 A11.78 11.78 0 0 1 31.5 12.28 V25.3 A6.2 6.2 0 0 1 25.3 31.5 H6.7 A6.2 6.2 0 0 1 0.5 25.3 V12.28 A11.78 11.78 0 0 1 12.28 0.5 Z" fill="url(#hl)"/>
+<rect x="7.00" y="7.00" width="8.20" height="8.20" rx="2.20" fill="#333A99"/>
+<rect x="16.80" y="7.00" width="8.20" height="8.20" rx="2.20" fill="#6670DB"/>
+<rect x="7.00" y="16.80" width="8.20" height="8.20" rx="2.20" fill="#8C93F0"/>
+  <g transform="translate(21.31 20.49) rotate(45)">
+    <rect x="-1.15" y="-10.5" width="2.3" height="9.5" rx="1.15" fill="#262B72"/>
+    <path d="M-3.2 -0.6 H3.2 L4.6 5.6 Q0 7.2 -4.6 5.6 Z" fill="#262B72"/>
+  </g>
+</svg>

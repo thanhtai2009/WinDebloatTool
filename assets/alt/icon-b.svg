@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F5F5FF"/><stop offset="1" stop-color="#CDD0FF"/></linearGradient>
+    <linearGradient id="hl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0.7"/><stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient>
+    <linearGradient id="acc" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFC8A8"/><stop offset="1" stop-color="#FF9F7A"/></linearGradient>
+    <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8C93F0" stop-opacity="0"/><stop offset="1" stop-color="#8C93F0" stop-opacity="0.85"/></linearGradient>
+  </defs>
+  <path d="M108.8 8 H147.2 A100.8 100.8 0 0 1 248.0 108.8 V200.0 A48.0 48.0 0 0 1 200.0 248.0 H56.0 A48.0 48.0 0 0 1 8 200.0 V108.8 A100.8 100.8 0 0 1 108.8 8 Z" fill="#15173F" fill-opacity="0.05" transform="translate(0 6)"/>
+  <path d="M108.8 8 H147.2 A100.8 100.8 0 0 1 248.0 108.8 V200.0 A48.0 48.0 0 0 1 200.0 248.0 H56.0 A48.0 48.0 0 0 1 8 200.0 V108.8 A100.8 100.8 0 0 1 108.8 8 Z" fill="#15173F" fill-opacity="0.06" transform="translate(0 3)"/>
+  <path d="M108.8 8 H147.2 A100.8 100.8 0 0 1 248.0 108.8 V200.0 A48.0 48.0 0 0 1 200.0 248.0 H56.0 A48.0 48.0 0 0 1 8 200.0 V108.8 A100.8 100.8 0 0 1 108.8 8 Z" fill="url(#bg)"/>
+  <path d="M108.8 8 H147.2 A100.8 100.8 0 0 1 248.0 108.8 V200.0 A48.0 48.0 0 0 1 200.0 248.0 H56.0 A48.0 48.0 0 0 1 8 200.0 V108.8 A100.8 100.8 0 0 1 108.8 8 Z" fill="url(#hl)"/>
+<rect x="58.00" y="63.00" width="64.00" height="64.00" rx="17.00" fill="#333A99" fill-opacity="0.10"/>
+<rect x="134.00" y="63.00" width="64.00" height="64.00" rx="17.00" fill="#333A99" fill-opacity="0.10"/>
+<rect x="58.00" y="139.00" width="64.00" height="64.00" rx="17.00" fill="#333A99" fill-opacity="0.10"/>
+<rect x="58.00" y="58.00" width="64.00" height="64.00" rx="17.00" fill="#333A99"/>
+<rect x="134.00" y="58.00" width="64.00" height="64.00" rx="17.00" fill="#6670DB"/>
+<rect x="58.00" y="134.00" width="64.00" height="64.00" rx="17.00" fill="#8C93F0"/>
+<rect x="134.00" y="134.00" width="64.00" height="64.00" rx="17.00" fill="#4C55C7" fill-opacity="0.1"/>
+  <path d="M124.0 200.0 Q162.8 210.0 212.0 192.0" fill="none" stroke="url(#sweep)" stroke-width="9" stroke-linecap="round"/>
+  <g transform="translate(178.8 157.0) rotate(45)">
+    <rect x="-6" y="-74" width="12" height="62" rx="6" fill="#262B72"/>
+    <rect x="-17" y="-16" width="34" height="13" rx="6.5" fill="#4C55C7"/>
+    <path d="M-17 1 H17 Q22 1 23.2 6 L29 34 Q30 40 24 41.4 Q0 47 -24 41.4 Q-30 40 -29 34 L-23.2 6 Q-22 1 -17 1 Z" fill="#262B72"/>
+  </g>
+</svg>

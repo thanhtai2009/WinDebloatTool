@@ -7,9 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## Unreleased
 
 ### Changed
-- New icon set in a Material 3 Expressive style: the app icon (soft four panes on a scalloped "cookie", bold
-  broom, sparkles) and every button icon (bold rounded glyph on a tonal container: squircle, cookie for the
-  main actions, circle for Cancel). Same file names and sizes; all drawn for this project.
+- New icon set in a restrained Material 3 Expressive style. App icon: one indigo tonal family on a soft
+  squircle, three light panes and a minimal broom sweeping the fourth (warm accent), with a simplified variant
+  for 16-32 px. A second direction ("Paper", light arch) is kept in `assets/alt/` (`build_assets.py B`
+  switches the default). Button icons: monochrome rounded glyphs, one stroke weight per size (16/20/24/32 px),
+  no coloured tiles; only START / START (Simple) use the brand indigo and Cancel a muted red. Same file names
+  and sizes; all drawn for this project.
 
 ## 1.1.0 — 2026-10-26
 
