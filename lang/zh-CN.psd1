@@ -110,6 +110,7 @@
     'msg.mirrorBad' = 'SHA256 与 Microsoft 原始文件不一致 - 文件已删除。\n文件: {0}\n实际: {1}\n应为: {2}'
     'msg.mirrorBadKept' = 'SHA256 不一致，且无法删除该文件。请手动删除，不要使用它:\n{0}\n{1}'
     'tip.uiLang' = '界面语言'
+    'tip.author' = 'TaiNT13@PNC STG (thanhtai2009) – Rufus 越南语译者 (rufus.ie/vi)。WinDebloat Tool 是独立项目，与 Rufus 无关。'
     'q.tryMirror' = '是 = 尝试 massgrave.dev 列出的 Microsoft 原始文件副本 (不是 Microsoft 服务器；会校验 SHA256)\n否 = 打开 Microsoft 下载页\n取消 = 关闭'
     'dlg.mirrorPick' = '请选择 massgrave.dev 列出的 Microsoft 原版 ISO (美式英语)。下载主机不是 Microsoft 服务器:'
     'btn.ok' = '确定'

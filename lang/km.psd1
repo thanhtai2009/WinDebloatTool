@@ -110,6 +110,7 @@
     'msg.mirrorBad' = 'SHA256 មិនត្រូវគ្នានឹងឯកសារដើមរបស់ Microsoft ទេ - ឯកសារត្រូវបានលុប។\nឯកសារ: {0}\nទទួលបាន: {1}\nរំពឹងទុក: {2}'
     'msg.mirrorBadKept' = 'SHA256 មិនត្រូវគ្នា ហើយមិនអាចលុបឯកសារបានទេ។ សូមលុបវាដោយខ្លួនឯង ហើយកុំប្រើវា:\n{0}\n{1}'
     'tip.uiLang' = 'ភាសាចំណុចប្រទាក់'
+    'tip.author' = 'TaiNT13@PNC STG (thanhtai2009) – អ្នកបកប្រែ Rufus ជាភាសាវៀតណាម (rufus.ie/vi)។ WinDebloat Tool ជាគម្រោងឯករាជ្យ មិនមានទំនាក់ទំនងជាមួយ Rufus ទេ។'
     'q.tryMirror' = 'Yes = សាកប្រើច្បាប់ចម្លងនៃឯកសារដើមរបស់ Microsoft ដែលមានបញ្ជីលើ massgrave.dev (មិនមែនម៉ាស៊ីនមេ Microsoft ទេ; មានពិនិត្យ SHA256)\nNo = បើកទំព័រ Microsoft\nCancel = បិទ'
     'dlg.mirrorPick' = 'សូមជ្រើស ISO ដើមរបស់ Microsoft ដែលមានបញ្ជីលើ massgrave.dev (ភាសាអង់គ្លេស US)។ ម៉ាស៊ីនទាញយកមិនមែនជារបស់ Microsoft ទេ:'
     'btn.ok' = 'យល់ព្រម'

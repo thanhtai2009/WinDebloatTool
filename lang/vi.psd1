@@ -110,6 +110,7 @@
     'msg.mirrorBad' = 'SHA256 KHÔNG khớp với file gốc của Microsoft - file đã bị xoá.\nFile: {0}\nThực tế: {1}\nMong đợi: {2}'
     'msg.mirrorBadKept' = 'SHA256 KHÔNG khớp và không xoá được file. Hãy tự xoá và đừng dùng file này:\n{0}\n{1}'
     'tip.uiLang' = 'Ngôn ngữ giao diện'
+    'tip.author' = 'TaiNT13@PNC STG (thanhtai2009) – người dịch Rufus sang tiếng Việt (rufus.ie/vi). WinDebloat Tool là dự án độc lập, không liên quan đến Rufus.'
     'q.tryMirror' = 'Yes = thử bản sao file gốc của Microsoft được liệt kê trên massgrave.dev (KHÔNG phải máy chủ Microsoft; có kiểm tra SHA256)\nNo = mở trang Microsoft\nCancel = đóng'
     'dlg.mirrorPick' = 'Chọn một ISO gốc của Microsoft được liệt kê trên massgrave.dev (tiếng Anh Mỹ). Máy chủ tải KHÔNG phải của Microsoft:'
     'btn.ok' = 'OK'

@@ -42,6 +42,7 @@ thứ ba duy nhất đi kèm là aria2, dùng để tải ISO nhanh hơn.
 - [Câu hỏi thường gặp và xử lý lỗi](#câu-hỏi-thường-gặp-và-xử-lý-lỗi)
 - [Lưu ý an toàn](#lưu-ý-an-toàn)
 - [Ghi công](#ghi-công)
+- [Về tác giả](#về-tác-giả)
 - [Giấy phép](#giấy-phép)
 
 ## Tính năng
@@ -442,6 +443,13 @@ Trong giao diện, bấm *Mở thư mục nhật ký* (thư mục `logs\` trong 
 
 Windows, DISM và Windows ADK là sản phẩm của Microsoft. Dự án không phân phối lại bất kỳ thành phần nào
 của Microsoft.
+
+## Về tác giả
+**TaiNT13@PNC STG ([thanhtai2009](https://github.com/thanhtai2009))** — người dịch
+[Rufus](https://rufus.ie/vi/) sang tiếng Việt. Tên anh có trong phần ghi công bản dịch tiếng Việt ở cuối
+trang chủ Rufus (<https://rufus.ie/vi/>) và trong bản dịch tiếng Việt của ứng dụng Rufus
+([`res/loc/rufus.loc`](https://github.com/pbatard/rufus/blob/master/res/loc/rufus.loc)).
+WinDebloat Tool là dự án độc lập, không liên kết và không được Rufus hay tác giả của Rufus bảo trợ.
 
 ## Giấy phép
 [MIT](LICENSE) Copyright (c) 2026 TaiNT13@PNC STG & WinDebloat Tool contributors. aria2 trong `tools/aria2/` giữ giấy phép riêng

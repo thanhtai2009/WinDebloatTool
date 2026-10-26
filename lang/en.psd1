@@ -110,6 +110,7 @@
     'msg.mirrorBad' = 'SHA256 does NOT match the original Microsoft file - the file was deleted.\nFile: {0}\nGot: {1}\nExpected: {2}'
     'msg.mirrorBadKept' = 'SHA256 does NOT match and the file could not be deleted. Delete it yourself and do not use it:\n{0}\n{1}'
     'tip.uiLang' = 'Interface language'
+    'tip.author' = 'TaiNT13@PNC STG (thanhtai2009) – Vietnamese translator of Rufus (rufus.ie/vi). WinDebloat Tool is an independent project, not affiliated with Rufus.'
     'q.tryMirror' = 'Yes = try a copy of the original Microsoft file listed on massgrave.dev (NOT a Microsoft server; SHA256 is checked)\nNo = open the Microsoft page\nCancel = close'
     'dlg.mirrorPick' = 'Choose an original Microsoft ISO listed on massgrave.dev (English US). The download host is NOT a Microsoft server:'
     'btn.ok' = 'OK'

@@ -42,6 +42,7 @@ aria2, used for fast ISO downloads.
 - [FAQ and troubleshooting](#faq-and-troubleshooting)
 - [Safety notes](#safety-notes)
 - [Credits](#credits)
+- [About the author](#about-the-author)
 - [License](#license)
 
 ## Features
@@ -436,6 +437,13 @@ In the GUI, click *Open the log folder* (`logs\` in the tool folder). Each build
   Microsoft Windows logo.
 
 Windows, DISM and the Windows ADK are Microsoft products. Nothing from Microsoft is redistributed here.
+
+## About the author
+**TaiNT13@PNC STG ([thanhtai2009](https://github.com/thanhtai2009))** — Vietnamese translator of
+[Rufus](https://rufus.ie/vi/). He is credited for the Vietnamese translation in the footer of the Rufus
+homepage (<https://rufus.ie/vi/>) and in the Vietnamese translation of the Rufus app
+([`res/loc/rufus.loc`](https://github.com/pbatard/rufus/blob/master/res/loc/rufus.loc)).
+WinDebloat Tool is an independent project; it is not affiliated with or endorsed by Rufus or its author.
 
 ## License
 [MIT](LICENSE) Copyright (c) 2026 TaiNT13@PNC STG & WinDebloat Tool contributors. aria2 in `tools/aria2/` keeps its own license (GPL-2.0).

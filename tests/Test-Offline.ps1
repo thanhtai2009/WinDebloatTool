@@ -616,6 +616,7 @@ $undef = @($used | Where-Object { $enKeys -notcontains $_ })
 Assert ($used.Count -gt 60 -and $undef.Count -eq 0) "every key used in Gui.ps1 ($($used.Count)) exists in the language files (undefined: $($undef -join ','))"
 $wmLit = "'Designed by TaiNT13@PNC STG'"
 $langAll = (@($codes | ForEach-Object { [IO.File]::ReadAllText((Join-Path $langDir "$_.psd1")) }) -join "`n")
+$langAll = $langAll -replace "(?m)^\s*'tip\.author' = .*$", ''   # the author tooltip names him; the watermark itself is never translated
 Assert ($guiSrc.Contains('$script:W11Watermark = ' + $wmLit) -and $guiSrc -match "lblWatermark\.Dock = 'Bottom'" -and $guiSrc -match 'lblWatermark\.Text = \$script:W11Watermark' -and -not $langAll.Contains('TaiNT13')) 'watermark: exact text, docked bottom, same in every language (not in lang files)'
 $cfgT = Get-W11Config
 $tAll = @(@($cfgT.Tweaks) + @($cfgT.Win10Tweaks))
@@ -1292,5 +1293,9 @@ Assert (-not $ps.Err -and @($psc | Where-Object { $_ -match '/Mount-Image .*inst
 
 Remove-Item -LiteralPath $tp -Recurse -Force -ErrorAction SilentlyContinue
 
+$authOk = @()
+foreach ($l in @('vi', 'en', 'zh-CN', 'km')) { $lt14 = Import-W11Lang $l; if (-not ($lt14['tip.author'] -match 'TaiNT13@PNC STG \(thanhtai2009\)' -and $lt14['tip.author'] -match 'Rufus' -and $lt14['tip.author'] -notmatch '@\w+\.(vn|com)')) { $authOk += $l } }
+$gsrc15 = [IO.File]::ReadAllText((Join-Path $root 'lib/Gui.ps1'))
+Assert ($authOk.Count -eq 0 -and $gsrc15 -match "SetToolTip\(\`$ui\.lblWatermark, \(T 'tip\.author'\)\)" -and $gsrc15 -match "W11Watermark = 'Designed by TaiNT13@PNC STG'") "watermark unchanged, author tooltip in 4 languages without e-mail addresses ($($authOk -join ','))"
 Write-Host "Failures: $script:fail"
 exit $script:fail

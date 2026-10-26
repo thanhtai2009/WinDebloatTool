@@ -33,6 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - The options area is now a tab control (Options / Unattended setup / Updates) with a preset row below the
   lists; pages scroll instead of clipping text at large fonts.
 - `boot.wim` is serviced on a copy outside the ISO tree; on any failure the original is kept.
+- README: "About the author" section; the watermark shows a tooltip about the author (4 languages).
 - License and README copyright line: "Copyright (c) 2026 TaiNT13@PNC STG & WinDebloat Tool contributors".
 
 ### Credits

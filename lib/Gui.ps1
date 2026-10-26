@@ -1171,6 +1171,7 @@ function Set-W11UiTexts {
     $ui.cbOs.SelectedIndex = $i
     if ($script:Aria2Exe) { $ui.lblAria2.Text = 'aria2: ' + $script:Aria2Exe } else { $ui.lblAria2.Text = T 'lbl.aria2Missing' }
     if ($ui.tip) { $ui.tip.SetToolTip($ui.cbUiLang, (T 'tip.uiLang')) }
+    if ($ui.tip -and $ui.lblWatermark) { $ui.tip.SetToolTip($ui.lblWatermark, (T 'tip.author')) }   # watermark text itself stays untranslated
     Set-W11ComboItems $ui.cbRegion (T 'item.askSetup') $script:W11Regions
     Set-W11ComboItems $ui.cbKeyboard (T 'item.kbRegion') $script:W11Keyboards
     if ($script:UpdateScan) { $ui.lblUpdInfo.Text = Format-W11UpdateInfo $script:UpdateScan }
