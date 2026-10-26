@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="pane" x1="30" y1="20" x2="200" y2="210" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7AD7FF"/><stop offset="0.45" stop-color="#2B9AF3"/><stop offset="1" stop-color="#0A4FB4"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.45"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="handle" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#D99A5B"/><stop offset="1" stop-color="#8E5626"/>
+    </linearGradient>
+    <linearGradient id="bristle" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFD15C"/><stop offset="1" stop-color="#F08C1A"/>
+    </linearGradient>
+  </defs>
+  <g transform="rotate(-11 118 122)">
+    <rect x="34" y="38" width="76" height="76" rx="16" fill="url(#pane)"/>
+    <rect x="120" y="38" width="76" height="76" rx="16" fill="url(#pane)"/>
+    <rect x="34" y="124" width="76" height="76" rx="16" fill="url(#pane)"/>
+    <rect x="120" y="124" width="76" height="76" rx="16" fill="url(#pane)"/>
+    <rect x="40" y="42" width="64" height="30" rx="12" fill="url(#shine)"/>
+    <rect x="126" y="42" width="64" height="30" rx="12" fill="url(#shine)"/>
+  </g>
+  <!-- broom, drawn upright then turned: handle to the top right, bristles sweeping at the bottom left -->
+  <g transform="translate(170 150) rotate(42)">
+    <rect x="-8" y="-106" width="16" height="110" rx="8" fill="url(#handle)" stroke="#5E3612" stroke-width="3"/>
+    <rect x="-21" y="-2" width="42" height="18" rx="5" fill="#C42B1C" stroke="#7A1A10" stroke-width="3"/>
+    <path d="M-20 16 H20 L36 86 Q0 100 -36 86 Z" fill="url(#bristle)" stroke="#8A4B08" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M-10 22 L-18 86 M0 22 L0 91 M10 22 L18 86" stroke="#B8650C" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+  </g>
+  <!-- dust swept away + sparkles -->
+  <g fill="#9FB3C8"><circle cx="58" cy="226" r="7"/><circle cx="36" cy="208" r="5"/><circle cx="30" cy="232" r="4"/></g>
+  <path d="M214 176 l6 15 15 6 -15 6 -6 15 -6 -15 -15 -6 15 -6 z" fill="#FFFFFF" stroke="#2B9AF3" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M232 132 l3.5 8.5 8.5 3.5 -8.5 3.5 -3.5 8.5 -3.5 -8.5 -8.5 -3.5 8.5 -3.5 z" fill="#FFD15C" stroke="#E08A00" stroke-width="2" stroke-linejoin="round"/>
+</svg>

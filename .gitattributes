@@ -8,3 +8,7 @@
 *.html text eol=crlf
 tools/aria2/** -text
 *.exe binary
+*.png binary
+*.ico binary
+*.svg text eol=lf
+*.py text eol=lf

@@ -187,6 +187,16 @@ oscdimg, cách mở ISO, dung lượng trống, kèm hướng dẫn tiếng Vi�
   Giấy phép, README, AUTHORS, NEWS và `NOTICE.txt` (link gốc, SHA256 của file zip và exe, link mã nguồn) nằm trong thư mục đó.
   Muốn cập nhật, thay `aria2c.exe` bằng bản chính thức mới hơn.
 
+## Ghi công
+- **Icon ứng dụng và icon trên các nút:** vẽ riêng cho dự án này (file SVG gốc trong `assets/`, dựng lại bằng
+  `python3 assets/build_assets.py`), giấy phép MIT như code. Icon là các ô cửa sổ cách điệu cùng cây chổi, không phải
+  logo Windows của Microsoft.
+- **[Raphire/Win11Debloat](https://github.com/Raphire/Win11Debloat)** (MIT): danh sách ứng dụng và mức đánh giá an toàn /
+  tuỳ chọn / không an toàn (`Config/Apps.json`, trang wiki *App Removal*) là nguồn tham khảo chính cho danh sách gỡ.
+  Không sao chép code.
+- **[pbatard/Fido](https://github.com/pbatard/Fido)** (GPL-3.0): mô tả quy trình tải ISO từ Microsoft mà
+  `lib/MsDownload.ps1` tự viết lại (không chứa code của Fido).
+
 ## Giấy phép
 MIT. Quy trình tải từ Microsoft được cộng đồng mô tả (đặc biệt là Fido, GPL-3.0); tool này tự viết lại,
 **không chứa code của Fido**, nên giữ giấy phép MIT.

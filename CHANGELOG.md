@@ -1,5 +1,28 @@
 ﻿# Changelog
 
+## 0.3.6 - 2026-10-26
+**App icon and button icons.**
+
+- **App icon** (`assets/WinDebloatTool.ico`, 16 20 24 32 40 48 64 128 256 px; SVG sources `assets/icon.svg`
+  and a simplified `assets/icon-small.svg` used for 16-32 px; `icon-256.png` / `icon-512.png` for the README):
+  tilted, rounded, gradient window panes with a broom sweeping across them and a few sparkles. Our own
+  drawing, not the Microsoft logo. Set on the main window and the mirror picker. Entries up to 128 px are
+  32-bit BMP so the .NET 2.0 `Icon` class (Windows 7 / PowerShell 2.0) can read them.
+- **Button icons** (`assets/icons/<name>_<16|20|24|32>.png`, SVG sources in `assets/icons/svg/`), one
+  consistent Fluent-like set drawn for this project: Chọn... (folder), Lưu thành... (save), Lấy ngôn ngữ
+  (refresh), Tải về (download), Mặc định / Chọn hết / Bỏ hết (reset / checked / empty box), Xem các phiên bản
+  (eye), Kiểm tra máy (shield), Cài oscdimg (wrench), BẮT ĐẦU (broom), Huỷ (stop), plus a globe before
+  "Mở trang Microsoft" and a folder before "Mở thư mục nhật ký" (clickable). Icon before the text; size
+  by DPI (100 % 16 px, 125 % 20, 150 % 24, 200 % 32). The layout adds the icon width to every measured
+  button, so no text is cut in any language. Disabled buttons draw the icon greyed (WinForms).
+- Icons are optional: a missing or unreadable file means no icon, never an error. Images are copied in
+  memory, the PNG files are not kept locked.
+- `assets/build_assets.py` (cairosvg + ImageMagick) rebuilds every PNG / ICO from the SVGs.
+- README: icon, *Credits* (icons, Raphire/Win11Debloat app list and ratings reference, pbatard/Fido download
+  flow).
+- Tests: ICO sizes / BMP entries, every mapped icon in 4 sizes, icons missing -> no error, icon size by DPI,
+  layout with 16 px icons in all 4 languages.
+
 ## 0.3.5 - 2026-10-26
 **Fix: START failed at once when the output ISO is on the root of a drive.**
 

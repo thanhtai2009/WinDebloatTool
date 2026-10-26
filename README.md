@@ -1,5 +1,7 @@
 ﻿# WinDebloat Tool (Windows 10 / 11)
 
+<img src="assets/icon-256.png" alt="WinDebloat Tool icon" width="128" align="right">
+
 Turn an **official Windows 10 or Windows 11 ISO** into a **debloated ISO** – on Windows, with a GUI, using
 Microsoft tools (DISM, reg.exe, oscdimg from the Windows ADK). The only third-party program is the bundled
 **aria2** (GPLv2, unmodified) used for faster multi-connection ISO downloads – see *Third-party*.
@@ -9,7 +11,7 @@ Microsoft tools (DISM, reg.exe, oscdimg from the Windows ADK). The only third-pa
 > Formerly *Win11 Debloat Tool*. Since 0.2.0 the main script is `WinDebloatTool.ps1`;
 > `Win11DebloatTool.ps1` remains as a wrapper and `run.bat` accepts the same parameters as before.
 
-> **Status: early.** 0.3.5 fixes START failing for an output ISO on a drive root (e.g. `D:\x.iso`); 0.3.4 made the window fully resizable; 0.3.3 added the bottom watermark; 0.3.2 fixed the first real-Windows report (a crash on an empty path field).
+> **Status: early.** 0.3.6 adds an app icon and button icons; 0.3.5 fixed START failing for an output ISO on a drive root (e.g. `D:\x.iso`); 0.3.4 made the window fully resizable; 0.3.3 added the bottom watermark; 0.3.2 fixed the first real-Windows report (a crash on an empty path field).
 > The code was written and statically checked on Linux
 > (PowerShell 7 parser, PSScriptAnalyzer, a custom PowerShell 2.0 compatibility scan, offline unit
 > tests with mocked dism/reg). The same removals and tweaks were applied to a real
@@ -242,6 +244,16 @@ compatibility wrapper) · `lib/Core.ps1`
   distributed unmodified as a separate program that the tool runs as an external process (mere aggregation).
   License, README, AUTHORS, NEWS and `NOTICE.txt` (original URL, SHA256 of zip and exe, link to the
   corresponding source) are in that folder. To update, replace the exe with a newer official build.
+
+## Credits
+- **App icon and button icons:** drawn for this project (SVG sources in `assets/`, rebuilt with
+  `python3 assets/build_assets.py`), MIT like the code. The icon shows stylised window panes with a broom; it is
+  not the Microsoft Windows logo.
+- **[Raphire/Win11Debloat](https://github.com/Raphire/Win11Debloat)** (MIT): its app list and safe / optional /
+  unsafe ratings (`Config/Apps.json` and the wiki page *App Removal*) were the main reference for the removal
+  lists here. No code was copied.
+- **[pbatard/Fido](https://github.com/pbatard/Fido)** (GPL-3.0): documented the Microsoft ISO download flow that
+  `lib/MsDownload.ps1` implements independently (no Fido code, see *License*).
 
 ## License
 MIT (see LICENSE). The Microsoft download flow was documented by the community, notably

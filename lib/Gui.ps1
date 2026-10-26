@@ -28,8 +28,92 @@ function Set-W11ListExtent {
     param($List)
     $max = 0
     foreach ($it in $List.Items) { $w = Get-W11TextWidth ([string]$it) $List.Font; if ($w -gt $max) { $max = $w } }
-    $List.HorizontalExtent = $max + [int](28 * $script:LayoutScale)
+    $List.HorizontalExtent = $max + [int](28 * (Get-W11DpiScale))
 }
+
+#region ---------- icons (assets\WinDebloatTool.ico, assets\icons\<name>_<16|20|24|32>.png) ----------
+# every lookup is optional: a missing / unreadable file just means no icon, never an error
+$script:W11ButtonIcons = @{
+    btnIso = 'folder-open'; btnOut = 'save'; btnFetch = 'refresh'; btnDownload = 'download'
+    btnAppDef = 'reset'; btnAppAll = 'check-all'; btnAppNone = 'clear-all'; btnEd = 'eye'
+    btnCheck = 'shield-check'; btnOsc = 'wrench'; btnStart = 'broom'; btnCancel = 'stop'
+    picMs = 'globe'; picLog = 'folder'
+}
+
+function Get-W11DpiScale {
+    # DPI the process sees / 96 (1.0 for Windows PowerShell 5.1, which Windows scales as a bitmap)
+    if (-not $script:LayoutScale) {
+        $s = 1.0
+        try { $g = [Drawing.Graphics]::FromHwnd([IntPtr]::Zero); $s = [double]$g.DpiX / 96.0; $g.Dispose() } catch { $s = 1.0 }
+        if ($s -lt 1) { $s = 1.0 }
+        $script:LayoutScale = $s
+    }
+    return [double]$script:LayoutScale
+}
+
+function Get-W11AssetPath {
+    # full path of a file under <tool>\assets, $null when it is not there
+    param([string[]]$Parts)
+    if (-not $script:W11Root) { return $null }
+    $p = Join-Path $script:W11Root 'assets'
+    foreach ($x in $Parts) { $p = Join-Path $p $x }
+    if (Test-W11PathText $p -Leaf) { return $p }
+    return $null
+}
+
+function Get-W11AppIcon {
+    if (-not $script:AppIconTried) {
+        $script:AppIconTried = $true; $script:AppIcon = $null
+        $p = Get-W11AssetPath @('WinDebloatTool.ico')
+        if ($p) { try { $script:AppIcon = New-Object Drawing.Icon $p } catch { $script:AppIcon = $null } }
+    }
+    return $script:AppIcon
+}
+
+function Set-W11FormIcon {
+    param($Form)
+    $i = Get-W11AppIcon
+    if ($i -and $Form) { try { $Form.Icon = $i } catch { $null = $_ } }
+}
+
+function Get-W11IconSize {
+    # 16 px at 100 %, 20 / 24 / 32 for higher DPI
+    $want = 16 * (Get-W11DpiScale)
+    foreach ($z in @(16, 20, 24, 32)) { if ($z -ge $want - 1) { return $z } }
+    return 32
+}
+
+function Get-W11IconImage {
+    # Bitmap copy of assets\icons\<name>_<size>.png (the file is not kept open / locked), $null if missing
+    param([string]$Name)
+    $p = Get-W11AssetPath @('icons', ('{0}_{1}.png' -f $Name, (Get-W11IconSize)))
+    if (-not $p) { $p = Get-W11AssetPath @('icons', ('{0}_16.png' -f $Name)) }
+    if (-not $p) { return $null }
+    $ms = $null
+    try {
+        $ms = New-Object IO.MemoryStream (, [IO.File]::ReadAllBytes($p))
+        $img = [Drawing.Image]::FromStream($ms)
+        $bmp = New-Object Drawing.Bitmap $img
+        $img.Dispose()
+        return $bmp
+    } catch { return $null } finally { if ($ms) { $ms.Dispose() } }
+}
+
+function Set-W11ControlIcons {
+    # buttons: icon before the text, centred together; picture boxes next to the two links
+    $ui = $script:ui
+    foreach ($k in $script:W11ButtonIcons.Keys) {
+        $c = $ui[$k]
+        if (-not $c) { continue }
+        $img = Get-W11IconImage $script:W11ButtonIcons[$k]
+        if (-not $img) { if ($k -like 'pic*') { $c.Visible = $false }; continue }
+        if ($k -like 'pic*') { $c.Image = $img; $c.SizeMode = 'CenterImage'; $c.Cursor = [Windows.Forms.Cursors]::Hand; continue }
+        $c.Image = $img
+        $c.ImageAlign = 'MiddleCenter'; $c.TextAlign = 'MiddleCenter'
+        $c.TextImageRelation = 'ImageBeforeText'
+    }
+}
+#endregion
 
 function Set-W11Layout {
     # Places every control from the current client size (PS 2.0 / .NET 2.0: no TableLayoutPanel tricks needed):
@@ -41,19 +125,15 @@ function Set-W11Layout {
     $f = $ui.form
     $cw = $f.ClientSize.Width; $ch = $f.ClientSize.Height
     if ($cw -lt 300 -or $ch -lt 300) { return }   # minimized
-    if (-not $script:LayoutScale) {
-        $s = 1.0
-        try { $g = [Drawing.Graphics]::FromHwnd([IntPtr]::Zero); $s = [double]$g.DpiX / 96.0; $g.Dispose() } catch { $s = 1.0 }
-        if ($s -lt 1) { $s = 1.0 }
-        $script:LayoutScale = $s
-    }
-    $s = [double]$script:LayoutScale
+    $s = Get-W11DpiScale
     $px = { param([double]$v) [int][Math]::Round($v * $s) }
     $tw = { param($c) (Get-W11TextWidth $c.Text $c.Font) }
     $M = & $px 10; $gap = & $px 8; $in = & $px 12; $bh = & $px 27
     $gt = [Math]::Max((& $px 20), $f.Font.Height + (& $px 5))   # first row inside a group box, below its title
     $rowH = [Math]::Max((& $px 23), $f.Font.Height + (& $px 8))
-    $btnW = { param($c, [int]$min) [Math]::Max((& $px $min), (& $tw $c) + (& $px 24)) }
+    $imgW = { param($c) if ($c.Image) { $c.Image.Width + (& $px 6) } else { 0 } }   # icon + gap before the text
+    $btnW = { param($c, [int]$min) [Math]::Max((& $px $min), (& $tw $c) + (& $imgW $c) + (& $px 24)) }
+    $picW = { param($c) if ($c -and $c.Image) { $c.Image.Width + (& $px 4) } else { 0 } }
     $chkW = { param($c) (& $tw $c) + (& $px 24) }
     $lblW = { param($c) (& $tw $c) + (& $px 4) }
 
@@ -80,6 +160,8 @@ function Set-W11Layout {
         $ui.rbDl.SetBounds($in, $y3, (& $chkW $ui.rbDl), $rowH)
         $w = & $lblW $ui.lnkMs
         $ui.lnkMs.SetBounds($r - $w, $y3 + (& $px 2), $w, $rowH - (& $px 2))
+        $pw = & $picW $ui.picMs
+        if ($ui.picMs) { $ui.picMs.SetBounds($ui.lnkMs.Left - [Math]::Max(1, $pw), $y3, [Math]::Max(1, $pw), $rowH) }
         $wf = & $btnW $ui.btnFetch 120
         $ui.btnFetch.SetBounds($r - $wf, $y4 - (& $px 2), $wf, $bh)
         $wl1 = & $lblW $ui.lblVersion; $wl2 = & $lblW $ui.lblArch; $wl3 = & $lblW $ui.lblLang; $wArch = & $px 70
@@ -176,7 +258,9 @@ function Set-W11Layout {
         $ys = $yb + $bigH + (& $px 6)
         $w = & $lblW $ui.lnkLog
         $ui.lnkLog.SetBounds($cw - $M - $w, $ys + (& $px 3), $w, $statusH - (& $px 3))
-        $ui.cbUiLang.SetBounds($ui.lnkLog.Left - (& $px 10) - (& $px 150), $ys, (& $px 150), $rowH)
+        $pw = & $picW $ui.picLog
+        if ($ui.picLog) { $ui.picLog.SetBounds($ui.lnkLog.Left - [Math]::Max(1, $pw), $ys, [Math]::Max(1, $pw), $statusH) }
+        $ui.cbUiLang.SetBounds($ui.lnkLog.Left - $pw - (& $px 10) - (& $px 150), $ys, (& $px 150), $rowH)
         $ui.lblStatus.SetBounds($M, $ys + (& $px 3), [Math]::Max(50, $ui.cbUiLang.Left - (& $px 10) - $M), $statusH - (& $px 3))
         $yl = $ys + $statusH + (& $px 4)
         $ui.tbLog.SetBounds($M, $yl, $gw, [Math]::Max((& $px 60), $ch - $wm.Height - (& $px 6) - $yl))
@@ -582,6 +666,7 @@ function Select-W11Mirror {
     $d.Text = 'WinDebloat Tool'; $d.ClientSize = New-Object Drawing.Size 640, 250
     $d.StartPosition = 'CenterParent'; $d.FormBorderStyle = 'FixedDialog'; $d.MinimizeBox = $false; $d.MaximizeBox = $false
     $d.Font = $script:ui.form.Font
+    Set-W11FormIcon $d
     $lb = New-W11Ctl Label (T 'dlg.mirrorPick') 12 10 616 40
     $list = New-W11Ctl ListBox '' 12 52 616 150
     foreach ($m in $Choices) { [void]$list.Items.Add(('{0}   ({1})' -f $m.FileName, (Get-MsUrlHost $m.Url))) }
@@ -864,6 +949,7 @@ function Show-W11Gui {
     $f.StartPosition = 'CenterScreen'
     $f.Font = New-Object Drawing.Font 'Segoe UI', 9
     $f.MinimumSize = New-Object Drawing.Size 1000, 880
+    Set-W11FormIcon $f
     $ui.form = $f
     $ui.tip = New-Object Windows.Forms.ToolTip
 
@@ -911,7 +997,8 @@ function Show-W11Gui {
     } else { $ui.chkAria2.Checked = $false; $ui.chkAria2.Enabled = $false }
     $ui.lnkMs = New-W11Ctl LinkLabel '@lnk.ms' 560 76 390 20
     $ui.lnkMs.TextAlign = 'MiddleRight'
-    $g1.Controls.AddRange(@($lo, $ui.cbOs, $ui.lblOs, $ui.rbLocal, $ui.tbIso, $ui.btnIso, $ui.rbDl, $ui.btnFetch, $lr, $ui.cbRelease, $la, $ui.cbArch, $ll, $ui.cbLang, $ui.btnDownload, $ui.lnkMs, $ui.chkAria2, $ui.lblAria2))
+    $ui.picMs = New-Object Windows.Forms.PictureBox
+    $g1.Controls.AddRange(@($ui.picMs, $lo, $ui.cbOs, $ui.lblOs, $ui.rbLocal, $ui.tbIso, $ui.btnIso, $ui.rbDl, $ui.btnFetch, $lr, $ui.cbRelease, $la, $ui.cbArch, $ll, $ui.cbLang, $ui.btnDownload, $ui.lnkMs, $ui.chkAria2, $ui.lblAria2))
 
     # ---------- 2. apps ----------
     $g2 = New-W11Ctl GroupBox '' 10 180 560 330
@@ -974,6 +1061,7 @@ function Show-W11Gui {
     foreach ($lg in $script:W11Langs) { [void]$ui.cbUiLang.Items.Add($lg.Name) }
     $ui.lnkLog = New-W11Ctl LinkLabel '@lnk.log' 740 618 230 20
     $ui.lnkLog.TextAlign = 'MiddleRight'
+    $ui.picLog = New-Object Windows.Forms.PictureBox
     $ui.tbLog = New-W11Ctl TextBox '' 10 642 960 164
     $ui.tbLog.Multiline = $true; $ui.tbLog.ScrollBars = 'Both'; $ui.tbLog.ReadOnly = $true; $ui.tbLog.WordWrap = $false
     $ui.tbLog.MaxLength = 2147483647
@@ -993,7 +1081,8 @@ function Show-W11Gui {
     $ui.lblWatermark.Font = New-Object Drawing.Font 'Segoe UI', 7.5
     $ui.lblWatermark.Text = $script:W11Watermark
     $ui.lblWatermark.Height = $ui.lblWatermark.Font.Height + 6
-    $f.Controls.AddRange(@($g1, $g2, $g3, $g4, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnCancel, $ui.pb, $ui.lblStatus, $ui.cbUiLang, $ui.lnkLog, $ui.tbLog, $ui.lblWatermark))
+    $f.Controls.AddRange(@($g1, $g2, $g3, $g4, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnCancel, $ui.pb, $ui.lblStatus, $ui.cbUiLang, $ui.picLog, $ui.lnkLog, $ui.tbLog, $ui.lblWatermark))
+    Set-W11ControlIcons
 
     $script:DetectedOs = $null; $script:DetectedBuild = 0; $script:DetectedSource = $null; $script:ShownOs = $null; $script:LastDlEntry = $null; $script:AutoDownload = $false
     $ui.cbOs.SelectedIndex = 0
@@ -1020,6 +1109,7 @@ function Show-W11Gui {
         else { Show-W11Msg (T 'msg.noLog') | Out-Null }
     }
     $ui.lnkLog.Add_LinkClicked({ Invoke-W11Handler 'lnkLog.LinkClicked' })
+    $ui.picLog.Add_Click({ Invoke-W11Handler 'lnkLog.LinkClicked' })
 
     $script:BusyControls = @($ui.cbOs, $ui.btnIso, $ui.btnFetch, $ui.btnDownload, $ui.cbRelease, $ui.cbArch, $ui.chkAria2, $ui.btnEd, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnOut, $ui.clbApps, $ui.clbTweaks)
 
@@ -1071,6 +1161,7 @@ function Show-W11Gui {
             Write-W11Log -En 'Opened the official Microsoft page. After the download finishes, choose the ISO with Browse.' -Vi 'Đã mở trang Microsoft. Tải xong hãy bấm "Chọn..." để chọn file ISO.'
         }
     $ui.lnkMs.Add_LinkClicked({ Invoke-W11Handler 'lnkMs.LinkClicked' })
+    $ui.picMs.Add_Click({ Invoke-W11Handler 'lnkMs.LinkClicked' })
 
     $script:H['btnFetch.Click'] = {
             # languages (and SHA256 table) of the selected release only - one quick API call

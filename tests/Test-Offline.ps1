@@ -647,7 +647,9 @@ Assert ($mixed.Count -eq 0) "app list (vi): every note translated, no English le
 Add-Type -TypeDefinition @'
 using System.Collections;
 public class W11MockFont { public int Height = 16; }
+public class W11MockImg { public int Width = 16; }
 public class W11MockCtl {
+    public W11MockImg Image;
     public string Name = ""; public string Text = ""; public W11MockFont Font = new W11MockFont();
     public int Left, Top, Width = 10, Height = 10; public int DropDownWidth, HorizontalExtent;
     public ArrayList Items = new ArrayList(); public W11MockCtl Parent;
@@ -660,7 +662,7 @@ public class W11MockForm { public W11MockSize ClientSize = new W11MockSize(); pu
 function Get-W11TextWidth { param([string]$Text, $Font) if (-not $Text) { return 0 }; return 7 * $Text.Length }
 function Get-W11TextHeight { param([string]$Text, $Font, [int]$Width) $l = [Math]::Max(1, [Math]::Ceiling((7.0 * ([string]$Text).Length) / [Math]::Max(20, $Width))); return [int](16 * $l) }
 $gSrcKeys = @{
-    grpSource = 'grp.source'; rbLocal = 'rb.local'; lblTargetOs = 'lbl.targetOs'; cbOs = 'os.auto'; lblOs = 'lbl.detectedNone'; tbIso = ''; btnIso = 'btn.browse'
+    picMs = ''; picLog = ''; grpSource = 'grp.source'; rbLocal = 'rb.local'; lblTargetOs = 'lbl.targetOs'; cbOs = 'os.auto'; lblOs = 'lbl.detectedNone'; tbIso = ''; btnIso = 'btn.browse'
     rbDl = 'rb.download'; lnkMs = 'lnk.ms'; btnFetch = 'btn.languages'; lblVersion = 'lbl.version'; cbRelease = ''; lblArch = 'lbl.arch'; cbArch = ''; lblLang = 'lbl.lang'; cbLang = 'lang.pressLoad'
     btnDownload = 'btn.download'; chkAria2 = 'chk.aria2'; lblAria2 = 'lbl.aria2Missing'
     grpApps = 'grp.apps'; clbApps = ''; btnAppDef = 'btn.appDef'; btnAppAll = 'btn.appAll'; btnAppNone = 'btn.appNone'; note = 'lbl.keptNote'
@@ -670,12 +672,12 @@ $gSrcKeys = @{
     btnCheck = 'btn.check'; btnOsc = 'btn.osc'; btnStart = 'btn.start'; btnCancel = 'btn.cancel'; pb = ''; lblStatus = 'status.ready'; cbUiLang = ''; lnkLog = 'lnk.log'; tbLog = ''; lblWatermark = ''
 }
 $inner = @{
-    grpSource = @('rbLocal', 'lblTargetOs', 'cbOs', 'lblOs', 'tbIso', 'btnIso', 'rbDl', 'lnkMs', 'btnFetch', 'lblVersion', 'cbRelease', 'lblArch', 'cbArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'lblAria2')
+    grpSource = @('picMs', 'rbLocal', 'lblTargetOs', 'cbOs', 'lblOs', 'tbIso', 'btnIso', 'rbDl', 'lnkMs', 'btnFetch', 'lblVersion', 'cbRelease', 'lblArch', 'cbArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'lblAria2')
     grpApps = @('clbApps', 'btnAppDef', 'btnAppAll', 'btnAppNone', 'note')
     grpOptions = @('lblEditions', 'rbEdAll', 'rbEdHP', 'rbEdCustom', 'tbIdx', 'btnEd', 'lblTweaks', 'clbTweaks', 'chkUnattend', 'chkCleanup', 'chkDry')
     grpOutput = @('tbOut', 'btnOut')
 }
-$top = @('grpSource', 'grpApps', 'grpOptions', 'grpOutput', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'pb', 'lblStatus', 'cbUiLang', 'lnkLog', 'tbLog')
+$top = @('grpSource', 'grpApps', 'grpOptions', 'grpOutput', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'pb', 'lblStatus', 'cbUiLang', 'picLog', 'lnkLog', 'tbLog')
 $oneLine = @('rbLocal', 'lblTargetOs', 'btnIso', 'rbDl', 'lnkMs', 'btnFetch', 'lblVersion', 'lblArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'btnAppDef', 'btnAppAll', 'btnAppNone', 'rbEdAll', 'rbEdCustom', 'btnEd', 'btnOut', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'lnkLog')
 $saveUi = $script:ui; $layBad = @()
 foreach ($c in $codes) {
@@ -684,13 +686,14 @@ foreach ($c in $codes) {
         $mf = New-Object W11MockForm; $mf.ClientSize.Width = $sz[0]; $mf.ClientSize.Height = $sz[1]
         $mu = @{ form = $mf }
         foreach ($k in $gSrcKeys.Keys) { $o = New-Object W11MockCtl; $o.Name = $k; if ($gSrcKeys[$k]) { $o.Text = T $gSrcKeys[$k] '' }; $mu[$k] = $o }
+        foreach ($k in $script:W11ButtonIcons.Keys) { $mu[$k].Image = New-Object W11MockImg }   # 16 px icons
         $mu.rbEdHP.Text = 'Home + Pro'; $mu.lblWatermark.Text = $script:W11Watermark; $mu.lblWatermark.Font.Height = 13
         if ($c -eq 'km') { $mf.Font.Height = 22; foreach ($k in $gSrcKeys.Keys) { $mu[$k].Font.Height = 22 } }   # taller Khmer font
         $script:ui = $mu; $script:LayoutScale = 1.0
         Set-W11Layout
         $mu.lblWatermark.Top = $sz[1] - $mu.lblWatermark.Height
         $tag = "$c $($sz[0])x$($sz[1])"
-        foreach ($k in $oneLine) { if ((Get-W11TextWidth $mu[$k].Text $null) -gt $mu[$k].Width) { $layBad += "$tag ${k}: text wider than control" } }
+        foreach ($k in $oneLine) { $need = Get-W11TextWidth $mu[$k].Text $null; if ($mu[$k].Image) { $need += 22 }; if ($need -gt $mu[$k].Width) { $layBad += "$tag ${k}: text wider than control" } }
         $sets = @(, $top) + @($inner.Keys | ForEach-Object { , $inner[$_] })
         foreach ($set in $sets) {
             for ($i = 0; $i -lt $set.Count; $i++) {
@@ -822,6 +825,35 @@ $errD = $null; try { $null = Invoke-Win11Debloat -IsoPath 'D:\w.iso' -OutputIso 
 Assert ($errD -match 'không hợp lệ') "Invoke-Win11Debloat: invalid output path -> clear message ($errD)"
 $errD = $null; try { $null = Invoke-Win11Debloat -IsoPath 'D:\w.iso' -OutputIso 'D:\o.iso' -WorkDir 'D:\' -LogPath ([IO.Path]::GetTempFileName()) } catch { $errD = $_.Exception.Message }
 Assert ($errD -match 'gốc ổ đĩa') "Invoke-Win11Debloat: drive root as work dir refused (it is deleted afterwards) ($errD)"
+
+# 11) v0.3.6: app icon + button icons (files, optional loading)
+$assets = Join-Path $root 'assets'
+$icoB = [IO.File]::ReadAllBytes((Join-Path $assets 'WinDebloatTool.ico'))
+$icoN = [BitConverter]::ToUInt16($icoB, 4); $icoSizes = @(); $icoBmp = $true
+for ($i = 0; $i -lt $icoN; $i++) {
+    $w = [int]$icoB[6 + 16 * $i]; if ($w -eq 0) { $w = 256 }; $icoSizes += $w
+    $off = [BitConverter]::ToUInt32($icoB, 6 + 16 * $i + 12)
+    $isPng = ($icoB[$off] -eq 0x89 -and $icoB[$off + 1] -eq 0x50)
+    if ($w -le 128 -and $isPng) { $icoBmp = $false }
+}
+Assert ((($icoSizes | Sort-Object) -join ',') -eq '16,20,24,32,40,48,64,128,256' -and $icoBmp) "app icon: 9 sizes 16..256, BMP entries up to 128 px (.NET 2.0 Icon class) ($($icoSizes -join ','))"
+Assert ((Test-Path -LiteralPath (Join-Path $assets 'icon.svg')) -and (Test-Path -LiteralPath (Join-Path $assets 'icon-small.svg')) -and (Test-Path -LiteralPath (Join-Path $assets 'icon-256.png')) -and (Test-Path -LiteralPath (Join-Path $assets 'icon-512.png'))) 'app icon: SVG sources + 256/512 PNG'
+$missIc = @()
+foreach ($n in ($script:W11ButtonIcons.Values | Sort-Object -Unique)) {
+    if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $assets 'icons/svg') "$n.svg"))) { $missIc += "$n.svg" }
+    foreach ($z in @(16, 20, 24, 32)) {
+        $fp = Join-Path (Join-Path $assets 'icons') ('{0}_{1}.png' -f $n, $z)
+        if (-not (Test-Path -LiteralPath $fp)) { $missIc += "${n}_$z" } else { $pb = [IO.File]::ReadAllBytes($fp); if ([BitConverter]::ToInt32(@($pb[19], $pb[18], $pb[17], $pb[16]), 0) -ne $z) { $missIc += "${n}_$z(size)" } }
+    }
+}
+Assert ($missIc.Count -eq 0 -and $script:W11ButtonIcons.Count -ge 14) "button icons: every mapped icon has its SVG and 16/20/24/32 PNG ($($missIc -join ','))"
+$saveRoot = $script:W11Root; $script:W11Root = $tp; $script:AppIconTried = $false; $icErr = $null
+try { $a1 = Get-W11AppIcon; $a2 = Get-W11IconImage 'folder-open'; $a3 = Get-W11AssetPath @('icons', 'nope.png') } catch { $icErr = $_.Exception.Message }
+$script:W11Root = $saveRoot; $script:AppIconTried = $false
+Assert (-not $icErr -and $null -eq $a1 -and $null -eq $a2 -and $null -eq $a3) "icons missing (assets folder deleted) -> no icon, no error ($icErr)"
+$script:LayoutScale = 1.0; $z1 = Get-W11IconSize; $script:LayoutScale = 1.5; $z2 = Get-W11IconSize; $script:LayoutScale = 2.0; $z3 = Get-W11IconSize; $script:LayoutScale = 1.25; $z4 = Get-W11IconSize; $script:LayoutScale = $null
+Assert ($z1 -eq 16 -and $z4 -eq 20 -and $z2 -eq 24 -and $z3 -eq 32) "icon size by DPI: 100% 16, 125% 20, 150% 24, 200% 32 ($z1 $z4 $z2 $z3)"
+Assert ($guiSrc -match "TextImageRelation = 'ImageBeforeText'" -and $guiSrc -match 'Set-W11FormIcon \$f' -and $guiSrc -match 'Set-W11FormIcon \$d') 'icons: image before text on buttons; icon on the main window and the mirror dialog'
 Remove-Item -LiteralPath $tp -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "Failures: $script:fail"
