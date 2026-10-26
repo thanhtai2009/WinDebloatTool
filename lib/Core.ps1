@@ -13,7 +13,7 @@ if ($MyInvocation.MyCommand.Path) {
     $script:W11Root = Split-Path -Parent $script:W11LibDir
 }
 $script:W11D = @{
-    Version      = '0.3.8'
+    Version      = '1.0.0'
     LogPath      = $null
     Sync         = $null
     HiveSoftware = 'HKLM\W11D_SOFTWARE'
@@ -900,8 +900,7 @@ function Remove-W11AppsDism {
 }
 
 function Remove-W11AppsManual {
-    <# Fallback when DISM has no Appx provider (e.g. ISO's DISM on Windows 7): same method as the
-       reference Linux build - drop AppxAllUserStore\Applications entries, add Deprovisioned
+    <# Fallback when DISM has no Appx provider (e.g. ISO's DISM on Windows 7): drop AppxAllUserStore\Applications entries, add Deprovisioned
        markers and delete the package folders. Requires the SOFTWARE hive to be loaded. #>
     param([string]$MountDir, [string[]]$Patterns, [string[]]$Protected, [switch]$DryRun, [string]$KeptListPath)
     $base = "$($script:W11D.HiveSoftware)\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore"
@@ -978,7 +977,7 @@ function Get-W11IsoEditions {
 }
 #endregion
 
-#region ---------- image export / size checks (v0.3.7) ----------
+#region ---------- image export / size checks ----------
 function Test-W11PathInside {
     # $true when $Path is $Parent itself or anything below it (case-insensitive, '\' and '/' are the same)
     param([string]$Path, [string]$Parent)
@@ -1077,7 +1076,7 @@ function Clear-W11TreeTemp {
 }
 #endregion
 
-#region ---------- work folder ownership / cleanup (v0.3.8) ----------
+#region ---------- work folder ownership / cleanup ----------
 $script:W11WorkFiles = @('.w11debloat-work', 'install.work.wim', 'install.new.wim', 'install.new.esd', 'install.wim', 'install.esd')
 $script:W11IsoRootNames = @('boot', 'efi', 'sources', 'support', 'setup.exe', 'autorun.inf', 'bootmgr', 'bootmgr.efi', 'autounattend.xml', '[boot]')
 $script:W11ImageRootNames = @('windows', 'program files', 'program files (x86)', 'programdata', 'users', 'perflogs', 'recovery', '$recycle.bin', '$windows.~bt', '$windows.~ws', 'system volume information', 'documents and settings', 'config.msi', 'msocache', 'inetpub', 'program files (arm)')
@@ -1127,7 +1126,7 @@ function Test-W11KnownWorkItem {
 }
 
 function Get-W11WorkDirState {
-    # Missing | Empty | Ours (marker, or only things this tool creates: leftovers of older versions) | Foreign
+    # Missing | Empty | Ours (marker, or only things this tool creates: leftover of an earlier run) | Foreign
     param([Parameter(Mandatory = $true)][string]$WorkDir)
     if (-not (Test-Path -LiteralPath $WorkDir)) { return 'Missing' }
     if (Test-Path -LiteralPath $WorkDir -PathType Leaf) { return 'Foreign' }
@@ -1249,8 +1248,8 @@ function Invoke-Win11Debloat {
     $ErrorActionPreference = 'Stop'
     if ($Sync) { $script:W11D.Sync = $Sync }
     # every path is cleaned (quotes, spaces, invisible characters) and made absolute with Windows rules;
-    # the output folder is only created when missing and never through New-Item on a drive root (v0.3.4 bug:
-    # output 'D:\x.iso' -> New-Item -Force 'D:\' -> "The path is not of a legal form" on Windows PowerShell 5.1)
+    # the output folder is only created when missing and never through New-Item on a drive root
+    # (New-Item -Force 'D:\' fails with "The path is not of a legal form" on Windows PowerShell 5.1)
     $p = Resolve-W11FullPath $IsoPath
     if (-not $p) { throw "Invalid source ISO path / Đường dẫn ISO nguồn không hợp lệ: '$IsoPath'" }
     $IsoPath = $p
@@ -1347,7 +1346,7 @@ function Invoke-Win11Debloat {
 
         # ---- prepare work dir ----
         if ((Get-W11WorkDirState $WorkDir) -eq 'Ours') {
-            $how = 'marker'; if (-not (Test-Path -LiteralPath $marker)) { $how = 'no marker, only files this tool creates (earlier run / older version)' }
+            $how = 'marker'; if (-not (Test-Path -LiteralPath $marker)) { $how = 'no marker, only files this tool creates' }
             Write-W11Log -Level WARN -En "Leftover work folder of an earlier run ($how): cleaning it" -Vi 'Thư mục tạm còn sót từ lần chạy trước: đang dọn'
             Clear-W11WorkDir -WorkDir $WorkDir -MountDir $mountDir -Quiet
         }

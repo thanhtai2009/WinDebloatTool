@@ -27,7 +27,7 @@ $cfg = Get-W11Config
 Assert ($info[1].Build -eq 26300) 'build parsed from dism Version line'
 $p11 = Get-W11Profile -Config $cfg -Os Win11
 $def = @($p11.Apps | Where-Object { $_.Default } | ForEach-Object { $_.Id })
-# 0.3.1: four packages of the reference build are rated "unsafe" by Win11Debloat (Apps.json, checked 2026-10-25):
+# four packages of the reference build are rated "unsafe" by Win11Debloat (Apps.json, checked 2026-10-25):
 # listed but opt-in, so a default build keeps Store/game sign-in/troubleshooters working
 $unsafe = @('Microsoft.GetHelp', 'Microsoft.Xbox.TCUI', 'Microsoft.XboxIdentityProvider', 'Microsoft.XboxSpeechToTextOverlay')
 foreach ($fam in (Get-Content (Join-Path $root 'tests\fixtures\reference_families.txt'))) {
@@ -196,7 +196,7 @@ Assert ((Find-MsPublishedHash $x86.Hashes 'English' 'English (United States)' 'x
 Assert ((Find-MsPublishedHash @{ 'English  64-bit' = 'ARM' } 'English' 'English' 'arm64') -eq 'ARM') 'arm64 page label with double space'
 Assert ((Get-MsReleaseLabel -Display 'Windows 10 Client - Build 19045.2965' -OsName 'Windows 10') -eq 'Windows 10 22H2 (Build 19045.2965)') 'release label from Win10 build'
 
-# ================= 0.2.1: "Load list shows nothing" (vlscppe.microsoft.com not resolvable) =================
+# ================= "Load list shows nothing" (vlscppe.microsoft.com not resolvable) =================
 # Reload the real download module (the tests above replaced New-MsDlSession), keep only a network mock.
 . (Join-Path $root 'lib\MsDownload.ps1')
 function ConvertFrom-MsJson {
@@ -284,7 +284,7 @@ $script:Net = @{ sku3813 = '<html>Access denied</html>'; sku3816 = '<html>x</htm
 $cg = Get-MsCatalogForGui
 Assert ($cg.Live -eq 0 -and $cg.Error -match 'not JSON') 'HTML instead of JSON -> clear error, static list'
 
-# ================= 0.3.0: release catalog, per-release languages =================
+# ================= release catalog, per-release languages =================
 $rc = @(Get-MsReleaseCatalog)
 Assert (@($rc | Where-Object { $_.Os -eq 'Win11' }).Count -eq 15 -and @($rc | Where-Object { $_.Os -eq 'Win10' }).Count -eq 36) 'release catalog: 15 Win11 entries (4 releases x64+arm64, 7 x64 only) + 36 Win10 (18 x64+x86)'
 Assert (@($rc | Where-Object { $_.Static -and @($_.Skus).Count -eq 0 }).Count -eq $rc.Count -and @($rc | Where-Object { -not $_.Available }).Count -eq 1) 'release catalog: languages not loaded yet; one release not offered'
@@ -347,7 +347,7 @@ $script:netLog.Clear()
 $ur9 = Update-MsEntryLanguages -Entry (@($rc | Where-Object { $_.EditionId -eq '2084' })[0])
 Assert (-not $ur9.Ok -and -not $ur9.NotOffered -and $ur9.Error -match '715-123130' -and @($script:netLog | Where-Object { $_ -like '*getskuinformation*' }).Count -eq 3) 'Type 9 on languages: one round only, not marked withdrawn'
 
-# ================= 0.3.0: build -> release, version-aware profile =================
+# ================= build -> release, version-aware profile =================
 $pairs = @{ 10240 = '1507'; 10586 = '1511'; 14393 = '1607'; 15063 = '1703'; 16299 = '1709'; 17134 = '1803'; 17763 = '1809'; 18362 = '1903'; 18363 = '1909'; 19041 = '2004'; 19042 = '20H2'; 19043 = '21H1'; 19044 = '21H2'; 19045 = '22H2'; 22000 = '21H2'; 22621 = '22H2'; 22631 = '23H2'; 26100 = '24H2'; 26200 = '25H2'; 26300 = '26H2' }
 $bad = @(); foreach ($b in $pairs.Keys) { if ((Get-W11ReleaseName $b) -ne $pairs[$b]) { $bad += "$b=$(Get-W11ReleaseName $b)" } }
 Assert ($bad.Count -eq 0) "build -> release name for all 20 known builds $($bad -join ' ')"
@@ -378,7 +378,7 @@ $script:logLines.Clear()
 $ab = @(Write-W11AbsentPatterns -Patterns @('Clipchamp.Clipchamp', 'Microsoft.BingNews', 'Microsoft.People') -Names @('Microsoft.BingNews', 'Microsoft.WindowsStore'))
 Assert ($ab.Count -eq 2 -and @($script:logLines | Where-Object { $_ -like '*not in this image (skipped): Clipchamp.Clipchamp, Microsoft.People*' }).Count -eq 1) 'packages missing from the image are skipped + logged'
 
-# ================= 0.3.0: aria2 =================
+# ================= aria2 =================
 $tr = Join-Path ([IO.Path]::GetTempPath()) ('w11a2_' + [guid]::NewGuid().ToString('N'))
 $null = New-Item -ItemType Directory -Path (Join-Path $tr 'tools/aria2/x64'), (Join-Path $tr 'tools/aria2/x86') -Force
 $saveRoot = $script:W11Root; $script:W11Root = $tr
@@ -564,9 +564,9 @@ $logTxt = [IO.File]::ReadAllText($lp)
 Assert ($js.Error -eq 'boom from job' -and $logTxt -match '\[ERROR\] boom from job' -and $logTxt -match 'RuntimeException') 'runspace: job exception -> $sync.Error + details in log'
 Remove-Item $lp
 
-# 8) v0.3.2: empty paths (real-Windows crash), i18n files, settings, fonts, mirror fallback
+# 8) empty paths (real-Windows crash), i18n files, settings, fonts, mirror fallback
 $script:W11Root = $root
-# Windows PowerShell 2.0-5.1 refuse '' for -LiteralPath (the v0.3.1 crash); PowerShell 7 only does so for Get-Item
+# Windows PowerShell 2.0-5.1 refuse '' for -LiteralPath; PowerShell 7 only does so for Get-Item
 $crash = $null
 try { if ($PSVersionTable.PSVersion.Major -le 5) { $null = Test-Path -LiteralPath '' } else { $null = Get-Item -LiteralPath '' } } catch { $crash = $_.Exception.Message }
 Assert ($crash -match 'empty string') "repro: empty -LiteralPath throws ($crash)"
@@ -643,7 +643,7 @@ $mixed = @()
 foreach ($a in @(@($cfgA.Apps) + @($cfgA.Win10Apps))) { $tx = Get-W11AppText $a; $nt = ''; if ($tx -match '\(([^()]+)\)   \[') { $nt = $matches[1] }; if ($nt -match 'unsafe|optional|older|present|reinstall|sign-in|troubleshoot|games UI|classic|^new$') { $mixed += $tx } }
 Assert ($mixed.Count -eq 0) "app list (vi): every note translated, no English left ($($mixed -join ' | '))"
 
-# 9) v0.3.4: resizable layout (mock controls: geometry only, real WinForms needs Windows)
+# 9) resizable layout (mock controls: geometry only, real WinForms needs Windows)
 Add-Type -TypeDefinition @'
 using System.Collections;
 public class W11MockFont { public int Height = 16; }
@@ -771,7 +771,7 @@ $q = @($js.LogQueue.ToArray()) -join "`n"
 Assert ($q -match '\] Hello$' -and $q -notmatch 'Xin chao' -and [IO.File]::ReadAllText($lp2) -match 'Hello \| Xin chao') 'log: GUI shows English for zh/km/en, log file keeps English | Vietnamese'
 Remove-Item $lp2
 
-# 10) v0.3.5: user paths (real-Windows bug: output 'D:\x.iso' -> New-Item -Force 'D:\' -> "The path is not of a legal form")
+# 10) user paths (real-Windows bug: output 'D:\x.iso' -> New-Item -Force 'D:\' -> "The path is not of a legal form")
 $zw = [string][char]0x200B; $nb = [string][char]0x00A0; $lq = [string][char]0x201C; $rq = [string][char]0x201D
 $pcases = @(
     @(' "D:\Windows11_Client_x64_en-us_26300_9457_debloated.iso" ', '', 'D:\Windows11_Client_x64_en-us_26300_9457_debloated.iso'),
@@ -826,7 +826,7 @@ Assert ($errD -match 'không hợp lệ') "Invoke-Win11Debloat: invalid output p
 $errD = $null; try { $null = Invoke-Win11Debloat -IsoPath 'D:\w.iso' -OutputIso 'D:\o.iso' -WorkDir 'D:\' -LogPath ([IO.Path]::GetTempFileName()) } catch { $errD = $_.Exception.Message }
 Assert ($errD -match 'gốc ổ đĩa') "Invoke-Win11Debloat: drive root as work dir refused (it is deleted afterwards) ($errD)"
 
-# 11) v0.3.6: app icon + button icons (files, optional loading)
+# 11) app icon + button icons (files, optional loading)
 $assets = Join-Path $root 'assets'
 $icoB = [IO.File]::ReadAllBytes((Join-Path $assets 'WinDebloatTool.ico'))
 $icoN = [BitConverter]::ToUInt16($icoB, 4); $icoSizes = @(); $icoBmp = $true
@@ -855,7 +855,7 @@ $script:LayoutScale = 1.0; $z1 = Get-W11IconSize; $script:LayoutScale = 1.5; $z2
 Assert ($z1 -eq 16 -and $z4 -eq 20 -and $z2 -eq 24 -and $z3 -eq 32) "icon size by DPI: 100% 16, 125% 20, 150% 24, 200% 32 ($z1 $z4 $z2 $z3)"
 Assert ($guiSrc -match "TextImageRelation = 'ImageBeforeText'" -and $guiSrc -match 'Set-W11FormIcon \$f' -and $guiSrc -match 'Set-W11FormIcon \$d') 'icons: image before text on buttons; icon on the main window and the mirror dialog'
 
-# 12) v0.3.7: ISO much bigger than the source (user report: +10 GB) -> layout, export command lines, size log, sanity warning
+# 12) ISO much bigger than the source (user report: +10 GB) -> layout, export command lines, size log, sanity warning
 Assert ((Test-W11PathInside 'D:\W\iso\sources' 'D:\W\iso') -and (Test-W11PathInside 'd:\w\ISO' 'D:\W\iso\') -and -not (Test-W11PathInside 'D:\W\iso2' 'D:\W\iso') -and -not (Test-W11PathInside 'D:\W\mount' 'D:\W\iso') -and (Test-W11PathInside '/t/w/iso/a' '/t/w/iso')) 'Test-W11PathInside: same/child yes, sibling or prefix-only no'
 $ly = Get-W11WorkLayout -WorkDir 'D:\WinDebloat_work'
 Assert ($ly.Tree -eq 'D:\WinDebloat_work\iso' -and $ly.Mount -eq 'D:\WinDebloat_work\mount' -and $ly.Scratch -eq 'D:\WinDebloat_work\scratch' -and $ly.WorkWim -eq 'D:\WinDebloat_work\install.work.wim' -and $ly.NewImage -eq 'D:\WinDebloat_work\install.new.wim') 'work layout: tree, mount, scratch, work WIM and new image are siblings under the work dir'
@@ -937,7 +937,7 @@ foreach ($r in $runs) {
         Sources = @(Get-ChildItem -LiteralPath (Join-Path $script:pWork 'iso/sources') -Force | ForEach-Object { $_.Name } | Sort-Object) }
 }
 
-# 13) v0.3.8: work folder left by an earlier run / older version (real report: "Work dir is not empty and was not
+# 13) work folder left by an earlier run (report: "Work dir is not empty and was not
 #     created by this tool: D:\WinDebloat_work"), foreign folders, mounted leftovers, cleanup in finally, one-language UI
 Assert ((Get-W11LocalText 'Checking prerequisites / Kiểm tra điều kiện' 'vi') -eq 'Kiểm tra điều kiện' -and (Get-W11LocalText 'Checking prerequisites / Kiểm tra điều kiện' 'en') -eq 'Checking prerequisites') 'Get-W11LocalText: status line in one language (vi / en)'
 $lt = Get-W11LocalText "THẤT BẠI:`nWork dir bad: D:\W / Thư mục tạm D:\W chứa file khác`n`nXem file nhật ký." 'vi'

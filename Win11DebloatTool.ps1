@@ -1,6 +1,5 @@
 ﻿<#
-    Backwards-compatible entry point (the project was renamed from "Win11 Debloat Tool" to
-    "WinDebloat Tool" when Windows 10 support was added). Forwards everything to WinDebloatTool.ps1.
+    Alias of WinDebloatTool.ps1: same parameters, forwards everything to it.
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(

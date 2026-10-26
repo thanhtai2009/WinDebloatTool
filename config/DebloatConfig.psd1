@@ -12,7 +12,7 @@
 #            DEFAULTUSER = C:\Users\Default\NTUSER.DAT (applies to every new user).
 @{
     Apps = @(
-        # ---- default removals (same list as the reference build) ----
+        # ---- default removals ----
         @{ Id = 'Clipchamp.Clipchamp';                    Name = 'Clipchamp video editor';          Default = $true; MinBuild = 22621 }
         @{ Id = 'MSTeams';                                Name = 'Microsoft Teams (new)';           Default = $true; MinBuild = 22631 }
         @{ Id = 'Microsoft.OutlookForWindows';            Name = 'Outlook (new)';                   Default = $true; MinBuild = 26100 }
