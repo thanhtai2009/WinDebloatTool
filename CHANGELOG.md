@@ -1,5 +1,33 @@
 ﻿# Changelog
 
+## 0.3.5 - 2026-10-26
+**Fix: START failed at once when the output ISO is on the root of a drive.**
+
+- **Bug (real Windows 11, PowerShell 5.1):** output `D:\Windows11_..._debloated.iso` -> "The path is not of
+  a legal form" (`System.ArgumentException`). `Invoke-Win11Debloat` ran `New-Item -ItemType Directory -Force`
+  on the output folder, which is `D:\` here; Windows PowerShell's file system provider cannot do that on a
+  drive root (it builds a `DirectoryInfo` from an empty parent path). The folder already existed - nothing
+  needed creating.
+- New `New-W11Directory`: does nothing when the folder exists, never touches a drive / share root, creates
+  missing folders with `[IO.Directory]::CreateDirectory`; used for the output, work, mount, 7-Zip extraction,
+  settings, download and log folders (no `New-Item -ItemType Directory` left).
+- New path rules for everything the user types or pastes (`ConvertTo-W11CleanPath`, `Resolve-W11FullPath`,
+  `Get-W11ParentDir`): spaces, `"..."`, `'...'`, typographic quotes, zero-width / BOM / bidi characters and
+  non-breaking spaces removed; `/` -> `\`; `D:` -> `D:\`; `D:x.iso` -> `D:\x.iso`; relative paths resolved
+  against the PowerShell folder (not the process folder, which is System32 when elevated); `.` / `..`,
+  repeated and trailing `\` collapse; UNC `\\server\share\...` supported. Invalid characters, reserved names
+  (CON, NUL, COM1...), `\\?\` paths and `..` above the root are refused with a clear message.
+- Work folder: next to the output ISO (`D:\WinDebloat_work` for a drive-root output), `%TEMP%` when the output
+  is on a network share; a drive root is refused as work folder (it is deleted after the run). Free space is
+  now also checked on the output drive when it differs from the work drive (>= 8 GB). A missing / not ready
+  drive gives a clear message instead of a .NET error.
+- Output check before START, in all four languages: drive or share missing, a folder instead of a file name
+  (with an example name), invalid characters. The cleaned, absolute paths are written back into the boxes.
+- `ConvertTo-W11Arg` keeps the backslash of a drive root (`"D:\\"`), so tools never get the drive-relative `D:`.
+- Tests: the exact report (source and output on `D:\`) runs through path preparation (output folder `D:\`, work
+  folder `D:\WinDebloat_work`); 28 path cases (quotes, invisible characters, spaces, relative, drive root, UNC,
+  trailing `\`, invalid); messages; no `New-Item -ItemType Directory` left.
+
 ## 0.3.4 - 2026-10-26
 **Resizable layout, no clipped text, Vietnamese app notes.**
 

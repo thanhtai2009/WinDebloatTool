@@ -13,7 +13,7 @@ if ($MyInvocation.MyCommand.Path) {
     $script:W11Root = Split-Path -Parent $script:W11LibDir
 }
 $script:W11D = @{
-    Version      = '0.3.4'
+    Version      = '0.3.5'
     LogPath      = $null
     Sync         = $null
     HiveSoftware = 'HKLM\W11D_SOFTWARE'
@@ -89,10 +89,17 @@ function Get-W11FreeGB {
     $root = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Path))
     if ($root -like '\\*') { throw "Network paths are not supported for the work folder / Không hỗ trợ thư mục mạng: $Path" }
     $d = New-Object IO.DriveInfo $root
+    if (-not $d.IsReady) { throw "Drive not found or not ready / Không thấy ổ đĩa hoặc ổ chưa sẵn sàng: $root" }
     return [Math]::Round($d.AvailableFreeSpace / 1GB, 1)
 }
 
-function ConvertTo-W11Arg { param([string]$s) return '"' + $s.TrimEnd('\') + '"' }
+function ConvertTo-W11Arg {
+    # quoted argument; no trailing '\' (it would escape the closing quote), except a drive root: "D:\\" = D:\
+    param([string]$s)
+    $t = $s.TrimEnd('\')
+    if ($t -match '^[A-Za-z]:$') { return '"' + $t + '\\"' }
+    return '"' + $t + '"'
+}
 
 function Invoke-W11Process {
     <# Runs a console program (stdout captured, \r progress lines parsed for %), returns ExitCode + Lines. #>
@@ -157,6 +164,137 @@ function Test-W11Like {
     foreach ($p in $Patterns) { if ($Name -like $p) { return $true } }
     return $false
 }
+
+#region ---------- user paths (Windows rules, pure string logic so it behaves the same everywhere) ----------
+function ConvertTo-W11CleanPath {
+    <# User-typed / pasted path -> plain text: surrounding whitespace and quotes ("..." '...' and the
+       typographic ones) and invisible characters (zero-width, BOM, bidi marks from copy/paste) removed,
+       non-breaking spaces become spaces. '' when nothing is left. #>
+    param([string]$Path)
+    if ($null -eq $Path) { return '' }
+    $s = [regex]::Replace($Path, '[\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF\u0000-\u001F]', '')
+    $s = $s.Replace([string][char]0x00A0, ' ')
+    $q = [char[]]@([char]0x22, [char]0x27, [char]0x201C, [char]0x201D, [char]0x201E, [char]0x2018, [char]0x2019, [char]0x00AB, [char]0x00BB)
+    $prev = $null
+    while ($prev -ne $s) { $prev = $s; $s = $s.Trim().Trim($q) }
+    return $s
+}
+
+function Get-W11PathRoot {
+    # 'D:\' for 'D:\a\b', '\\server\share\' for UNC; $null when the (normalized) path has no root
+    param([string]$Path)
+    if ($Path -match '^([A-Za-z]:\\)') { return $matches[1].ToUpper() }
+    if ($Path -match '^(\\\\[^\\]+\\[^\\]+\\?)') { $r = $matches[1]; if (-not $r.EndsWith('\')) { $r += '\' }; return $r }
+    return $null
+}
+
+function Resolve-W11FullPath {
+    <# Cleaned, absolute Windows path, or $null when it is not a usable path. Works the way Windows does, but
+       without [IO.Path]::GetFullPath, whose base folder is the process folder (System32 when elevated):
+       relative paths are resolved against -BaseDir (default: the current PowerShell folder);
+       'D:' -> 'D:\', 'D:x.iso' -> 'D:\x.iso', '\x.iso' -> root of the base drive; '/' -> '\'; repeated '\',
+       '.' and '..' collapse; trailing dots/spaces of each part are dropped (as Windows does); a trailing
+       '\' is removed except on a root. Invalid: characters <>:"|?* (':' only after the drive), reserved device
+       names (CON, NUL, COM1...), '\\?\' / '\\.\' device paths, '..' above the root, a bare '\\server'. #>
+    param([string]$Path, [string]$BaseDir)
+    $p = ConvertTo-W11CleanPath $Path
+    if (-not $p) { return $null }
+    if ($env:OS -ne 'Windows_NT' -and $p.StartsWith('/') -and -not $p.StartsWith('//')) { try { return [IO.Path]::GetFullPath($p) } catch { return $null } }   # test host (Linux) only
+    $p = $p.Replace('/', '\')
+    if ($p.StartsWith('\\?\') -or $p.StartsWith('\\.\')) { return $null }
+    $unc = $p.StartsWith('\\')
+    if ($p -match '^[A-Za-z]:$') { $p += '\' }
+    elseif ($p -match '^([A-Za-z]:)([^\\].*)$') { $p = $matches[1] + '\' + $matches[2] }
+    if (-not $unc -and $p -notmatch '^[A-Za-z]:\\') {
+        if (-not $BaseDir) { try { $BaseDir = (Get-Location -PSProvider FileSystem).ProviderPath } catch { $BaseDir = $null } }
+        $b = $null; if ($BaseDir) { $b = Resolve-W11FullPath $BaseDir 'C:\' }
+        if (-not $b) { return $null }
+        if ($p.StartsWith('\')) { $p = (Get-W11PathRoot $b) + $p.TrimStart('\') } else { $p = $b.TrimEnd('\') + '\' + $p }
+        $unc = $p.StartsWith('\\')
+    }
+    if ($unc) {
+        $parts = @($p.Substring(2).Split('\') | Where-Object { $_ -ne '' })
+        if ($parts.Count -lt 2) { return $null }
+        $root = '\\' + $parts[0] + '\' + $parts[1] + '\'
+        $rest = @(); if ($parts.Count -gt 2) { $rest = $parts[2..($parts.Count - 1)] }
+        foreach ($x in @($parts[0], $parts[1])) { if ($x.IndexOfAny([char[]]'<>:"|?*') -ge 0 -or $x -eq '.' -or $x -eq '..') { return $null } }
+    } else {
+        $root = $p.Substring(0, 3).ToUpper()
+        $rest = @($p.Substring(3).Split('\'))
+    }
+    $out = New-Object Collections.ArrayList
+    foreach ($seg in $rest) {
+        if ($seg -eq '' -or $seg -eq '.') { continue }
+        if ($seg -eq '..') { if ($out.Count -eq 0) { return $null }; $out.RemoveAt($out.Count - 1); continue }
+        $seg = $seg.TrimEnd([char[]]@('.', ' '))
+        if (-not $seg) { continue }
+        if ($seg.IndexOfAny([char[]]'<>:"|?*') -ge 0) { return $null }
+        if ($seg -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$') { return $null }
+        [void]$out.Add($seg)
+    }
+    $full = $root + ([string[]]$out.ToArray() -join '\')
+    if ($env:OS -eq 'Windows_NT') { try { $null = [IO.Path]::GetFullPath($full) } catch { return $null } }
+    return $full
+}
+
+function Get-W11ParentDir {
+    # folder of a normalized full path: 'D:\x.iso' -> 'D:\', 'D:\a\x.iso' -> 'D:\a', '\\srv\sh\x.iso' -> '\\srv\sh\';
+    # $null for a root (it has no parent)
+    param([string]$FullPath)
+    $root = Get-W11PathRoot $FullPath
+    if (-not $root -and $FullPath -and $FullPath.StartsWith('/') -and -not $FullPath.StartsWith('//')) { return [IO.Path]::GetDirectoryName($FullPath) }   # test host (Linux) only
+    if (-not $root) { return $null }
+    $t = $FullPath.TrimEnd('\')
+    if ($t.Length -le $root.TrimEnd('\').Length) { return $null }
+    $i = $t.LastIndexOf('\')
+    if ($i -lt $root.Length) { return $root }
+    return $t.Substring(0, $i)
+}
+
+function Test-W11IsPathRoot {
+    param([string]$FullPath)
+    if ($FullPath -eq '/') { return $true }
+    $root = Get-W11PathRoot $FullPath
+    return [bool]($root -and $FullPath.TrimEnd('\') -eq $root.TrimEnd('\'))
+}
+
+function Get-W11PathLeaf {
+    # last part of a path ('D:\a\x.iso' -> 'x.iso'), '\' and '/' both count
+    param([string]$Path)
+    if (-not $Path) { return '' }
+    $t = $Path.TrimEnd([char[]]@('\', '/'))
+    $i = $t.LastIndexOfAny([char[]]@('\', '/'))
+    return $t.Substring($i + 1)
+}
+
+function Join-W11Path {
+    # folder + name without Join-Path (no provider / drive lookups); keeps the separator style of the folder
+    param([string]$Dir, [string]$Name)
+    if (-not $Dir) { return $Name }
+    $sep = '\'; if ($Dir.StartsWith('/')) { $sep = '/' }
+    return ($Dir.TrimEnd([char[]]@('\', '/')) + $sep + $Name)
+}
+
+function New-W11Directory {
+    <# Creates a folder (and its parents) when it is missing. Never calls New-Item on a drive root: Windows
+       PowerShell 5.1 New-Item (Directory, -Force) on "D:\" throws "The path is not of a legal form". #>
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not $Path) { throw 'No folder given / Chưa có thư mục' }
+    if (Test-Path -LiteralPath $Path -PathType Container) { return }
+    if (Test-W11IsPathRoot $Path) { throw "Drive or network share not found: $Path / Không thấy ổ đĩa hoặc thư mục mạng: $Path" }
+    if (Test-Path -LiteralPath $Path -PathType Leaf) { throw "A file with this name already exists, a folder is needed: $Path / Đã có một file trùng tên, cần một thư mục: $Path" }
+    $null = [IO.Directory]::CreateDirectory($Path)
+}
+
+function Get-W11DefaultWorkDir {
+    # work folder next to the output ISO (same drive = no copy across drives); %TEMP% for a network output
+    param([string]$OutDir)
+    if ($OutDir -and -not $OutDir.StartsWith('\\')) { return ($OutDir.TrimEnd('\') + '\WinDebloat_work') }
+    $t = Resolve-W11FullPath $env:TEMP
+    if (-not $t) { $t = [IO.Path]::GetTempPath() }
+    return ($t.TrimEnd('\') + '\WinDebloat_work')
+}
+#endregion
 
 function Test-W11PathText {
     <# Safe path check for user-typed / empty values: $false (never an exception) for empty, whitespace,
@@ -431,7 +569,7 @@ function Open-W11Iso {
     $sz = Find-W11SevenZip
     if (-not $sz) { throw 'Cannot open ISO: Mount-DiskImage needs Windows 8+, or install 7-Zip / Không mở được ISO: cần Win8+ hoặc cài 7-Zip' }
     if (-not $ExtractTo) { throw 'Extraction target required' }
-    $null = New-Item -ItemType Directory -Force -Path $ExtractTo
+    New-W11Directory $ExtractTo
     Write-W11Log -Level STEP -En "Extracting ISO with 7-Zip (no Mount-DiskImage on this Windows)..." -Vi 'Đang giải nén ISO bằng 7-Zip...'
     $res = Invoke-W11Process -FilePath $sz -Arguments ('x -y -o{0} {1}' -f (ConvertTo-W11Arg $ExtractTo), (ConvertTo-W11Arg $IsoPath)) -Quiet -MergeStdErr -ProgressBase 5 -ProgressSpan 10 -ProgressText 'Extracting ISO / Giải nén ISO'
     if ($res.ExitCode -ne 0) { throw "7-Zip failed (exit $($res.ExitCode))" }
@@ -865,13 +1003,23 @@ function Invoke-Win11Debloat {
     )
     $ErrorActionPreference = 'Stop'
     if ($Sync) { $script:W11D.Sync = $Sync }
-    $OutputIso = [IO.Path]::GetFullPath($OutputIso)
-    $IsoPath = [IO.Path]::GetFullPath($IsoPath)
-    $outDir = Split-Path -Parent $OutputIso
-    if (-not $WorkDir) { $WorkDir = Join-Path $outDir 'WinDebloat_work' }
-    $WorkDir = [IO.Path]::GetFullPath($WorkDir).TrimEnd('\')
-    $null = New-Item -ItemType Directory -Force -Path $outDir
-    if (-not $LogPath) { $LogPath = Join-Path $outDir ('WinDebloat_{0}.log' -f (Get-Date -Format 'yyyyMMdd_HHmmss')) }
+    # every path is cleaned (quotes, spaces, invisible characters) and made absolute with Windows rules;
+    # the output folder is only created when missing and never through New-Item on a drive root (v0.3.4 bug:
+    # output 'D:\x.iso' -> New-Item -Force 'D:\' -> "The path is not of a legal form" on Windows PowerShell 5.1)
+    $p = Resolve-W11FullPath $IsoPath
+    if (-not $p) { throw "Invalid source ISO path / Đường dẫn ISO nguồn không hợp lệ: '$IsoPath'" }
+    $IsoPath = $p
+    $p = Resolve-W11FullPath $OutputIso
+    if (-not $p -or (Test-W11IsPathRoot $p)) { throw "Invalid output ISO path / Đường dẫn ISO đầu ra không hợp lệ: '$OutputIso'" }
+    if (Test-Path -LiteralPath $p -PathType Container) { throw "The output ISO path is a folder, add a file name (e.g. Windows_debloated.iso) / Đường dẫn ISO đầu ra là một thư mục, hãy thêm tên file: '$p'" }
+    $OutputIso = $p
+    $outDir = Get-W11ParentDir $OutputIso
+    if (-not $WorkDir) { $WorkDir = Get-W11DefaultWorkDir $outDir }
+    $p = Resolve-W11FullPath $WorkDir
+    if (-not $p -or (Test-W11IsPathRoot $p)) { throw "Invalid work folder (a drive root is not allowed, it gets deleted afterwards) / Thư mục tạm không hợp lệ (không dùng gốc ổ đĩa): '$WorkDir'" }
+    $WorkDir = $p.TrimEnd('\')
+    New-W11Directory $outDir
+    if (-not $LogPath) { $LogPath = Join-W11Path $outDir ('WinDebloat_{0}.log' -f (Get-Date -Format 'yyyyMMdd_HHmmss')) }
     $script:W11D.LogPath = $LogPath
     if (-not $AutounattendPath) { $AutounattendPath = Join-Path $script:W11Root 'autounattend.xml' }
 
@@ -894,10 +1042,10 @@ function Invoke-Win11Debloat {
     & $planFor $os
     $RemoveApps = $script:__apps; $Tweaks = $script:__tweakIds; $tweakDefs = $script:__tweakDefs
 
-    $mountDir = Join-Path $WorkDir 'mount'
-    $tree = Join-Path $WorkDir 'iso'
-    $workWim = Join-Path $WorkDir 'install.work.wim'
-    $marker = Join-Path $WorkDir '.w11debloat-work'
+    $mountDir = Join-W11Path $WorkDir 'mount'
+    $tree = Join-W11Path $WorkDir 'iso'
+    $workWim = Join-W11Path $WorkDir 'install.work.wim'
+    $marker = Join-W11Path $WorkDir '.w11debloat-work'
     $iso = $null; $imageMounted = $false; $success = $false
     $result = New-W11Obj @{ OutputIso = $OutputIso; Sha256 = $null; LogPath = $LogPath; DryRun = $DryRun; TargetOs = $null; Build = 0; Release = $null }
 
@@ -918,6 +1066,12 @@ function Invoke-Win11Debloat {
         $free = Get-W11FreeGB -Path $WorkDir
         Write-W11Log -En "Free space on work drive: $free GB (need >= $MinFreeGB GB)" -Vi "Dung lượng trống: $free GB (cần >= $MinFreeGB GB)"
         if ($free -lt $MinFreeGB -and -not $DryRun) { throw "Not enough free space / Không đủ dung lượng trống ($free GB < $MinFreeGB GB)" }
+        $outRoot = Get-W11PathRoot $OutputIso
+        if ($outRoot -and -not $outRoot.StartsWith('\\') -and $outRoot -ne (Get-W11PathRoot $WorkDir)) {
+            $ofree = Get-W11FreeGB -Path $outDir
+            Write-W11Log -En "Free space on output drive: $ofree GB" -Vi "Dung lượng trống ổ đầu ra: $ofree GB"
+            if ($ofree -lt 8 -and -not $DryRun) { throw "Not enough free space for the output ISO / Không đủ chỗ cho ISO đầu ra ($ofree GB < 8 GB)" }
+        }
 
         $oscdimg = Find-W11Oscdimg -Hint $OscdimgPath
         if ($oscdimg) { Write-W11Log -En "oscdimg: $oscdimg" }
@@ -943,8 +1097,8 @@ function Invoke-Win11Debloat {
                 Remove-Item -LiteralPath $WorkDir -Recurse -Force
             }
         }
-        $null = New-Item -ItemType Directory -Force -Path $WorkDir
-        $null = New-Item -ItemType Directory -Force -Path $mountDir
+        New-W11Directory $WorkDir
+        New-W11Directory $mountDir
         Set-Content -LiteralPath $marker -Value 'w11debloat'
 
         # ---- open ISO ----
@@ -1024,7 +1178,7 @@ function Invoke-Win11Debloat {
         }
         $null = Invoke-W11Process -FilePath (Join-Path $env:windir 'System32\attrib.exe') -Arguments ('-R {0} /S /D' -f (ConvertTo-W11Arg "$tree\*")) -Quiet
         # from now on use the DISM copy inside the work tree if we were using the ISO's DISM
-        if ($d.Kind -eq 'ISO') { $script:W11D.Dism = Join-Path $tree 'sources\dism.exe' }
+        if ($d.Kind -eq 'ISO') { $script:W11D.Dism = Join-W11Path $tree 'sources\dism.exe' }
 
         # ---- working WIM ----
         $targets = @()
@@ -1058,7 +1212,7 @@ function Invoke-Win11Debloat {
             Write-W11Log -Level STEP -En "$tag Mounting $($t.Name) (index $($t.WorkIndex))..." -Vi "Đang mount $($t.Name)..."
             $null = Invoke-W11Dism ('/Mount-Image /ImageFile:{0} /Index:{1} /MountDir:{2}' -f (ConvertTo-W11Arg $workWim), $t.WorkIndex, (ConvertTo-W11Arg $mountDir)) -Quiet -ProgressBase $base -ProgressSpan ($span * 0.2) -ProgressText "$tag Mount"
             $imageMounted = $true
-            $kept = Join-Path $outDir ('kept_index{0}.txt' -f $t.WorkIndex)
+            $kept = Join-W11Path $outDir ('kept_index{0}.txt' -f $t.WorkIndex)
             Set-W11Progress ($base + $span * 0.2) "$tag Removing apps / Gỡ app"
             if ($script:W11D.DismCanAppx) {
                 Remove-W11AppsDism -MountDir $mountDir -Patterns $RemoveApps -Protected $cfgProtected -OutOfRange $outOfRange -KeptListPath $kept
@@ -1083,7 +1237,7 @@ function Invoke-Win11Debloat {
         }
 
         # ---- export / recompress ----
-        $finalWim = Join-Path $tree 'sources\install.wim'
+        $finalWim = Join-W11Path $tree 'sources\install.wim'
         if (Test-Path -LiteralPath $finalWim) { Remove-Item -LiteralPath $finalWim -Force }
         $i = 0
         foreach ($t in $targets) {
@@ -1098,15 +1252,15 @@ function Invoke-Win11Debloat {
         # ---- autounattend ----
         if ($Autounattend) {
             Write-W11Log -Level STEP -En 'Adding autounattend.xml to ISO root...' -Vi 'Thêm autounattend.xml vào gốc ISO...'
-            Write-W11Autounattend -Template $AutounattendPath -Destination (Join-Path $tree 'autounattend.xml') -Language $lang -Arch $archName -Os $os
+            Write-W11Autounattend -Template $AutounattendPath -Destination (Join-W11Path $tree 'autounattend.xml') -Language $lang -Arch $archName -Os $os
         }
 
         # ---- build ISO ----
         Assert-W11NotCancelled
         Write-W11Log -Level STEP -En 'Building bootable ISO with oscdimg...' -Vi 'Đang tạo ISO khởi động bằng oscdimg...'
         if (Test-Path -LiteralPath $OutputIso) { Remove-Item -LiteralPath $OutputIso -Force }
-        $etfs = Join-Path $tree 'boot\etfsboot.com'
-        $efisys = Join-Path $tree 'efi\microsoft\boot\efisys.bin'
+        $etfs = Join-W11Path $tree 'boot\etfsboot.com'
+        $efisys = Join-W11Path $tree 'efi\microsoft\boot\efisys.bin'
         if (-not (Test-Path -LiteralPath $efisys)) { throw "UEFI boot file missing: $efisys" }
         $label = (Get-W11IsoLabel -IsoPath $IsoPath) -replace '[^A-Za-z0-9_]', '_'
         if (-not $label) { $label = 'WIN11_DEBLOAT' }

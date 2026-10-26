@@ -99,6 +99,8 @@
     'msg.outSameAsIso' = 'ISO đầu ra phải là file khác với ISO nguồn.'
     'msg.outInvalid' = 'Đường dẫn ISO đầu ra không hợp lệ:\n{0}'
     'msg.outDirMissing' = 'Thư mục chứa ISO đầu ra không tồn tại:\n{0}'
+    'msg.outIsFolder' = 'Đường dẫn ISO đầu ra đang là một thư mục. Hãy thêm tên file, ví dụ:\n{1}\n\nThư mục: {0}'
+    'msg.outDriveMissing' = 'Ổ đĩa hoặc thư mục mạng chứa ISO đầu ra không tồn tại hoặc chưa sẵn sàng:\n{0}'
     'msg.mirrorOffer' = 'Microsoft không cung cấp được bản tải này.\n\nmassgrave.dev có liệt kê bản sao file gốc của Microsoft (MSDN):\n{0}\n\nMáy chủ tải: {1}\nĐây KHÔNG phải máy chủ của Microsoft.\n\nTải xong, công cụ sẽ đối chiếu SHA256 với file gốc:\n{2}\nFile không khớp sẽ bị xoá. Công cụ không bao giờ chạy file đã tải.\n\nYes = mở trang tải trong trình duyệt, tải xong thì chọn file đó tại đây\nNo = huỷ'
     'dlg.pickMirror' = 'Chọn file đã tải {0}'
     'status.verifying' = 'Đang kiểm tra SHA256 (mất vài phút)...'

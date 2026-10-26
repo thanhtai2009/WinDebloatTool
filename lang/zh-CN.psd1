@@ -99,6 +99,8 @@
     'msg.outSameAsIso' = '输出 ISO 必须与源 ISO 是不同的文件。'
     'msg.outInvalid' = '输出路径无效:\n{0}'
     'msg.outDirMissing' = '输出文件夹不存在:\n{0}'
+    'msg.outIsFolder' = '输出路径是一个文件夹，请加上文件名，例如:\n{1}\n\n文件夹: {0}'
+    'msg.outDriveMissing' = '输出 ISO 所在的驱动器或网络共享不存在或未就绪:\n{0}'
     'msg.mirrorOffer' = 'Microsoft 无法提供此下载。\n\nmassgrave.dev 列出了 Microsoft 原始文件 (MSDN) 的副本:\n{0}\n\n下载主机: {1}\n这不是 Microsoft 的服务器。\n\n下载后，本工具会把它的 SHA256 与原始文件比对:\n{2}\n不一致的文件会被删除。本工具绝不会运行下载的文件。\n\n是 = 在浏览器中打开下载页，下载完成后在这里选择该文件\n否 = 取消'
     'dlg.pickMirror' = '选择已下载的文件 {0}'
     'status.verifying' = '正在校验 SHA256 (需要几分钟)...'

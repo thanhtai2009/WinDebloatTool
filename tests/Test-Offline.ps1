@@ -767,6 +767,61 @@ $js = Invoke-TestJob '$sync.UiLang = "km"; Write-W11Log -En "Hello" -Vi "Xin cha
 $q = @($js.LogQueue.ToArray()) -join "`n"
 Assert ($q -match '\] Hello$' -and $q -notmatch 'Xin chao' -and [IO.File]::ReadAllText($lp2) -match 'Hello \| Xin chao') 'log: GUI shows English for zh/km/en, log file keeps English | Vietnamese'
 Remove-Item $lp2
+
+# 10) v0.3.5: user paths (real-Windows bug: output 'D:\x.iso' -> New-Item -Force 'D:\' -> "The path is not of a legal form")
+$zw = [string][char]0x200B; $nb = [string][char]0x00A0; $lq = [string][char]0x201C; $rq = [string][char]0x201D
+$pcases = @(
+    @(' "D:\Windows11_Client_x64_en-us_26300_9457_debloated.iso" ', '', 'D:\Windows11_Client_x64_en-us_26300_9457_debloated.iso'),
+    @(($zw + 'D:\x.iso' + $nb), '', 'D:\x.iso'),
+    @(($lq + 'D:\My ISOs\x.iso' + $rq), '', 'D:\My ISOs\x.iso'),
+    @("'D:\x.iso'", '', 'D:\x.iso'),
+    @('d:/a//b/./c/../x.iso', '', 'D:\a\b\x.iso'),
+    @('D:', '', 'D:\'), @('D:\', '', 'D:\'), @('D:x.iso', '', 'D:\x.iso'), @('D:\out\', '', 'D:\out'),
+    @('D:\a.\b \x.iso', '', 'D:\a\b\x.iso'),
+    @('\\srv\share\iso\x.iso', '', '\\srv\share\iso\x.iso'), @('//srv/share/x.iso', '', '\\srv\share\x.iso'),
+    @('x.iso', 'C:\Users\u\Downloads', 'C:\Users\u\Downloads\x.iso'), @('..\x.iso', 'C:\a\b', 'C:\a\x.iso'), @('\x.iso', 'E:\a', 'E:\x.iso'),
+    @('\\srv', '', $null), @('\\srv\', '', $null), @('D:\..\x.iso', '', $null), @('D:\a<b.iso', '', $null), @('D:\a:b.iso', '', $null), @('D:\a?.iso', '', $null),
+    @('D:\CON.iso', '', $null), @('D:\x\nul', '', $null), @('\\?\D:\x.iso', '', $null), @('', '', $null), @('   ', '', $null), @('""', '', $null), @("D:\a`tb.iso", '', 'D:\ab.iso')
+)
+$pbad = @()
+foreach ($pc in $pcases) {
+    $got = Resolve-W11FullPath $pc[0] $pc[1]
+    if ($got -ne $pc[2]) { $pbad += "[$($pc[0])] -> [$got] (expected [$($pc[2])])" }
+}
+Assert ($pbad.Count -eq 0) "Resolve-W11FullPath: quotes / invisible chars / spaces / relative / drive root / UNC / trailing \ / invalid ($($pbad -join '; '))"
+Assert ((Get-W11ParentDir 'D:\Windows11_Client_x64_en-us_26300_9457_debloated.iso') -eq 'D:\' -and (Get-W11ParentDir 'D:\a\x.iso') -eq 'D:\a' -and (Get-W11ParentDir '\\srv\sh\x.iso') -eq '\\srv\sh\' -and (Get-W11ParentDir '\\srv\sh\a\x.iso') -eq '\\srv\sh\a' -and $null -eq (Get-W11ParentDir 'D:\') -and $null -eq (Get-W11ParentDir '\\srv\sh\')) 'Get-W11ParentDir: drive root output -> D:\ (not "D:" or empty), UNC, roots have no parent'
+Assert ((Test-W11IsPathRoot 'D:\') -and (Test-W11IsPathRoot '\\srv\sh\') -and -not (Test-W11IsPathRoot 'D:\a')) 'Test-W11IsPathRoot'
+Assert ((Get-W11DefaultWorkDir 'D:\') -eq 'D:\WinDebloat_work' -and (Get-W11DefaultWorkDir 'D:\ISO') -eq 'D:\ISO\WinDebloat_work' -and (Get-W11DefaultWorkDir '\\srv\sh\') -like '*WinDebloat_work' -and (Get-W11DefaultWorkDir '\\srv\sh\') -notlike '\\srv*') 'work dir: next to the output (also on a drive root), %TEMP% for a network output'
+Assert ((ConvertTo-W11Arg 'D:\') -eq '"D:\\"' -and (ConvertTo-W11Arg 'D:\a\') -eq '"D:\a"' -and (ConvertTo-W11Arg 'D:\a b') -eq '"D:\a b"') 'ConvertTo-W11Arg: drive root keeps its backslash ("D:\\" = D:\), no trailing \ before the quote'
+Assert ((Get-W11SuggestedOutput 'D:\Windows11_Client_x64_en-us_26300_9457.iso') -eq 'D:\Windows11_Client_x64_en-us_26300_9457_debloated.iso' -and (Get-W11SuggestedOutput ' "\\srv\sh\w.iso" ') -eq '\\srv\sh\w_debloated.iso') 'suggested output on a drive root / UNC'
+Set-W11Language 'vi'
+Assert ((Test-W11OutputPath -Out 'Q:\x.iso' -Iso '') -eq (T 'msg.outDriveMissing' 'Q:\') -and (Test-W11OutputPath -Out 'D:\' -Iso '') -eq (T 'msg.outInvalid' 'D:\') -and (Test-W11OutputPath -Out 'D:\a|b.iso' -Iso '') -eq (T 'msg.outInvalid' 'D:\a|b.iso')) 'output check: missing drive / drive root / invalid characters -> Vietnamese message'
+Assert ((Test-W11OutputPath -Out $tp -Iso $tf) -eq (T 'msg.outIsFolder' $tp (Join-Path $tp 'Win11_26H2_debloated.iso'))) 'output check: a folder -> "add a file name" with an example'
+foreach ($c in $codes) { Set-W11Language $c; Assert ((T 'msg.outIsFolder' 'A' 'B') -match 'A' -and (T 'msg.outIsFolder' 'A' 'B') -match 'B' -and (T 'msg.outDriveMissing' 'Q:\') -match 'Q:') "lang/${c}: path messages" }
+Set-W11Language 'vi'
+# New-W11Directory: existing folder / root -> nothing created, missing -> created, never New-Item
+$nd = Join-Path $tp 'a/b c/d'
+New-W11Directory $nd; New-W11Directory $nd; New-W11Directory '/'
+Assert (Test-Path -LiteralPath $nd -PathType Container) 'New-W11Directory: nested folder with spaces created, existing folder and root are no-ops'
+$nde = $null; try { New-W11Directory 'Q:\' } catch { $nde = $_.Exception.Message }
+Assert ($nde -match 'Không thấy ổ đĩa') "New-W11Directory: missing drive root -> clear message ($nde)"
+$coreSrc = [IO.File]::ReadAllText((Join-Path $root 'lib/Core.ps1')) + [IO.File]::ReadAllText((Join-Path $root 'lib/Gui.ps1')) + [IO.File]::ReadAllText((Join-Path $root 'lib/MsDownload.ps1'))
+Assert (@([regex]::Matches($coreSrc, '(?m)^[^#\r\n]*New-Item -ItemType Directory')).Count -eq 0) 'no New-Item -ItemType Directory left in the tool (drive-root bug class)'
+# the exact report: Invoke-Win11Debloat with source and output on the root of D: gets past path preparation
+$origAdmin = ${function:Test-W11Admin}; $origNewDir = ${function:New-W11Directory}; $origLog = ${function:Write-W11Log}
+$script:madeDirs = @(); $script:runLog = @()
+function Write-W11Log { param([string]$Level = 'INFO', [string]$En, [string]$Vi) $script:runLog += $En }
+function Test-W11Admin { throw 'SENTINEL-after-path-setup' }
+function New-W11Directory { param([string]$Path) $script:madeDirs += $Path }
+$lpD = [IO.Path]::GetTempFileName(); $errD = $null
+try { $null = Invoke-Win11Debloat -IsoPath 'D:\Windows11_Client_x64_en-us_26300_9457.iso' -OutputIso ' "D:\Windows11_Client_x64_en-us_26300_9457_debloated.iso" ' -EditionMode All -Autounattend $true -LogPath $lpD } catch { $errD = $_.Exception.Message }
+Set-Item function:Test-W11Admin $origAdmin; Set-Item function:New-W11Directory $origNewDir; Set-Item function:Write-W11Log $origLog
+$logD = $script:runLog -join "`n"; Remove-Item $lpD
+Assert ($errD -eq 'SENTINEL-after-path-setup' -and $script:madeDirs.Count -eq 1 -and $script:madeDirs[0] -eq 'D:\' -and $logD -match 'Output ISO: D:\\Windows11_Client_x64_en-us_26300_9457_debloated\.iso' -and $logD -match 'Work dir  : D:\\WinDebloat_work') "repro D:\ output: paths prepared (out dir 'D:\', work 'D:\WinDebloat_work'), no exception ($errD; dirs: $($script:madeDirs -join ','))"
+$errD = $null; try { $null = Invoke-Win11Debloat -IsoPath 'D:\w.iso' -OutputIso 'D:\a|b.iso' -LogPath ([IO.Path]::GetTempFileName()) } catch { $errD = $_.Exception.Message }
+Assert ($errD -match 'không hợp lệ') "Invoke-Win11Debloat: invalid output path -> clear message ($errD)"
+$errD = $null; try { $null = Invoke-Win11Debloat -IsoPath 'D:\w.iso' -OutputIso 'D:\o.iso' -WorkDir 'D:\' -LogPath ([IO.Path]::GetTempFileName()) } catch { $errD = $_.Exception.Message }
+Assert ($errD -match 'gốc ổ đĩa') "Invoke-Win11Debloat: drive root as work dir refused (it is deleted afterwards) ($errD)"
 Remove-Item -LiteralPath $tp -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "Failures: $script:fail"

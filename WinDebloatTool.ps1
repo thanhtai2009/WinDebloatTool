@@ -48,7 +48,8 @@ try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { $null = $_ }
 if ($WhatIfPreference) { $DryRun = [switch]$true; $WhatIfPreference = $false }
 
 if ($Check) {
-    $wp = $env:TEMP; if ($OutputIso) { $wp = Split-Path -Parent ([IO.Path]::GetFullPath($OutputIso)) }
+    $wp = $env:TEMP
+    if ($OutputIso) { $o = Resolve-W11FullPath $OutputIso; if ($o) { $d = Get-W11ParentDir $o; if ($d -and -not $d.StartsWith('\\')) { $wp = $d } } }
     $null = Get-W11Capabilities -WorkPath $wp -MinFreeGB $MinFreeGB
     return
 }
@@ -76,7 +77,7 @@ if (-not $OutputIso) {
     Add-Type -AssemblyName System.Windows.Forms
     $d = New-Object Windows.Forms.SaveFileDialog
     $d.Filter = 'ISO (*.iso)|*.iso'
-    $d.InitialDirectory = Split-Path -Parent ([IO.Path]::GetFullPath($IsoPath))
+    $o = Resolve-W11FullPath $IsoPath; if ($o) { $d.InitialDirectory = Get-W11ParentDir $o }
     $d.FileName = [IO.Path]::GetFileNameWithoutExtension($IsoPath) + '_debloated.iso'
     if ($d.ShowDialog() -ne 'OK') { Write-W11Log -Level WARN -En 'No output selected.' -Vi 'Chưa chọn nơi lưu.'; exit 1 }
     $OutputIso = $d.FileName

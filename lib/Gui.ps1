@@ -398,7 +398,7 @@ function Save-W11Settings {
     [void]$sb.Append("}`r`n")
     try {
         $d = Split-Path -Parent $p
-        if (-not (Test-W11PathText $d -Container)) { $null = New-Item -ItemType Directory -Path $d -Force -ErrorAction Stop }
+        if (-not (Test-W11PathText $d -Container)) { New-W11Directory $d }
         [IO.File]::WriteAllText($p, $sb.ToString(), (New-Object Text.UTF8Encoding $true))
         return $p
     } catch { return $null }
@@ -410,7 +410,7 @@ function Get-W11DownloadFolder {
     if ($Settings -and $Settings.DownloadFolder -and (Test-W11PathText ([string]$Settings.DownloadFolder) -Container)) { return [string]$Settings.DownloadFolder }
     if ($env:USERPROFILE) { $d = Join-Path $env:USERPROFILE 'Downloads'; if (Test-W11PathText $d -Container) { return $d } }
     $d = Join-Path $script:W11Root 'downloads'
-    try { if (-not (Test-W11PathText $d -Container)) { $null = New-Item -ItemType Directory -Path $d -Force -ErrorAction Stop } } catch { $null = $_ }
+    try { if (-not (Test-W11PathText $d -Container)) { New-W11Directory $d } } catch { $null = $_ }
     return $d
 }
 #endregion
@@ -421,7 +421,7 @@ function Get-W11GuiLogPath {
     foreach ($dir in @((Join-Path $script:W11Root 'logs'), $env:TEMP)) {
         if (-not $dir) { continue }
         try {
-            if (-not (Test-Path -LiteralPath $dir)) { $null = New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop }
+            New-W11Directory $dir
             $p = Join-Path $dir $name
             [IO.File]::WriteAllText($p, '')
             return $p
@@ -642,27 +642,32 @@ function Start-W11MirrorVerify {
 function Get-W11SuggestedOutput {
     # <source>_debloated.iso next to the source; '' when there is no usable source path (never throws)
     param([string]$Iso)
-    if (-not $Iso -or -not $Iso.Trim()) { return '' }
-    $Iso = $Iso.Trim().Trim('"')
-    try {
-        $dir = Split-Path -Parent $Iso
-        $name = [IO.Path]::GetFileNameWithoutExtension($Iso)
-        if (-not $name) { return '' }
-        $name += '_debloated.iso'
-        if (-not $dir) { return $name }
-        return (Join-Path $dir $name)
-    } catch { return '' }
+    $full = Resolve-W11FullPath $Iso
+    if (-not $full -or (Test-W11IsPathRoot $full)) { return '' }
+    $leaf = Get-W11PathLeaf $full
+    $name = $leaf; $dot = $leaf.LastIndexOf('.'); if ($dot -gt 0) { $name = $leaf.Substring(0, $dot) }
+    if (-not $name) { return '' }
+    return (Join-W11Path (Get-W11ParentDir $full) ($name + '_debloated.iso'))
 }
 
 function Test-W11OutputPath {
     # $null when the output ISO path is usable, otherwise the message to show
     param([string]$Out, [string]$Iso)
-    if (-not $Out -or -not $Out.Trim()) { return (T 'msg.outInvalid' '') }
-    try { $full = [IO.Path]::GetFullPath($Out) } catch { return (T 'msg.outInvalid' $Out) }
-    if (-not [IO.Path]::GetFileName($full)) { return (T 'msg.outInvalid' $Out) }
-    $dir = Split-Path -Parent $full
-    if (-not (Test-W11PathText $dir -Container)) { return (T 'msg.outDirMissing' $dir) }
-    if ($Iso) { try { if ([IO.Path]::GetFullPath($Iso) -eq $full) { return (T 'msg.outSameAsIso') } } catch { $null = $_ } }
+    # (same path rules as Invoke-Win11Debloat: quotes / spaces / invisible characters removed, Windows rules)
+    $c = ConvertTo-W11CleanPath $Out
+    if (-not $c) { return (T 'msg.outInvalid' '') }
+    $full = Resolve-W11FullPath $c
+    if (-not $full -or (Test-W11IsPathRoot $full)) { return (T 'msg.outInvalid' $c) }
+    if (Test-W11PathText $full -Container) {
+        $n = Get-W11SuggestedOutput $Iso; if ($n) { $n = Get-W11PathLeaf $n } else { $n = 'Windows_debloated.iso' }
+        return (T 'msg.outIsFolder' $full (Join-W11Path $full $n))
+    }
+    $dir = Get-W11ParentDir $full
+    if (-not (Test-W11PathText $dir -Container)) {
+        if (Test-W11IsPathRoot $dir) { return (T 'msg.outDriveMissing' $dir) }
+        return (T 'msg.outDirMissing' $dir)
+    }
+    if ($Iso) { $fi = Resolve-W11FullPath $Iso; if ($fi -and $fi -eq $full) { return (T 'msg.outSameAsIso') } }
     return $null
 }
 
@@ -1150,8 +1155,8 @@ function Show-W11Gui {
 
     $script:H['btnCheck.Click'] = {
             $wp = $env:TEMP
-            $out = $script:ui.tbOut.Text.Trim().Trim('"')
-            if ($out) { try { $dir = [IO.Path]::GetDirectoryName($out); if (Test-W11PathText $dir -Container) { $wp = $dir } } catch { $null = $_ } }
+            $out = Resolve-W11FullPath $script:ui.tbOut.Text
+            if ($out) { $dir = Get-W11ParentDir $out; if ($dir -and -not $dir.StartsWith('\\') -and (Test-W11PathText $dir -Container)) { $wp = $dir } }
             [void](Start-W11Job -Name 'System check' -Script '$null = Get-W11Capabilities -WorkPath $JobArgs.Work' -JobArgs @{ Work = $wp } -OnDone { $script:ui.lblStatus.Text = T 'status.checkDone' })
         }
     $ui.btnCheck.Add_Click({ Invoke-W11Handler 'btnCheck.Click' })
@@ -1171,14 +1176,16 @@ function Show-W11Gui {
 
     $script:StartRun = {
         $ui = $script:ui
-        $iso = $ui.tbIso.Text.Trim().Trim('"')
-        $out = $ui.tbOut.Text.Trim().Trim('"')
+        $iso = ConvertTo-W11CleanPath $ui.tbIso.Text
+        $out = ConvertTo-W11CleanPath $ui.tbOut.Text
         if (-not $iso) { Show-W11Msg (T 'msg.chooseIsoFirst') 'Warning' | Out-Null; return }
-        if (-not (Test-W11PathText $iso -Leaf)) { Show-W11Msg (T 'msg.isoNotFound' $iso) 'Warning' | Out-Null; return }
+        $isoFull = Resolve-W11FullPath $iso
+        if (-not $isoFull -or -not (Test-W11PathText $isoFull -Leaf)) { Show-W11Msg (T 'msg.isoNotFound' $iso) 'Warning' | Out-Null; return }
+        $iso = $isoFull; $ui.tbIso.Text = $iso
         if (-not $out) { $out = Get-W11SuggestedOutput $iso; $ui.tbOut.Text = $out }
         $bad = Test-W11OutputPath -Out $out -Iso $iso
         if ($bad) { Show-W11Msg $bad 'Warning' | Out-Null; return }
-        $out = [IO.Path]::GetFullPath($out); $ui.tbOut.Text = $out
+        $out = Resolve-W11FullPath $out; $ui.tbOut.Text = $out
         $mode = 'All'; $idx = @()
         if ($ui.rbEdHP.Checked) { $mode = 'HomePro' }
         if ($ui.rbEdCustom.Checked) {

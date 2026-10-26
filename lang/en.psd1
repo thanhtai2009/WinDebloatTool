@@ -99,6 +99,8 @@
     'msg.outSameAsIso' = 'The output ISO must be a different file from the source ISO.'
     'msg.outInvalid' = 'The output path is not valid:\n{0}'
     'msg.outDirMissing' = 'The output folder does not exist:\n{0}'
+    'msg.outIsFolder' = 'The output path is a folder. Add a file name, for example:\n{1}\n\nFolder: {0}'
+    'msg.outDriveMissing' = 'The drive or network share of the output ISO does not exist or is not ready:\n{0}'
     'msg.mirrorOffer' = 'Microsoft could not provide this download.\n\nmassgrave.dev lists a copy of the original Microsoft (MSDN) file:\n{0}\n\nDownload host: {1}\nThis is NOT a Microsoft server.\n\nAfter you download it, the tool checks its SHA256 against the original:\n{2}\nA file that does not match is deleted. Nothing downloaded is ever run.\n\nYes = open the download page in your browser, then choose the downloaded file here\nNo = cancel'
     'dlg.pickMirror' = 'Choose the downloaded file {0}'
     'status.verifying' = 'Checking SHA256 (a few minutes)...'
