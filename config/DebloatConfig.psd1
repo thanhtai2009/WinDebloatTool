@@ -68,7 +68,7 @@
     Tweaks = @(
         @{
             Id = 'ConsumerFeatures'; Default = $true
-            Name = 'Disable consumer features / suggested apps'; NameVi = 'Tắt cài app gợi ý (consumer features)'
+            Name = 'Disable consumer features / suggested apps'; NameVi = 'Tắt tự cài ứng dụng gợi ý của Microsoft'
             Set = @(
                 @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\CloudContent'; Value = 'DisableWindowsConsumerFeatures'; Type = 'REG_DWORD'; Data = '1' }
                 @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\CloudContent'; Value = 'DisableConsumerAccountStateContent'; Type = 'REG_DWORD'; Data = '1' }
@@ -77,7 +77,7 @@
         }
         @{
             Id = 'CopilotOff'; Default = $true; MinBuild = 22621
-            Name = 'Turn off Windows Copilot (policy)'; NameVi = 'Tắt Copilot (policy)'
+            Name = 'Turn off Windows Copilot (policy)'; NameVi = 'Tắt Copilot (chính sách nhóm)'
             Set = @(
                 @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\WindowsCopilot'; Value = 'TurnOffWindowsCopilot'; Type = 'REG_DWORD'; Data = '1' }
                 @{ Hive = 'DEFAULTUSER'; Key = 'Software\Policies\Microsoft\Windows\WindowsCopilot'; Value = 'TurnOffWindowsCopilot'; Type = 'REG_DWORD'; Data = '1' }
@@ -99,14 +99,14 @@
         }
         @{
             Id = 'BypassNRO'; Default = $true; MinBuild = 22000
-            Name = 'BypassNRO=1 (allow setup without internet / local account)'; NameVi = 'BypassNRO=1 (cài không cần mạng, tài khoản local)'
+            Name = 'BypassNRO=1 (allow setup without internet / local account)'; NameVi = 'BypassNRO=1 (cài không cần mạng, tài khoản cục bộ)'
             Set = @(
                 @{ Hive = 'SOFTWARE'; Key = 'Microsoft\Windows\CurrentVersion\OOBE'; Value = 'BypassNRO'; Type = 'REG_DWORD'; Data = '1' }
             )
         }
         @{
             Id = 'NewUserSuggestionsOff'; Default = $true
-            Name = 'New users: no suggestions / silent app installs / Start recommendations'; NameVi = 'User mới: tắt gợi ý, tự cài app, gợi ý Start'
+            Name = 'New users: no suggestions / silent app installs / Start recommendations'; NameVi = 'Người dùng mới: tắt gợi ý, tự cài ứng dụng, gợi ý trong Start'
             Set = @(
                 @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'ContentDeliveryAllowed'; Type = 'REG_DWORD'; Data = '0' }
                 @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'FeatureManagementEnabled'; Type = 'REG_DWORD'; Data = '0' }
@@ -131,14 +131,14 @@
         }
         @{
             Id = 'ChatTaskbarOff'; Default = $true; MaxBuild = 22631
-            Name = 'Hide Chat button on taskbar (new users)'; NameVi = 'Ẩn nút Chat trên taskbar (user mới)'
+            Name = 'Hide Chat button on taskbar (new users)'; NameVi = 'Ẩn nút Chat trên thanh tác vụ (người dùng mới)'
             Set = @(
                 @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Value = 'TaskbarMn'; Type = 'REG_DWORD'; Data = '0' }
             )
         }
         @{
             Id = 'RemoveOobeSetupTasks'; Default = $true; MinBuild = 22621
-            Name = 'Remove OOBE auto-install tasks (Outlook, Dev Home, Cross Device)'; NameVi = 'Xoá tác vụ tự cài Outlook/DevHome/CrossDevice khi setup'
+            Name = 'Remove OOBE auto-install tasks (Outlook, Dev Home, Cross Device)'; NameVi = 'Xoá tác vụ tự cài Outlook/DevHome/CrossDevice khi cài đặt'
             Delete = @(
                 @{ Hive = 'SOFTWARE'; Key = 'Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate' }
                 @{ Hive = 'SOFTWARE'; Key = 'Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\DevHomeUpdate' }
@@ -199,7 +199,7 @@
     Win10Tweaks = @(
         @{
             Id = 'ConsumerFeatures'; Default = $true
-            Name = 'Disable consumer features / suggested apps'; NameVi = 'Tắt cài app gợi ý (consumer features)'
+            Name = 'Disable consumer features / suggested apps'; NameVi = 'Tắt tự cài ứng dụng gợi ý của Microsoft'
             Set = @(
                 @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\CloudContent'; Value = 'DisableWindowsConsumerFeatures'; Type = 'REG_DWORD'; Data = '1' }
                 @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\CloudContent'; Value = 'DisableSoftLanding'; Type = 'REG_DWORD'; Data = '1' }
@@ -208,7 +208,7 @@
         }
         @{
             Id = 'NewUserSuggestionsOff'; Default = $true
-            Name = 'New users: no silent app installs / suggestions / lock-screen ads'; NameVi = 'User mới: tắt tự cài app, gợi ý, quảng cáo màn hình khoá'
+            Name = 'New users: no silent app installs / suggestions / lock-screen ads'; NameVi = 'Người dùng mới: tắt tự cài ứng dụng, gợi ý, quảng cáo màn hình khoá'
             Set = @(
                 @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'ContentDeliveryAllowed'; Type = 'REG_DWORD'; Data = '0' }
                 @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'; Value = 'FeatureManagementEnabled'; Type = 'REG_DWORD'; Data = '0' }
@@ -244,7 +244,7 @@
         }
         @{
             Id = 'TelemetryMinimum'; Default = $true
-            Name = 'Telemetry to minimum allowed by the edition (Home/Pro = Required, Ent/Edu = Security)'; NameVi = 'Telemetry mức thấp nhất mà phiên bản cho phép'
+            Name = 'Telemetry to minimum allowed by the edition (Home/Pro = Required, Ent/Edu = Security)'; NameVi = 'Thu thập dữ liệu chẩn đoán ở mức thấp nhất mà phiên bản cho phép'
             Set = @(
                 @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\DataCollection'; Value = 'AllowTelemetry'; Type = 'REG_DWORD'; Data = '0' }
                 @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\DataCollection'; Value = 'DoNotShowFeedbackNotifications'; Type = 'REG_DWORD'; Data = '1' }
@@ -253,7 +253,7 @@
         }
         @{
             Id = 'NewsInterestsOff'; Default = $true; MinBuild = 18362
-            Name = 'News and Interests (taskbar weather/news) off'; NameVi = 'Tắt Tin tức và sở thích trên taskbar'
+            Name = 'News and Interests (taskbar weather/news) off'; NameVi = 'Tắt Tin tức và sở thích trên thanh tác vụ'
             Set = @(
                 @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\Windows Feeds'; Value = 'EnableFeeds'; Type = 'REG_DWORD'; Data = '0' }
                 @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\Feeds'; Value = 'ShellFeedsTaskbarViewMode'; Type = 'REG_DWORD'; Data = '2' }
@@ -261,7 +261,7 @@
         }
         @{
             Id = 'MeetNowOff'; Default = $true; MinBuild = 17763
-            Name = 'Hide Meet Now and People on the taskbar'; NameVi = 'Ẩn Meet Now và People trên taskbar'
+            Name = 'Hide Meet Now and People on the taskbar'; NameVi = 'Ẩn Meet Now và People trên thanh tác vụ'
             Set = @(
                 @{ Hive = 'SOFTWARE'; Key = 'Microsoft\Windows\CurrentVersion\Policies\Explorer'; Value = 'HideSCAMeetNow'; Type = 'REG_DWORD'; Data = '1' }
                 @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\Policies\Explorer'; Value = 'HideSCAMeetNow'; Type = 'REG_DWORD'; Data = '1' }
@@ -270,7 +270,7 @@
         }
         @{
             Id = 'CopilotOff'; Default = $true; MinBuild = 19045
-            Name = 'Turn off Windows Copilot (policy, if it arrives via updates)'; NameVi = 'Tắt Copilot (policy, nếu được cài qua update)'
+            Name = 'Turn off Windows Copilot (policy, if it arrives via updates)'; NameVi = 'Tắt Copilot (chính sách nhóm, nếu được cài qua bản cập nhật)'
             Set = @(
                 @{ Hive = 'SOFTWARE'; Key = 'Policies\Microsoft\Windows\WindowsCopilot'; Value = 'TurnOffWindowsCopilot'; Type = 'REG_DWORD'; Data = '1' }
                 @{ Hive = 'DEFAULTUSER'; Key = 'Software\Policies\Microsoft\Windows\WindowsCopilot'; Value = 'TurnOffWindowsCopilot'; Type = 'REG_DWORD'; Data = '1' }
@@ -278,7 +278,7 @@
         }
         @{
             Id = 'RemoveOobeSetupTasks'; Default = $true; MinBuild = 19045
-            Name = 'Remove OOBE auto-install tasks (Outlook, Dev Home) if present'; NameVi = 'Xoá tác vụ tự cài Outlook/DevHome khi setup (nếu có)'
+            Name = 'Remove OOBE auto-install tasks (Outlook, Dev Home) if present'; NameVi = 'Xoá tác vụ tự cài Outlook/DevHome khi cài đặt (nếu có)'
             Delete = @(
                 @{ Hive = 'SOFTWARE'; Key = 'Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\OutlookUpdate' }
                 @{ Hive = 'SOFTWARE'; Key = 'Microsoft\WindowsUpdate\Orchestrator\UScheduler_Oobe\DevHomeUpdate' }
@@ -286,7 +286,7 @@
         }
         @{
             Id = 'OneDriveSetupOff'; Default = $false
-            Name = 'Do not auto-install OneDrive for new users (optional)'; NameVi = 'Không tự cài OneDrive cho user mới (tuỳ chọn)'
+            Name = 'Do not auto-install OneDrive for new users (optional)'; NameVi = 'Không tự cài OneDrive cho người dùng mới (tuỳ chọn)'
             DeleteValue = @(
                 @{ Hive = 'DEFAULTUSER'; Key = 'Software\Microsoft\Windows\CurrentVersion\Run'; Value = 'OneDriveSetup' }
             )

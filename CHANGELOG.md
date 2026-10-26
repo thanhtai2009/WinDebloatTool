@@ -1,5 +1,28 @@
 ﻿# Changelog
 
+## 0.3.4 - 2026-10-26
+**Resizable layout, no clipped text, Vietnamese app notes.**
+
+- **Bug (real Windows 11, maximized):** sections 1-4 and the button row kept their design width; only the log
+  box stretched. Every control is now placed by `Set-W11Layout` on each resize and after a language switch:
+  sections 1 and 4, the ISO path boxes, the release / language combos and the progress bar stretch to the
+  right edge; sections 2 and 3 share the width 58/42 and grow in height together with the app / tweak lists;
+  the log box takes the rest; the watermark stays at the bottom right. Positions scale with the DPI the
+  process sees (PowerShell 7 is DPI aware, Windows PowerShell 5.1 is scaled by Windows).
+- **Bug: clipped text.** Widths of labels, buttons, radio buttons and check boxes come from the text in the
+  current language and font (`TextRenderer.MeasureText`), so nothing is cut in vi / en / zh-CN / km. The
+  autounattend check box and the "always kept" hint wrap onto as many lines as they need; the language combo
+  is always wide enough for "(bấm Lấy ngôn ngữ)"; status, detected-OS and aria2 labels end with "…" instead
+  of being cut. The app and tweak lists get a horizontal scroll bar sized to their longest entry.
+- **No mixed Vietnamese / English in the app list:** the notes in brackets are translated part by part
+  (*không an toàn: đăng nhập game*, *trợ năng, khó cài lại*, *công cụ khắc phục sự cố*, *giao diện
+  Store/game*, *bản mới*, *tuỳ chọn; Paint cổ điển vẫn giữ*), also for zh-CN / km; product names and package
+  Ids stay as they are. Vietnamese tweak names without English leftovers (consumer features, policy,
+  telemetry; Khmer too), and the Vietnamese tweak names in the log file.
+- Tests: layout geometry with mock controls for 4 languages x 3 window sizes (minimum, 1264x921, maximized
+  1920 wide): no overlaps, nothing outside its section or under the watermark, sections reach the right
+  edge, 58/42 split, one-line texts fit; app notes fully translated.
+
 ## 0.3.3 - 2026-10-26
 **Watermark.**
 

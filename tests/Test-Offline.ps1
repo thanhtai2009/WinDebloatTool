@@ -636,7 +636,82 @@ Assert ((T 'btn.start') -eq '开始' -and (Get-W11TweakText @{ Id = 'CopilotOff'
 Set-W11Language 'en'
 Assert ((Get-W11AppText @{ Id = 'X.Y'; Name = 'Clipchamp (optional)' }) -eq 'Clipchamp (optional)   [X.Y]') 'app text: English stays as in config'
 Set-W11Language 'vi'
-Assert ((Get-W11AppText @{ Id = 'X.Y'; Name = 'Xbox (unsafe: game sign-in)' }) -eq 'Xbox (không an toàn: game sign-in)   [X.Y]') 'app text: note in brackets translated'
+Assert ((Get-W11AppText @{ Id = 'X.Y'; Name = 'Xbox (unsafe: game sign-in)' }) -eq 'Xbox (không an toàn: đăng nhập game)   [X.Y]') 'app text: note in brackets translated'
+Assert ((Get-W11AppText @{ Id = 'P'; Name = 'Paint 3D (optional; classic Paint stays)' }) -eq 'Paint 3D (tuỳ chọn; Paint cổ điển vẫn giữ)   [P]' -and (Get-W11AppText @{ Id = 'T'; Name = 'Microsoft Teams (new)' }) -eq 'Microsoft Teams (bản mới)   [T]' -and (Get-W11AppText @{ Id = 'O'; Name = 'Microsoft 365 (Office) hub' }) -eq 'Microsoft 365 (Office) hub   [O]' -and (Get-W11AppText @{ Id = 'M'; Name = 'Mobile Plans (OneConnect)' }) -eq 'Mobile Plans (OneConnect)   [M]') 'app text: multi-part notes, (new), product names in brackets untouched'
+$cfgA = Get-W11Config
+$mixed = @()
+foreach ($a in @(@($cfgA.Apps) + @($cfgA.Win10Apps))) { $tx = Get-W11AppText $a; $nt = ''; if ($tx -match '\(([^()]+)\)   \[') { $nt = $matches[1] }; if ($nt -match 'unsafe|optional|older|present|reinstall|sign-in|troubleshoot|games UI|classic|^new$') { $mixed += $tx } }
+Assert ($mixed.Count -eq 0) "app list (vi): every note translated, no English left ($($mixed -join ' | '))"
+
+# 9) v0.3.4: resizable layout (mock controls: geometry only, real WinForms needs Windows)
+Add-Type -TypeDefinition @'
+using System.Collections;
+public class W11MockFont { public int Height = 16; }
+public class W11MockCtl {
+    public string Name = ""; public string Text = ""; public W11MockFont Font = new W11MockFont();
+    public int Left, Top, Width = 10, Height = 10; public int DropDownWidth, HorizontalExtent;
+    public ArrayList Items = new ArrayList(); public W11MockCtl Parent;
+    public int Right { get { return Left + Width; } } public int Bottom { get { return Top + Height; } }
+    public void SetBounds(int x, int y, int w, int h) { Left = x; Top = y; Width = w; Height = h; }
+}
+public class W11MockSize { public int Width, Height; }
+public class W11MockForm { public W11MockSize ClientSize = new W11MockSize(); public W11MockFont Font = new W11MockFont(); public void SuspendLayout() { } public void ResumeLayout(bool b) { } }
+'@
+function Get-W11TextWidth { param([string]$Text, $Font) if (-not $Text) { return 0 }; return 7 * $Text.Length }
+function Get-W11TextHeight { param([string]$Text, $Font, [int]$Width) $l = [Math]::Max(1, [Math]::Ceiling((7.0 * ([string]$Text).Length) / [Math]::Max(20, $Width))); return [int](16 * $l) }
+$gSrcKeys = @{
+    grpSource = 'grp.source'; rbLocal = 'rb.local'; lblTargetOs = 'lbl.targetOs'; cbOs = 'os.auto'; lblOs = 'lbl.detectedNone'; tbIso = ''; btnIso = 'btn.browse'
+    rbDl = 'rb.download'; lnkMs = 'lnk.ms'; btnFetch = 'btn.languages'; lblVersion = 'lbl.version'; cbRelease = ''; lblArch = 'lbl.arch'; cbArch = ''; lblLang = 'lbl.lang'; cbLang = 'lang.pressLoad'
+    btnDownload = 'btn.download'; chkAria2 = 'chk.aria2'; lblAria2 = 'lbl.aria2Missing'
+    grpApps = 'grp.apps'; clbApps = ''; btnAppDef = 'btn.appDef'; btnAppAll = 'btn.appAll'; btnAppNone = 'btn.appNone'; note = 'lbl.keptNote'
+    grpOptions = 'grp.options'; lblEditions = 'lbl.editions'; rbEdAll = 'rb.edAll'; rbEdHP = ''; rbEdCustom = 'rb.edIdx'; tbIdx = ''; btnEd = 'btn.listEditions'; lblTweaks = 'lbl.tweaks'
+    clbTweaks = ''; chkUnattend = 'chk.unattend'; chkCleanup = 'chk.cleanup'; chkDry = 'chk.dry'
+    grpOutput = 'grp.output'; tbOut = ''; btnOut = 'btn.saveAs'
+    btnCheck = 'btn.check'; btnOsc = 'btn.osc'; btnStart = 'btn.start'; btnCancel = 'btn.cancel'; pb = ''; lblStatus = 'status.ready'; cbUiLang = ''; lnkLog = 'lnk.log'; tbLog = ''; lblWatermark = ''
+}
+$inner = @{
+    grpSource = @('rbLocal', 'lblTargetOs', 'cbOs', 'lblOs', 'tbIso', 'btnIso', 'rbDl', 'lnkMs', 'btnFetch', 'lblVersion', 'cbRelease', 'lblArch', 'cbArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'lblAria2')
+    grpApps = @('clbApps', 'btnAppDef', 'btnAppAll', 'btnAppNone', 'note')
+    grpOptions = @('lblEditions', 'rbEdAll', 'rbEdHP', 'rbEdCustom', 'tbIdx', 'btnEd', 'lblTweaks', 'clbTweaks', 'chkUnattend', 'chkCleanup', 'chkDry')
+    grpOutput = @('tbOut', 'btnOut')
+}
+$top = @('grpSource', 'grpApps', 'grpOptions', 'grpOutput', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'pb', 'lblStatus', 'cbUiLang', 'lnkLog', 'tbLog')
+$oneLine = @('rbLocal', 'lblTargetOs', 'btnIso', 'rbDl', 'lnkMs', 'btnFetch', 'lblVersion', 'lblArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'btnAppDef', 'btnAppAll', 'btnAppNone', 'rbEdAll', 'rbEdCustom', 'btnEd', 'btnOut', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'lnkLog')
+$saveUi = $script:ui; $layBad = @()
+foreach ($c in $codes) {
+    Set-W11Language $c
+    foreach ($sz in @(@(984, 841), @(1904, 1001), @(1264, 921))) {
+        $mf = New-Object W11MockForm; $mf.ClientSize.Width = $sz[0]; $mf.ClientSize.Height = $sz[1]
+        $mu = @{ form = $mf }
+        foreach ($k in $gSrcKeys.Keys) { $o = New-Object W11MockCtl; $o.Name = $k; if ($gSrcKeys[$k]) { $o.Text = T $gSrcKeys[$k] '' }; $mu[$k] = $o }
+        $mu.rbEdHP.Text = 'Home + Pro'; $mu.lblWatermark.Text = $script:W11Watermark; $mu.lblWatermark.Font.Height = 13
+        if ($c -eq 'km') { $mf.Font.Height = 22; foreach ($k in $gSrcKeys.Keys) { $mu[$k].Font.Height = 22 } }   # taller Khmer font
+        $script:ui = $mu; $script:LayoutScale = 1.0
+        Set-W11Layout
+        $mu.lblWatermark.Top = $sz[1] - $mu.lblWatermark.Height
+        $tag = "$c $($sz[0])x$($sz[1])"
+        foreach ($k in $oneLine) { if ((Get-W11TextWidth $mu[$k].Text $null) -gt $mu[$k].Width) { $layBad += "$tag ${k}: text wider than control" } }
+        $sets = @(, $top) + @($inner.Keys | ForEach-Object { , $inner[$_] })
+        foreach ($set in $sets) {
+            for ($i = 0; $i -lt $set.Count; $i++) {
+                $a = $mu[$set[$i]]
+                if ($a.Width -le 0 -or $a.Height -le 0) { $layBad += "$tag $($a.Name): empty" }
+                for ($j = $i + 1; $j -lt $set.Count; $j++) {
+                    $b = $mu[$set[$j]]
+                    if ($a.Left -lt $b.Right -and $b.Left -lt $a.Right -and $a.Top -lt $b.Bottom -and $b.Top -lt $a.Bottom) { $layBad += "$tag overlap $($a.Name) / $($b.Name)" }
+                }
+            }
+        }
+        foreach ($g in $inner.Keys) { foreach ($k in $inner[$g]) { $o = $mu[$k]; if ($o.Left -lt 0 -or $o.Top -lt 14 -or $o.Right -gt $mu[$g].Width -or $o.Bottom -gt $mu[$g].Height) { $layBad += "$tag $k outside $g" } } }
+        foreach ($k in $top) { $o = $mu[$k]; if ($o.Left -lt 0 -or $o.Right -gt $sz[0] -or $o.Bottom -gt $mu.lblWatermark.Top) { $layBad += "$tag $k outside the window / under the watermark" } }
+        if ($mu.grpSource.Right -ne $sz[0] - 10 -or $mu.grpOptions.Right -ne $sz[0] - 10 -or $mu.grpOutput.Right -ne $sz[0] - 10 -or $mu.tbLog.Right -ne $sz[0] - 10 -or $mu.pb.Right -ne $sz[0] - 10) { $layBad += "$tag sections / progress / log do not reach the right edge" }
+        if ([Math]::Abs($mu.grpApps.Width / [double]($mu.grpApps.Width + $mu.grpOptions.Width) - 0.58) -gt 0.01) { $layBad += "$tag 2/3 width split" }
+    }
+}
+$script:ui = $saveUi
+Assert ($layBad.Count -eq 0) "layout: 4 languages x 3 window sizes - everything fits, stretches to the right edge, no overlaps, nothing under the watermark ($(@($layBad | Select-Object -First 6) -join '; '))"
+Assert ($guiSrc -match 'HorizontalScrollbar = \$true' -and $guiSrc -match 'Add_Resize\(\{ Invoke-W11Layout \}\)' -and $guiSrc -notmatch "tbLog\.Anchor") 'layout: resize handler, horizontal scroll bars on the lists'
+Set-W11Language 'vi'
 
 Assert ((Get-W11FontFor 'km' @('Segoe UI', 'Leelawadee UI', 'Khmer UI')) -eq 'Leelawadee UI' -and (Get-W11FontFor 'km' @('Segoe UI', 'Khmer UI')) -eq 'Khmer UI' -and (Get-W11FontFor 'km' @('Segoe UI', 'DaunPenh')) -eq 'DaunPenh') 'font: Khmer -> Leelawadee UI (Win8+) / Khmer UI (Win7) / DaunPenh'
 Assert ((Get-W11FontFor 'zh-CN' @('Microsoft YaHei UI', 'Microsoft YaHei')) -eq 'Microsoft YaHei UI' -and (Get-W11FontFor 'zh-CN' @('Microsoft YaHei')) -eq 'Microsoft YaHei' -and (Get-W11FontFor 'vi' @()) -eq 'Microsoft Sans Serif' -and (Get-W11FontFor 'en' @('Segoe UI')) -eq 'Segoe UI') 'font: Chinese YaHei UI -> YaHei, fallbacks'

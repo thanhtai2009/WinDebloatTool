@@ -7,14 +7,188 @@
 # watermark at the bottom of the main window: same text in every language (never translated)
 $script:W11Watermark = 'Designed by TaiNT13@PNC STG'
 
-function Set-W11WatermarkLayout {
-    # height follows the font (any DPI / UI font); the log box ends just above the watermark
+function Get-W11TextWidth {
+    # width in pixels of one line of text in a font (.NET 2.0 TextRenderer)
+    param([string]$Text, $Font)
+    if (-not $Text) { return 0 }
+    return [Windows.Forms.TextRenderer]::MeasureText($Text, $Font).Width
+}
+
+function Get-W11TextHeight {
+    # height in pixels of word-wrapped text in a given width
+    param([string]$Text, $Font, [int]$Width)
+    if ($Width -lt 20) { $Width = 20 }
+    $flags = [Windows.Forms.TextFormatFlags]::WordBreak -bor [Windows.Forms.TextFormatFlags]::TextBoxControl
+    $sz = New-Object Drawing.Size $Width, 10000
+    return [Windows.Forms.TextRenderer]::MeasureText([string]$Text, $Font, $sz, $flags).Height
+}
+
+function Set-W11ListExtent {
+    # horizontal scroll range of a checked list = its widest item (+ check box), so long entries are never cut
+    param($List)
+    $max = 0
+    foreach ($it in $List.Items) { $w = Get-W11TextWidth ([string]$it) $List.Font; if ($w -gt $max) { $max = $w } }
+    $List.HorizontalExtent = $max + [int](28 * $script:LayoutScale)
+}
+
+function Set-W11Layout {
+    # Places every control from the current client size (PS 2.0 / .NET 2.0: no TableLayoutPanel tricks needed):
+    # sections 1 and 4, path boxes, progress bar and log stretch horizontally; sections 2 and 3 share the width
+    # (58/42) and, with the log, grow vertically; widths of labels / buttons / check boxes come from the text in
+    # the current language and font, so nothing is clipped. Sizes scale with the DPI the process sees.
     $ui = $script:ui
-    if (-not $ui -or -not $ui.lblWatermark -or -not $ui.tbLog) { return }
-    $wm = $ui.lblWatermark
-    $wm.Height = $wm.Font.Height + 6
-    $h = $ui.form.ClientSize.Height - $wm.Height - 6 - $ui.tbLog.Top
-    if ($h -ge 60) { $ui.tbLog.Height = $h }
+    if (-not $ui -or -not $ui.form -or -not $ui.tbLog) { return }
+    $f = $ui.form
+    $cw = $f.ClientSize.Width; $ch = $f.ClientSize.Height
+    if ($cw -lt 300 -or $ch -lt 300) { return }   # minimized
+    if (-not $script:LayoutScale) {
+        $s = 1.0
+        try { $g = [Drawing.Graphics]::FromHwnd([IntPtr]::Zero); $s = [double]$g.DpiX / 96.0; $g.Dispose() } catch { $s = 1.0 }
+        if ($s -lt 1) { $s = 1.0 }
+        $script:LayoutScale = $s
+    }
+    $s = [double]$script:LayoutScale
+    $px = { param([double]$v) [int][Math]::Round($v * $s) }
+    $tw = { param($c) (Get-W11TextWidth $c.Text $c.Font) }
+    $M = & $px 10; $gap = & $px 8; $in = & $px 12; $bh = & $px 27
+    $gt = [Math]::Max((& $px 20), $f.Font.Height + (& $px 5))   # first row inside a group box, below its title
+    $rowH = [Math]::Max((& $px 23), $f.Font.Height + (& $px 8))
+    $btnW = { param($c, [int]$min) [Math]::Max((& $px $min), (& $tw $c) + (& $px 24)) }
+    $chkW = { param($c) (& $tw $c) + (& $px 24) }
+    $lblW = { param($c) (& $tw $c) + (& $px 4) }
+
+    $f.SuspendLayout()
+    try {
+        $gw = $cw - 2 * $M
+        # ---------- 1. source ----------
+        $g1 = $ui.grpSource
+        $y1 = $gt; $y2 = $y1 + $rowH + (& $px 2); $y3 = $y2 + $rowH + (& $px 6); $y4 = $y3 + $rowH + (& $px 6); $y5 = $y4 + $rowH + (& $px 6)
+        $g1H = $y5 + $rowH + (& $px 10)
+        $g1.SetBounds($M, (& $px 8), $gw, $g1H)
+        $r = $gw - $in
+        $ui.rbLocal.SetBounds($in, $y1, (& $chkW $ui.rbLocal), $rowH)
+        $x = $ui.rbLocal.Right + (& $px 16)
+        $w = & $lblW $ui.lblTargetOs
+        $ui.lblTargetOs.SetBounds($x, $y1 + (& $px 3), $w, $rowH - (& $px 3))
+        $x += $w + (& $px 4)
+        $ui.cbOs.SetBounds($x, $y1, (& $px 170), $rowH)
+        $x = $ui.cbOs.Right + $gap
+        $ui.lblOs.SetBounds($x, $y1 + (& $px 3), [Math]::Max(50, $r - $x), $rowH - (& $px 3))
+        $w = & $btnW $ui.btnIso 118
+        $ui.btnIso.SetBounds($r - $w, $y2 - (& $px 2), $w, $bh)
+        $ui.tbIso.SetBounds((& $px 32), $y2, $ui.btnIso.Left - $gap - (& $px 32), $rowH)
+        $ui.rbDl.SetBounds($in, $y3, (& $chkW $ui.rbDl), $rowH)
+        $w = & $lblW $ui.lnkMs
+        $ui.lnkMs.SetBounds($r - $w, $y3 + (& $px 2), $w, $rowH - (& $px 2))
+        $wf = & $btnW $ui.btnFetch 120
+        $ui.btnFetch.SetBounds($r - $wf, $y4 - (& $px 2), $wf, $bh)
+        $wl1 = & $lblW $ui.lblVersion; $wl2 = & $lblW $ui.lblArch; $wl3 = & $lblW $ui.lblLang; $wArch = & $px 70
+        $avail = $ui.btnFetch.Left - $gap - (& $px 32) - $wl1 - $wl2 - $wl3 - $wArch - 3 * (& $px 4) - 2 * $gap
+        $minLang = (Get-W11TextWidth (T 'lang.pressLoad') $ui.cbLang.Font) + (& $px 30)
+        $wLang = [Math]::Max($minLang, [int]($avail * 0.4)); $wRel = [Math]::Max((& $px 160), $avail - $wLang)
+        $x = & $px 32
+        $ui.lblVersion.SetBounds($x, $y4 + (& $px 3), $wl1, $rowH - (& $px 3)); $x += $wl1 + (& $px 4)
+        $ui.cbRelease.SetBounds($x, $y4, $wRel, $rowH); $x += $wRel + $gap
+        $ui.lblArch.SetBounds($x, $y4 + (& $px 3), $wl2, $rowH - (& $px 3)); $x += $wl2 + (& $px 4)
+        $ui.cbArch.SetBounds($x, $y4, $wArch, $rowH); $x += $wArch + $gap
+        $ui.lblLang.SetBounds($x, $y4 + (& $px 3), $wl3, $rowH - (& $px 3)); $x += $wl3 + (& $px 4)
+        $ui.cbLang.SetBounds($x, $y4, [Math]::Max((& $px 80), $ui.btnFetch.Left - $gap - $x), $rowH)
+        $ui.cbLang.DropDownWidth = [Math]::Max($ui.cbLang.Width, (& $px 240))
+        $ui.cbRelease.DropDownWidth = [Math]::Max($ui.cbRelease.Width, (& $px 420))
+        $w = & $btnW $ui.btnDownload 114
+        $ui.btnDownload.SetBounds($r - $w, $y5 - (& $px 2), $w, $bh)
+        $ui.chkAria2.SetBounds((& $px 32), $y5, (& $chkW $ui.chkAria2), $rowH)
+        $x = $ui.chkAria2.Right + $gap
+        $ui.lblAria2.SetBounds($x, $y5 + (& $px 3), [Math]::Max(50, $ui.btnDownload.Left - $gap - $x), $rowH - (& $px 3))
+
+        # ---------- vertical split: middle (2 + 3) and log share what is left ----------
+        $wm = $ui.lblWatermark
+        $wm.Height = $wm.Font.Height + (& $px 6)
+        $bigH = & $px 32
+        $g4H = $gt + $rowH + (& $px 11)
+        $statusH = [Math]::Max((& $px 24), $rowH + (& $px 2))
+        $yMid = $g1.Bottom + (& $px 6)
+        $fixed = $yMid + (& $px 6) + $g4H + $gap + $bigH + (& $px 6) + $statusH + (& $px 4) + $gap + $wm.Height
+        $minMid = & $px 330; $minLog = & $px 110
+        $extra = $ch - $fixed - $minMid - $minLog
+        $midH = $minMid; if ($extra -gt 0) { $midH += [int]($extra * 0.55) }
+
+        # ---------- 2. apps ----------
+        $g2w = [int](($gw - $M) * 0.58); $g3w = $gw - $M - $g2w
+        $g2 = $ui.grpApps
+        $g2.SetBounds($M, $yMid, $g2w, $midH)
+        $ui.btnAppDef.SetBounds($in, 0, (& $btnW $ui.btnAppDef 90), $bh)
+        $ui.btnAppAll.SetBounds($ui.btnAppDef.Right + (& $px 6), 0, (& $btnW $ui.btnAppAll 90), $bh)
+        $ui.btnAppNone.SetBounds($ui.btnAppAll.Right + (& $px 6), 0, (& $btnW $ui.btnAppNone 90), $bh)
+        $nx = $ui.btnAppNone.Right + $gap
+        $nw = $g2w - $in - $nx
+        if ($nw -ge (& $px 140)) {
+            $nh = [Math]::Max($bh, (Get-W11TextHeight $ui.note.Text $ui.note.Font $nw) + (& $px 2))
+            $rowTop = $midH - (& $px 8) - $nh
+            $ui.note.SetBounds($nx, $rowTop, $nw, $nh)
+            $btnTop = $rowTop + [int](($nh - $bh) / 2)
+            $listBottom = $rowTop - (& $px 6)
+        } else {
+            # narrow: hint on its own line(s) under the buttons
+            $nw = $g2w - 2 * $in
+            $nh = (Get-W11TextHeight $ui.note.Text $ui.note.Font $nw) + (& $px 2)
+            $ui.note.SetBounds($in, $midH - (& $px 8) - $nh, $nw, $nh)
+            $btnTop = $ui.note.Top - (& $px 4) - $bh
+            $listBottom = $btnTop - (& $px 6)
+        }
+        foreach ($b in @($ui.btnAppDef, $ui.btnAppAll, $ui.btnAppNone)) { $b.Top = $btnTop }
+        $ui.clbApps.SetBounds($in, $gt + (& $px 2), $g2w - 2 * $in, [Math]::Max((& $px 60), $listBottom - $gt - (& $px 2)))
+
+        # ---------- 3. options ----------
+        $g3 = $ui.grpOptions
+        $g3.SetBounds($g2.Right + $M, $yMid, $g3w, $midH)
+        $iw = $g3w - 2 * $in
+        $ui.lblEditions.SetBounds($in, $gt, $iw, $rowH - (& $px 3))
+        $ye = $ui.lblEditions.Bottom
+        $x = $in
+        foreach ($rb in @($ui.rbEdAll, $ui.rbEdHP, $ui.rbEdCustom)) { $w = & $chkW $rb; $rb.SetBounds($x, $ye, $w, $rowH); $x += $w + (& $px 4) }
+        $ui.tbIdx.SetBounds($x, $ye, [Math]::Max((& $px 50), $g3w - $in - $x), $rowH)
+        $ui.btnEd.SetBounds($in, $ye + $rowH + (& $px 2), $iw, $bh)
+        $ui.lblTweaks.SetBounds($in, $ui.btnEd.Bottom + (& $px 5), $iw, $rowH - (& $px 4))
+        $chkH = { param($c) [Math]::Max($rowH - (& $px 1), (Get-W11TextHeight $c.Text $c.Font ($iw - (& $px 24))) + (& $px 6)) }
+        $hDry = & $chkH $ui.chkDry; $hCl = & $chkH $ui.chkCleanup; $hUn = & $chkH $ui.chkUnattend
+        $ui.chkDry.SetBounds($in, $midH - (& $px 6) - $hDry, $iw, $hDry)
+        $ui.chkCleanup.SetBounds($in, $ui.chkDry.Top - $hCl, $iw, $hCl)
+        $ui.chkUnattend.SetBounds($in, $ui.chkCleanup.Top - $hUn, $iw, $hUn)
+        $ty = $ui.lblTweaks.Bottom + (& $px 1)
+        $ui.clbTweaks.SetBounds($in, $ty, $iw, [Math]::Max((& $px 50), $ui.chkUnattend.Top - (& $px 4) - $ty))
+
+        # ---------- 4. output ----------
+        $g4 = $ui.grpOutput
+        $g4.SetBounds($M, $g2.Bottom + (& $px 6), $gw, $g4H)
+        $w = & $btnW $ui.btnOut 118
+        $ui.btnOut.SetBounds($r - $w, $gt - (& $px 2), $w, $bh)
+        $ui.tbOut.SetBounds($in, $gt, $ui.btnOut.Left - $gap - $in, $rowH)
+
+        # ---------- actions / progress / status / log ----------
+        $yb = $g4.Bottom + $gap
+        $x = $M
+        foreach ($p in @(@($ui.btnCheck, 130), @($ui.btnOsc, 120), @($ui.btnStart, 150), @($ui.btnCancel, 100))) {
+            $w = & $btnW $p[0] $p[1]; $p[0].SetBounds($x, $yb, $w, $bigH); $x += $w + (& $px 6)
+        }
+        $x += & $px 2
+        $ui.pb.SetBounds($x, $yb + (& $px 4), [Math]::Max((& $px 80), $cw - $M - $x), $bigH - (& $px 8))
+        $ys = $yb + $bigH + (& $px 6)
+        $w = & $lblW $ui.lnkLog
+        $ui.lnkLog.SetBounds($cw - $M - $w, $ys + (& $px 3), $w, $statusH - (& $px 3))
+        $ui.cbUiLang.SetBounds($ui.lnkLog.Left - (& $px 10) - (& $px 150), $ys, (& $px 150), $rowH)
+        $ui.lblStatus.SetBounds($M, $ys + (& $px 3), [Math]::Max(50, $ui.cbUiLang.Left - (& $px 10) - $M), $statusH - (& $px 3))
+        $yl = $ys + $statusH + (& $px 4)
+        $ui.tbLog.SetBounds($M, $yl, $gw, [Math]::Max((& $px 60), $ch - $wm.Height - (& $px 6) - $yl))
+    } finally {
+        $f.ResumeLayout($true)
+    }
+}
+
+function Invoke-W11Layout {
+    # Resize handler: a layout error is reported once, not on every resize step
+    try { Set-W11Layout }
+    catch { if (-not $script:LayoutFailed) { $script:LayoutFailed = $true; Show-W11Error -Context 'layout' -ErrorRecord $_ } }
 }
 
 function New-W11Ctl {
@@ -501,10 +675,27 @@ function Get-W11EffectiveOs {
     return 'Win11'
 }
 
+$script:W11AppNotes = @{
+    'older builds' = 'app.older'; 'optional' = 'app.optional'; 'if present' = 'app.ifPresent'; 'new' = 'app.new'
+    'Store/games UI' = 'app.noteStoreUi'; 'game sign-in' = 'app.noteGameSignIn'
+    'accessibility, hard to reinstall' = 'app.noteSpeech'; 'troubleshooters' = 'app.noteGetHelp'
+    'classic Paint stays' = 'app.notePaint'
+}
+
 function Get-W11AppText($a) {
-    # app list entry: product names stay English, the notes in brackets are translated
+    # app list entry: product names and package Ids stay as they are, the note in the trailing brackets
+    # ("optional", "unsafe: game sign-in", "optional; classic Paint stays" ...) is translated part by part
     $n = [string]$a.Name
-    $n = $n.Replace('(older builds)', '(' + (T 'app.older') + ')').Replace('(optional)', '(' + (T 'app.optional') + ')').Replace('(if present)', '(' + (T 'app.ifPresent') + ')').Replace('(unsafe:', '(' + (T 'app.unsafe') + ':')
+    if ($n -match '^(.*\S)\s*\(([^()]+)\)$') {
+        $base = $matches[1]; $parts = @()
+        foreach ($p in ($matches[2] -split ';\s*')) {
+            $pre = ''
+            if ($p -match '^unsafe:\s*(.+)$') { $pre = (T 'app.unsafe') + ': '; $p = $matches[1] }
+            if ($script:W11AppNotes.ContainsKey($p)) { $p = T $script:W11AppNotes[$p] }
+            $parts += ($pre + $p)
+        }
+        $n = '{0} ({1})' -f $base, ($parts -join '; ')
+    }
     return ('{0}   [{1}]' -f $n, $a.Id)
 }
 
@@ -545,6 +736,8 @@ function Set-W11ProfileLists {
         $ui.clbTweaks.SetItemChecked($i, $on)
         $script:TweakIds += $t.Id
     }
+    Set-W11ListExtent $ui.clbApps
+    Set-W11ListExtent $ui.clbTweaks
     $title = Get-W11OsLabel $os
     if ($build -gt 0) { $title = Get-W11ReleaseLabel -Build $build -Os $os }
     $ui.grpApps.Text = T 'grp.apps' $title
@@ -596,7 +789,6 @@ function Set-W11UiTexts {
     if ($ui.lblWatermark) {
         $ui.lblWatermark.Font = New-Object Drawing.Font $fam, 7.5
         $ui.lblWatermark.Text = $script:W11Watermark
-        Set-W11WatermarkLayout
     }
     $ui.form.Text = T 'app.title' $script:W11D.Version
     $stack = New-Object Collections.Stack
@@ -616,6 +808,7 @@ function Set-W11UiTexts {
     try { if ($ui.cbRelease.Items.Count -gt 0) { Update-W11DownloadLists 'release' } } finally { $script:KeepLangIndex = $false }
     Set-W11ProfileLists -Force -KeepChecks
     if (-not $script:Job) { $ui.lblStatus.Text = T 'status.ready' }
+    Invoke-W11Layout
 }
 
 function Invoke-W11OscInstall {
@@ -671,6 +864,7 @@ function Show-W11Gui {
 
     # ---------- 1. source ----------
     $g1 = New-W11Ctl GroupBox '@grp.source' 10 8 960 166
+    $ui.grpSource = $g1
     $ui.rbLocal = New-W11Ctl RadioButton '@rb.local' 12 20 400 22
     $ui.rbLocal.Checked = $true
     $lo = New-W11Ctl Label '@lbl.targetOs' 418 23 150 20
@@ -679,7 +873,9 @@ function Show-W11Gui {
     [void]$ui.cbOs.Items.Add((T 'os.auto'))
     [void]$ui.cbOs.Items.Add('Windows 11')
     [void]$ui.cbOs.Items.Add('Windows 10')
+    $ui.lblTargetOs = $lo
     $ui.lblOs = New-W11Ctl Label '' 746 23 210 20
+    $ui.lblOs.AutoEllipsis = $true
     $ui.lblOs.ForeColor = [Drawing.Color]::DimGray
     $ui.tbIso = New-W11Ctl TextBox '' 32 44 790 23
     $ui.btnIso = New-W11Ctl Button '@btn.browse' 830 42 118 26
@@ -687,9 +883,12 @@ function Show-W11Gui {
     $lr = New-W11Ctl Label '@lbl.version' 32 107 80 20
     $ui.cbRelease = New-W11Ctl ComboBox '' 114 104 320 23   # every Windows 11 + Windows 10 release Microsoft serves
     $ui.cbRelease.DropDownWidth = 420; $ui.cbRelease.MaxDropDownItems = 20
+    $ui.lblVersion = $lr
     $la = New-W11Ctl Label '@lbl.arch' 440 107 84 20
+    $ui.lblArch = $la
     $ui.cbArch = New-W11Ctl ComboBox '' 526 104 64 23
     $ll = New-W11Ctl Label '@lbl.lang' 596 107 64 20
+    $ui.lblLang = $ll
     $ui.cbLang = New-W11Ctl ComboBox '' 662 104 120 23
     $ui.cbLang.DropDownWidth = 240
     foreach ($cb in @($ui.cbRelease, $ui.cbArch, $ui.cbLang)) { $cb.DropDownStyle = 'DropDownList' }
@@ -698,6 +897,7 @@ function Show-W11Gui {
     $ui.chkAria2 = New-W11Ctl CheckBox '@chk.aria2' 32 136 360 22
     $ui.lblAria2 = New-W11Ctl Label '' 396 139 432 20
     $ui.lblAria2.ForeColor = [Drawing.Color]::DimGray
+    $ui.lblAria2.AutoEllipsis = $true
     $script:Aria2Exe = $null
     try { $script:Aria2Exe = Find-MsAria2 } catch { $script:Aria2Exe = $null }
     if ($script:Aria2Exe) {
@@ -713,6 +913,8 @@ function Show-W11Gui {
     $ui.grpApps = $g2
     $ui.clbApps = New-W11Ctl CheckedListBox '' 12 22 536 266
     $ui.clbApps.CheckOnClick = $true
+    $ui.clbApps.HorizontalScrollbar = $true
+    $ui.clbApps.IntegralHeight = $false
     $script:AppIds = @()
     $ui.btnAppDef = New-W11Ctl Button '@btn.appDef' 12 294 120 27
     $ui.btnAppAll = New-W11Ctl Button '@btn.appAll' 138 294 100 27
@@ -723,7 +925,9 @@ function Show-W11Gui {
 
     # ---------- 3. options ----------
     $g3 = New-W11Ctl GroupBox '@grp.options' 580 180 390 330
+    $ui.grpOptions = $g3
     $le = New-W11Ctl Label '@lbl.editions' 12 22 300 20
+    $ui.lblEditions = $le
     $ui.rbEdAll = New-W11Ctl RadioButton '@rb.edAll' 12 42 100 22
     $ui.rbEdHP = New-W11Ctl RadioButton 'Home + Pro' 116 42 100 22
     $ui.rbEdCustom = New-W11Ctl RadioButton '@rb.edIdx' 218 42 92 22
@@ -731,8 +935,11 @@ function Show-W11Gui {
     $ui.tbIdx = New-W11Ctl TextBox '' 312 42 66 23
     $ui.btnEd = New-W11Ctl Button '@btn.listEditions' 12 66 366 25
     $lt = New-W11Ctl Label '@lbl.tweaks' 12 96 300 18
+    $ui.lblTweaks = $lt
     $ui.clbTweaks = New-W11Ctl CheckedListBox '' 12 115 366 128
     $ui.clbTweaks.CheckOnClick = $true
+    $ui.clbTweaks.HorizontalScrollbar = $true
+    $ui.clbTweaks.IntegralHeight = $false
     $script:TweakIds = @()
     $ui.chkUnattend = New-W11Ctl CheckBox '@chk.unattend' 12 246 370 34
     $ui.chkUnattend.Checked = $true
@@ -742,6 +949,7 @@ function Show-W11Gui {
 
     # ---------- 4. output ----------
     $g4 = New-W11Ctl GroupBox '@grp.output' 10 516 960 56
+    $ui.grpOutput = $g4
     $ui.tbOut = New-W11Ctl TextBox '' 12 22 810 23
     $ui.btnOut = New-W11Ctl Button '@btn.saveAs' 830 20 118 26
     $g4.Controls.AddRange(@($ui.tbOut, $ui.btnOut))
@@ -765,7 +973,7 @@ function Show-W11Gui {
     $ui.tbLog.Multiline = $true; $ui.tbLog.ScrollBars = 'Both'; $ui.tbLog.ReadOnly = $true; $ui.tbLog.WordWrap = $false
     $ui.tbLog.MaxLength = 2147483647
     $ui.tbLog.Font = New-Object Drawing.Font 'Consolas', 8.5
-    $ui.tbLog.Anchor = 'Top, Bottom, Left, Right'
+    # every control is placed by Set-W11Layout (on resize and after a language switch)
     # watermark: docked to the bottom edge (stays there on resize), below the log box, system gray text
     # (follows the Windows colour scheme / high contrast), no '@' key = not translated
     $ui.lblWatermark = New-Object Windows.Forms.Label
@@ -787,6 +995,7 @@ function Show-W11Gui {
     for ($i = 0; $i -lt $script:W11Langs.Count; $i++) { if ($script:W11Langs[$i].Code -eq $script:UiLang) { $ui.cbUiLang.SelectedIndex = $i } }
     Set-W11ProfileLists -Force
     Set-W11UiTexts
+    $f.Add_Resize({ Invoke-W11Layout })
     $script:H['cbOs.SelectedIndexChanged'] = { Set-W11ProfileLists }
     $ui.cbOs.Add_SelectedIndexChanged({ Invoke-W11Handler 'cbOs.SelectedIndexChanged' })
     $script:H['cbUiLang.SelectedIndexChanged'] = {
