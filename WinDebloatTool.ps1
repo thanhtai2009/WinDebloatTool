@@ -23,6 +23,13 @@
     .\WinDebloatTool.ps1 -NoGui -IsoPath D:\Win11.iso -OutputIso D:\Win11_small.iso -Compression Recovery
     (install.esd, smallest ISO, slower; -SplitWimMB 3800 splits a >4 GB install.wim into install*.swm for FAT32 USB)
 .EXAMPLE
+    .\WinDebloatTool.ps1 -NoGui -IsoPath D:\Win11.iso -OutputIso D:\Win11_min.iso -Preset aggressive
+    (built-in presets: safe, aggressive; or a .json saved from the GUI)
+.EXAMPLE
+    .\WinDebloatTool.ps1 -NoGui -IsoPath D:\Win11.iso -OutputIso D:\Win11_upd.iso -UpdatesPath D:\Updates -UpdateWinRE
+.EXAMPLE
+    .\WinDebloatTool.ps1 -NoGui -IsoPath D:\Win11.iso -OutputIso D:\Win11_auto.iso -LocalUser Tai -SkipPrivacy -Locale vi-VN -FirstLogonCleanup
+.EXAMPLE
     .\WinDebloatTool.ps1 -Check
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
@@ -42,7 +49,21 @@ param(
     [switch]$Check,
     [switch]$KeepWorkDir,
     [int]$MinFreeGB = 25,
-    [string]$OscdimgPath
+    [string]$OscdimgPath,
+    [string]$Preset,                # safe | aggressive | path of a preset .json (explicit parameters win)
+    [string]$UpdatesPath,           # folder with .msu / .cab updates (SSU, LCU, .NET, Safe OS)
+    [switch]$UpdateBootWim,
+    [switch]$UpdateWinRE,
+    [switch]$ResetBase,
+    [string]$LocalUser,             # answer file: create this local administrator account
+    [string]$LocalPassword,         # plain text; without it the password is asked (empty = no password)
+    [switch]$NoBypassNro,
+    [switch]$BypassChecks,          # Windows 11: skip TPM / Secure Boot / RAM checks in setup
+    [switch]$SkipPrivacy,
+    [switch]$FirstLogonCleanup,
+    [string]$Locale,                # e.g. vi-VN
+    [string]$Keyboard,              # e.g. 0409:00000409 or en-US
+    [string]$AutounattendPath       # your own answer file instead of the generated one
 )
 
 $ErrorActionPreference = 'Stop'
@@ -113,6 +134,42 @@ $params = @{
 if ($WorkDir) { $params.WorkDir = $WorkDir }
 if ($Indexes) { $params.Indexes = $Indexes }
 if ($OscdimgPath) { $params.OscdimgPath = $OscdimgPath }
+if ($AutounattendPath) { $params.AutounattendPath = $AutounattendPath }
+$bp = $PSBoundParameters
+if ($Preset) {
+    $params.Preset = $Preset
+    # options not given on the command line come from the preset
+    if (-not $bp.ContainsKey('Edition')) { [void]$params.Remove('EditionMode') }
+    if (-not $bp.ContainsKey('Compression')) { [void]$params.Remove('Compression') }
+    if (-not $bp.ContainsKey('ComponentCleanup')) { [void]$params.Remove('ComponentCleanup') }
+    if (-not $bp.ContainsKey('NoAutounattend')) { [void]$params.Remove('Autounattend') }
+}
+if ($UpdatesPath) { $params.UpdatesPath = $UpdatesPath }
+if ($bp.ContainsKey('UpdateBootWim')) { $params.UpdateBootWim = [bool]$UpdateBootWim }
+if ($bp.ContainsKey('UpdateWinRE')) { $params.UpdateWinRE = [bool]$UpdateWinRE }
+if ($bp.ContainsKey('ResetBase')) { $params.ResetBase = [bool]$ResetBase }
+$uKeys = @('LocalUser', 'LocalPassword', 'NoBypassNro', 'BypassChecks', 'SkipPrivacy', 'FirstLogonCleanup', 'Locale', 'Keyboard')
+if (@($uKeys | Where-Object { $bp.ContainsKey($_) }).Count -gt 0) {
+    $uo = Get-W11UnattendDefaults
+    if ($Preset) { $uo = Get-W11PresetUnattend (Read-W11Preset -Path (Resolve-W11PresetRef $Preset)) }
+    if ($LocalUser) {
+        if (-not (Test-W11LocalAccountName $LocalUser)) { Write-Host "ERROR / LỖI: invalid account name / tên tài khoản không hợp lệ: $LocalUser" -ForegroundColor Red; exit 2 }
+        $uo.LocalAccount = $true; $uo.UserName = $LocalUser
+        if ($bp.ContainsKey('LocalPassword')) { $uo.Password = $LocalPassword }
+        else {
+            $sec = Read-Host -AsSecureString "Password for $LocalUser (empty = none, stored as plain text in autounattend.xml) / Mật khẩu (để trống = không đặt)"
+            $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
+            try { $uo.Password = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
+        }
+    }
+    if ($bp.ContainsKey('NoBypassNro')) { $uo.BypassNro = -not $NoBypassNro }
+    if ($bp.ContainsKey('BypassChecks')) { $uo.BypassChecks = [bool]$BypassChecks }
+    if ($bp.ContainsKey('SkipPrivacy')) { $uo.SkipPrivacy = [bool]$SkipPrivacy }
+    if ($bp.ContainsKey('FirstLogonCleanup')) { $uo.FirstLogonCleanup = [bool]$FirstLogonCleanup }
+    if ($Locale) { $uo.Locale = $Locale }
+    if ($Keyboard) { $uo.Keyboard = $Keyboard }
+    $params.UnattendOptions = $uo
+}
 try {
     $r = Invoke-Win11Debloat @params
     Write-Progress -Activity 'WinDebloat Tool' -Completed

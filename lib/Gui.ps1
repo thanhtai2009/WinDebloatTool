@@ -37,6 +37,7 @@ $script:W11ButtonIcons = @{
     btnIso = 'folder-open'; btnOut = 'save'; btnFetch = 'refresh'; btnDownload = 'download'
     btnAppDef = 'reset'; btnAppAll = 'check-all'; btnAppNone = 'clear-all'; btnEd = 'eye'
     btnCheck = 'shield-check'; btnOsc = 'wrench'; btnStart = 'broom'; btnCancel = 'stop'
+    btnPresetApply = 'sliders'; btnPresetLoad = 'folder-open'; btnPresetSave = 'save'; btnUpdBrowse = 'folder-open'; btnUpdScan = 'package'
     picMs = 'globe'; picLog = 'folder'
 }
 
@@ -117,8 +118,8 @@ function Set-W11ControlIcons {
 
 function Set-W11Layout {
     # Places every control from the current client size (PS 2.0 / .NET 2.0: no TableLayoutPanel tricks needed):
-    # sections 1 and 4, path boxes, progress bar and log stretch horizontally; sections 2 and 3 share the width
-    # (58/42) and, with the log, grow vertically; widths of labels / buttons / check boxes come from the text in
+    # sections 1 and 4, the preset row, path boxes, progress bar and log stretch horizontally; sections 2 and 3
+    # share the width (58/42) and, with the log, grow vertically; section 3 is a tab control (its long pages scroll); widths of labels / buttons / check boxes come from the text in
     # the current language and font, so nothing is clipped. Sizes scale with the DPI the process sees.
     $ui = $script:ui
     if (-not $ui -or -not $ui.form -or -not $ui.tbLog) { return }
@@ -190,7 +191,7 @@ function Set-W11Layout {
         $g4H = $gt + $rowH + (& $px 11)
         $statusH = [Math]::Max((& $px 24), $rowH + (& $px 2))
         $yMid = $g1.Bottom + (& $px 6)
-        $fixed = $yMid + (& $px 6) + $g4H + $gap + $bigH + (& $px 6) + $statusH + (& $px 4) + $gap + $wm.Height
+        $fixed = $yMid + 2 * ((& $px 6) + $g4H) + $gap + $bigH + (& $px 6) + $statusH + (& $px 4) + $gap + $wm.Height
         $minMid = & $px 330; $minLog = & $px 110
         $extra = $ch - $fixed - $minMid - $minLog
         $midH = $minMid; if ($extra -gt 0) { $midH += [int]($extra * 0.55) }
@@ -221,29 +222,108 @@ function Set-W11Layout {
         foreach ($b in @($ui.btnAppDef, $ui.btnAppAll, $ui.btnAppNone)) { $b.Top = $btnTop }
         $ui.clbApps.SetBounds($in, $gt + (& $px 2), $g2w - 2 * $in, [Math]::Max((& $px 60), $listBottom - $gt - (& $px 2)))
 
-        # ---------- 3. options ----------
+        # ---------- 3. options: tabs Options / Unattended setup / Updates ----------
         $g3 = $ui.grpOptions
         $g3.SetBounds($g2.Right + $M, $yMid, $g3w, $midH)
-        $iw = $g3w - 2 * $in
-        $ui.lblEditions.SetBounds($in, $gt, $iw, $rowH - (& $px 3))
+        $tc = $ui.tabOpts
+        $tc.SetBounds((& $px 6), $gt - (& $px 2), $g3w - (& $px 12), $midH - $gt - (& $px 4))
+        # page client area: real TabControl knows it; the layout tests (mock controls) use the estimate
+        $pw = $tc.Width - (& $px 8); $ph = $tc.Height - $rowH - (& $px 10)
+        $dr = $tc.DisplayRectangle
+        if ($dr -and $dr.Width -gt 50 -and $dr.Height -gt 50) { $pw = $dr.Width; $ph = $dr.Height }
+        $pi = & $px 6
+        $iw = $pw - 2 * $pi
+        $chkH = { param($c, [int]$w) [Math]::Max($rowH - (& $px 1), (Get-W11TextHeight $c.Text $c.Font ($w - (& $px 24))) + (& $px 6)) }
+        $lblH = { param($c, [int]$w) [Math]::Max($rowH - (& $px 4), (Get-W11TextHeight $c.Text $c.Font $w) + (& $px 2)) }
+        # -- page 1: editions, tweaks, image options; the tweak list takes the free height. When even a short
+        #    list does not fit (small window, tall font), the page scrolls instead --
+        $hEdRow = [Math]::Max($rowH, $bh)
+        $need = $pi + ($rowH - (& $px 3)) + $hEdRow + (& $px 2) + $bh + (& $px 5) + ($rowH - (& $px 4)) + (& $px 1) + (& $px 50) + (& $px 4) + (& $px 2)
+        $hDry = & $chkH $ui.chkDry $iw; $hCl = & $chkH $ui.chkCleanup $iw; $hEsd = & $chkH $ui.chkEsd $iw
+        $need += $hDry + $hCl + $hEsd
+        $scroll1 = ($need -gt $ph)
+        $ui.tpOptions.AutoScroll = $scroll1
+        $oy = 0; $w1 = $iw
+        if ($scroll1) {
+            $w1 = $iw - (& $px 18)
+            if ($ui.tpOptions.AutoScrollPosition) { $oy = $ui.tpOptions.AutoScrollPosition.Y }
+            $hDry = & $chkH $ui.chkDry $w1; $hCl = & $chkH $ui.chkCleanup $w1; $hEsd = & $chkH $ui.chkEsd $w1
+        }
+        $ui.lblEditions.SetBounds($pi, $pi + $oy, $w1, $rowH - (& $px 3))
         $ye = $ui.lblEditions.Bottom
-        $x = $in
+        $x = $pi
         foreach ($rb in @($ui.rbEdAll, $ui.rbEdHP, $ui.rbEdCustom)) { $w = & $chkW $rb; $rb.SetBounds($x, $ye, $w, $rowH); $x += $w + (& $px 4) }
-        $ui.tbIdx.SetBounds($x, $ye, [Math]::Max((& $px 50), $g3w - $in - $x), $rowH)
-        $ui.btnEd.SetBounds($in, $ye + $rowH + (& $px 2), $iw, $bh)
-        $ui.lblTweaks.SetBounds($in, $ui.btnEd.Bottom + (& $px 5), $iw, $rowH - (& $px 4))
-        $chkH = { param($c) [Math]::Max($rowH - (& $px 1), (Get-W11TextHeight $c.Text $c.Font ($iw - (& $px 24))) + (& $px 6)) }
-        $hDry = & $chkH $ui.chkDry; $hCl = & $chkH $ui.chkCleanup; $hUn = & $chkH $ui.chkUnattend; $hEsd = & $chkH $ui.chkEsd
-        $ui.chkDry.SetBounds($in, $midH - (& $px 6) - $hDry, $iw, $hDry)
-        $ui.chkEsd.SetBounds($in, $ui.chkDry.Top - $hEsd, $iw, $hEsd)
-        $ui.chkCleanup.SetBounds($in, $ui.chkEsd.Top - $hCl, $iw, $hCl)
-        $ui.chkUnattend.SetBounds($in, $ui.chkCleanup.Top - $hUn, $iw, $hUn)
+        $ui.tbIdx.SetBounds($x, $ye, [Math]::Max((& $px 50), $pi + $w1 - $x), $rowH)
+        $ui.btnEd.SetBounds($pi, $ye + $hEdRow + (& $px 2), $w1, $bh)
+        $ui.lblTweaks.SetBounds($pi, $ui.btnEd.Bottom + (& $px 5), $w1, $rowH - (& $px 4))
         $ty = $ui.lblTweaks.Bottom + (& $px 1)
-        $ui.clbTweaks.SetBounds($in, $ty, $iw, [Math]::Max((& $px 50), $ui.chkUnattend.Top - (& $px 4) - $ty))
+        if ($scroll1) {
+            $ui.clbTweaks.SetBounds($pi, $ty, $w1, (& $px 50))
+            $ui.chkCleanup.SetBounds($pi, $ui.clbTweaks.Bottom + (& $px 4), $w1, $hCl)
+            $ui.chkEsd.SetBounds($pi, $ui.chkCleanup.Bottom, $w1, $hEsd)
+            $ui.chkDry.SetBounds($pi, $ui.chkEsd.Bottom, $w1, $hDry)
+        } else {
+            $ui.chkDry.SetBounds($pi, $ph - (& $px 2) - $hDry, $w1, $hDry)
+            $ui.chkEsd.SetBounds($pi, $ui.chkDry.Top - $hEsd, $w1, $hEsd)
+            $ui.chkCleanup.SetBounds($pi, $ui.chkEsd.Top - $hCl, $w1, $hCl)
+            $ui.clbTweaks.SetBounds($pi, $ty, $w1, [Math]::Max((& $px 50), $ui.chkCleanup.Top - (& $px 4) - $ty))
+        }
+        # -- pages 2 and 3 scroll when the window is small: positions follow the scroll offset, room for the scroll bar --
+        $sbw = & $px 18
+        $sw = $pw - 2 * $pi - $sbw
+        $fieldRow = {
+            param($lbl, $ctl, [int]$y, [int]$lw, [int]$x0)
+            $lbl.SetBounds($x0, $y + (& $px 3), $lw, $rowH - (& $px 3))
+            $ctl.SetBounds($x0 + $lw + (& $px 4), $y, [Math]::Max((& $px 80), $pi + $sw - ($x0 + $lw + (& $px 4))), $rowH)
+        }
+        # page 2: answer file
+        $oy = 0; if ($ui.tpUnattend.AutoScrollPosition) { $oy = $ui.tpUnattend.AutoScrollPosition.Y }
+        $y = $pi + $oy
+        $h = & $chkH $ui.chkUnattend $sw; $ui.chkUnattend.SetBounds($pi, $y, $sw, $h); $y += $h + (& $px 2)
+        $h = & $chkH $ui.chkLocalAcc $sw; $ui.chkLocalAcc.SetBounds($pi, $y, $sw, $h); $y += $h + (& $px 1)
+        $x0 = $pi + (& $px 20)
+        $lw = [Math]::Max((& $lblW $ui.lblUser), (& $lblW $ui.lblPass))
+        & $fieldRow $ui.lblUser $ui.tbUser $y $lw $x0; $y += $rowH + (& $px 4)
+        & $fieldRow $ui.lblPass $ui.tbPass $y $lw $x0; $y += $rowH + (& $px 2)
+        $h = & $lblH $ui.lblPassWarn ($pi + $sw - $x0); $ui.lblPassWarn.SetBounds($x0, $y, $pi + $sw - $x0, $h); $y += $h + (& $px 4)
+        foreach ($c in @($ui.chkBypassNro, $ui.chkBypassChecks, $ui.chkSkipPrivacy, $ui.chkFirstLogon)) { $h = & $chkH $c $sw; $c.SetBounds($pi, $y, $sw, $h); $y += $h }
+        $y += & $px 4
+        $lw = [Math]::Max((& $lblW $ui.lblRegion), (& $lblW $ui.lblKeyboard))
+        & $fieldRow $ui.lblRegion $ui.cbRegion $y $lw $pi; $y += $rowH + (& $px 4)
+        & $fieldRow $ui.lblKeyboard $ui.cbKeyboard $y $lw $pi; $y += $rowH + $pi
+        # page 3: updates
+        $oy = 0; if ($ui.tpUpdates.AutoScrollPosition) { $oy = $ui.tpUpdates.AutoScrollPosition.Y }
+        $y = $pi + $oy
+        $h = & $chkH $ui.chkUpdates $sw; $ui.chkUpdates.SetBounds($pi, $y, $sw, $h); $y += $h + (& $px 2)
+        $w = & $btnW $ui.btnUpdBrowse 90
+        $lw = & $lblW $ui.lblUpdFolder
+        $ui.lblUpdFolder.SetBounds($pi, $y + (& $px 3), $lw, $rowH - (& $px 3))
+        $ui.btnUpdBrowse.SetBounds($pi + $sw - $w, $y, $w, $bh)
+        $ui.tbUpd.SetBounds($pi + $lw + (& $px 4), $y, [Math]::Max((& $px 60), $ui.btnUpdBrowse.Left - $gap - ($pi + $lw + (& $px 4))), $rowH)
+        $y += [Math]::Max($bh, $rowH) + (& $px 4)
+        $w = & $btnW $ui.btnUpdScan 110
+        $hRow = [Math]::Max($bh, $rowH)
+        $ui.btnUpdScan.SetBounds($pi, $y, $w, $bh)
+        $ui.lblUpdInfo.SetBounds($ui.btnUpdScan.Right + $gap, $y + (& $px 3), [Math]::Max((& $px 40), $pi + $sw - $ui.btnUpdScan.Right - $gap), $rowH - (& $px 3))
+        $y += $hRow + (& $px 4)
+        foreach ($c in @($ui.chkUpdBoot, $ui.chkUpdWinre, $ui.chkResetBase)) { $h = & $chkH $c $sw; $c.SetBounds($pi, $y, $sw, $h); $y += $h }
+        $y += & $px 4
+        $h = & $lblH $ui.lblUpdNote $sw; $ui.lblUpdNote.SetBounds($pi, $y, $sw, $h)
+
+        # ---------- preset ----------
+        $g5 = $ui.grpPreset
+        $g5.SetBounds($M, $g2.Bottom + (& $px 6), $gw, $g4H)
+        $x = $in
+        $ui.cbPreset.SetBounds($x, $gt, [Math]::Max((& $px 180), [int]($gw * 0.24)), $rowH); $x = $ui.cbPreset.Right + $gap
+        foreach ($p in @(@($ui.btnPresetApply, 90), @($ui.btnPresetLoad, 90), @($ui.btnPresetSave, 90))) {
+            $w = & $btnW $p[0] $p[1]; $p[0].SetBounds($x, $gt - (& $px 2), $w, $bh); $x += $w + (& $px 6)
+        }
+        $x += & $px 4
+        $ui.lblPresetDesc.SetBounds($x, $gt + (& $px 3), [Math]::Max((& $px 40), $r - $x), $rowH - (& $px 3))
 
         # ---------- 4. output ----------
         $g4 = $ui.grpOutput
-        $g4.SetBounds($M, $g2.Bottom + (& $px 6), $gw, $g4H)
+        $g4.SetBounds($M, $g5.Bottom + (& $px 6), $gw, $g4H)
         $w = & $btnW $ui.btnOut 118
         $ui.btnOut.SetBounds($r - $w, $gt - (& $px 2), $w, $bh)
         $ui.tbOut.SetBounds($in, $gt, $ui.btnOut.Left - $gap - $in, $rowH)
@@ -776,8 +856,13 @@ $script:W11AppNotes = @{
 }
 
 function Get-W11AppText($a) {
-    # app list entry: product names and package Ids stay as they are, the note in the trailing brackets
-    # ("optional", "unsafe: game sign-in", "optional; classic Paint stays" ...) is translated part by part
+    # app list entry: product names and package Ids stay as they are. Names from data\apps.json are already
+    # translated; for other entries the note in the trailing brackets ("optional", "unsafe: game sign-in",
+    # "optional; classic Paint stays" ...) is translated part by part
+    if ($a.Names) {
+        $t = Get-W11LangText $a.Names $script:UiLang
+        if ($t) { return ('{0}   [{1}]' -f $t, $a.Id) }
+    }
     $n = [string]$a.Name
     if ($n -match '^(.*\S)\s*\(([^()]+)\)$') {
         $base = $matches[1]; $parts = @()
@@ -793,10 +878,193 @@ function Get-W11AppText($a) {
 }
 
 function Get-W11TweakText($t) {
-    $k = 'tweak.' + $t.Id
-    if (($script:L -and $script:L.ContainsKey($k)) -or ($script:LEn -and $script:LEn.ContainsKey($k))) { return (T $k) }
-    return [string]$t.Name
+    # name from data\tweaks.json in the UI language (+ "aggressive" mark), else a lang key tweak.<Id>, else the config name
+    $n = $null
+    if ($t.Names) { $n = Get-W11LangText $t.Names $script:UiLang }
+    if (-not $n) {
+        $k = 'tweak.' + $t.Id
+        if (($script:L -and $script:L.ContainsKey($k)) -or ($script:LEn -and $script:LEn.ContainsKey($k))) { $n = T $k } else { $n = [string]$t.Name }
+    }
+    if ($t.Level -eq 'aggressive') { $n = '{0} [{1}]' -f $n, (T 'lvl.aggressive') }
+    return $n
 }
+
+function Get-W11TweakTip($t) {
+    # tooltip of a tweak: description in the UI language
+    if ($t -and $t.Descriptions) { return (Get-W11LangText $t.Descriptions $script:UiLang) }
+    if ($t) { return [string]$t.Name }
+    return ''
+}
+
+#region ---------- presets / answer file / updates in the GUI ----------
+$script:W11Regions = @('vi-VN', 'en-US', 'en-GB', 'zh-CN', 'km-KH', 'th-TH', 'ja-JP', 'ko-KR', 'fr-FR', 'de-DE')
+$script:W11Keyboards = @('0409:00000409 (US)', '042a:0000042a (Vietnamese)', '0809:00000809 (United Kingdom)', '0804:00000804 (Chinese - PRC)', '0453:00000453 (Khmer)', '041e:0000041e (Thai)')
+
+function Set-W11ComboItems {
+    # fills a combo: first item = text in the UI language (nothing chosen), then fixed values; keeps the selection
+    param($Combo, [string]$First, [string[]]$Values)
+    $i = $Combo.SelectedIndex
+    $Combo.Items.Clear()
+    [void]$Combo.Items.Add($First)
+    foreach ($v in $Values) { [void]$Combo.Items.Add($v) }
+    if ($i -lt 0 -or $i -ge $Combo.Items.Count) { $i = 0 }
+    $Combo.SelectedIndex = $i
+}
+
+function Get-W11ComboValue {
+    # '' for the first item, else the value (keyboard items: the part before the space)
+    param($Combo)
+    if ($Combo.SelectedIndex -le 0) { return '' }
+    return ([string]$Combo.SelectedItem).Split(' ')[0]
+}
+
+function Set-W11ComboValue {
+    param($Combo, [string]$Value)
+    $Combo.SelectedIndex = 0
+    if (-not $Value) { return }
+    for ($i = 1; $i -lt $Combo.Items.Count; $i++) { if (([string]$Combo.Items[$i]).Split(' ')[0] -eq $Value) { $Combo.SelectedIndex = $i; return } }
+    [void]$Combo.Items.Add($Value); $Combo.SelectedIndex = $Combo.Items.Count - 1
+}
+
+function Update-W11OptionStates {
+    # enables the answer-file / update controls that depend on a check box (and Windows 11 only options)
+    $ui = $script:ui
+    if (-not $ui -or -not $ui.chkUnattend) { return }
+    $on = [bool]$ui.chkUnattend.Checked
+    $w11 = ((Get-W11EffectiveOs) -eq 'Win11')
+    foreach ($c in @($ui.chkLocalAcc, $ui.chkSkipPrivacy, $ui.chkFirstLogon, $ui.lblRegion, $ui.cbRegion, $ui.lblKeyboard, $ui.cbKeyboard)) { $c.Enabled = $on }
+    foreach ($c in @($ui.chkBypassNro, $ui.chkBypassChecks)) { $c.Enabled = ($on -and $w11) }
+    $acc = ($on -and $ui.chkLocalAcc.Checked)
+    foreach ($c in @($ui.lblUser, $ui.tbUser, $ui.lblPass, $ui.tbPass, $ui.lblPassWarn)) { $c.Enabled = $acc }
+    $up = [bool]$ui.chkUpdates.Checked
+    foreach ($c in @($ui.lblUpdFolder, $ui.tbUpd, $ui.btnUpdBrowse, $ui.btnUpdScan, $ui.lblUpdInfo, $ui.chkUpdBoot, $ui.chkUpdWinre, $ui.chkResetBase)) { $c.Enabled = $up }
+}
+
+function Get-W11GuiUnattend {
+    # answer-file options from the GUI (with the password: used for the run only, never saved)
+    $ui = $script:ui
+    $o = Get-W11UnattendDefaults
+    $o.LocalAccount = [bool]$ui.chkLocalAcc.Checked
+    $o.UserName = $ui.tbUser.Text.Trim()
+    $o.Password = [string]$ui.tbPass.Text
+    $o.BypassNro = [bool]$ui.chkBypassNro.Checked
+    $o.BypassChecks = [bool]$ui.chkBypassChecks.Checked
+    $o.SkipPrivacy = [bool]$ui.chkSkipPrivacy.Checked
+    $o.FirstLogonCleanup = [bool]$ui.chkFirstLogon.Checked
+    $o.Locale = Get-W11ComboValue $ui.cbRegion
+    $o.Keyboard = Get-W11ComboValue $ui.cbKeyboard
+    return $o
+}
+
+function Get-W11PresetName($p) {
+    if (-not $p) { return '' }
+    $n = Get-W11LangText (Get-W11JsonVal $p.Data 'name') $script:UiLang
+    if (-not $n) { $n = $p.Id }
+    if ($p.User) { $n = '{0} ({1})' -f $n, (Split-Path -Leaf $p.Path) }
+    return $n
+}
+
+function Update-W11PresetList {
+    # built-in presets + presets opened in this session; keeps the selection
+    $ui = $script:ui
+    $i = $ui.cbPreset.SelectedIndex
+    $ui.cbPreset.Items.Clear()
+    foreach ($p in @($script:Presets)) { [void]$ui.cbPreset.Items.Add((Get-W11PresetName $p)) }
+    if ($ui.cbPreset.Items.Count -gt 0) {
+        if ($i -lt 0 -or $i -ge $ui.cbPreset.Items.Count) { $i = 0 }
+        $ui.cbPreset.SelectedIndex = $i
+    }
+    Update-W11PresetDesc
+}
+
+function Update-W11PresetDesc {
+    $ui = $script:ui
+    $i = $ui.cbPreset.SelectedIndex
+    $d = ''
+    if ($i -ge 0 -and $i -lt @($script:Presets).Count) { $d = Get-W11LangText (Get-W11JsonVal $script:Presets[$i].Data 'description') $script:UiLang }
+    $ui.lblPresetDesc.Text = $d
+    if ($ui.tip) { $ui.tip.SetToolTip($ui.lblPresetDesc, $d); $ui.tip.SetToolTip($ui.cbPreset, $d) }
+}
+
+function Set-W11ListChecks {
+    # ticks exactly the given ids in a checked list (index -> id table)
+    param($List, [object[]]$Ids, [string[]]$On)
+    for ($i = 0; $i -lt $List.Items.Count; $i++) { $List.SetItemChecked($i, (@($On) -contains $Ids[$i])) }
+}
+
+function Set-W11GuiPreset {
+    # applies a preset to every control (apps / tweaks are resolved for the list shown now and again when the target OS changes)
+    param($Preset)
+    $ui = $script:ui
+    $d = $Preset
+    $ed = Get-W11JsonVal $d 'editions'
+    if ($ed) {
+        switch ([string](Get-W11JsonVal $ed 'mode' 'All')) {
+            'HomePro' { $ui.rbEdHP.Checked = $true }
+            'Custom' { $ui.tbIdx.Text = (@(Get-W11JsonVal $ed 'indexes' @()) -join ','); $ui.rbEdCustom.Checked = $true }
+            default { $ui.rbEdAll.Checked = $true }
+        }
+    }
+    $script:ActivePreset = $d
+    Set-W11ListChecks $ui.clbApps $script:AppIds @(Resolve-W11PresetItems (Get-W11JsonVal $d 'apps') @($script:ProfileApps))
+    Set-W11ListChecks $ui.clbTweaks $script:TweakIds @(Resolve-W11PresetItems (Get-W11JsonVal $d 'tweaks') @($script:ProfileTweaks))
+    $un = Get-W11JsonVal $d 'unattend'
+    if ($un) {
+        $o = Get-W11PresetUnattend $d
+        $ui.chkUnattend.Checked = ((Get-W11JsonVal $un 'enabled' $true) -eq $true)
+        $ui.chkLocalAcc.Checked = [bool]$o.LocalAccount
+        if ($o.UserName) { $ui.tbUser.Text = $o.UserName }
+        $ui.chkBypassNro.Checked = [bool]$o.BypassNro
+        $ui.chkBypassChecks.Checked = [bool]$o.BypassChecks
+        $ui.chkSkipPrivacy.Checked = [bool]$o.SkipPrivacy
+        $ui.chkFirstLogon.Checked = [bool]$o.FirstLogonCleanup
+        Set-W11ComboValue $ui.cbRegion $o.Locale
+        Set-W11ComboValue $ui.cbKeyboard $o.Keyboard
+    }
+    $upd = Get-W11JsonVal $d 'updates'
+    if ($upd) {
+        $script:NoResetBaseAsk = $true
+        try {
+            $ui.chkUpdates.Checked = ((Get-W11JsonVal $upd 'enabled' $false) -eq $true)
+            $fo = [string](Get-W11JsonVal $upd 'folder' ''); if ($fo) { $ui.tbUpd.Text = $fo }
+            $ui.chkUpdBoot.Checked = ((Get-W11JsonVal $upd 'bootWim' $false) -eq $true)
+            $ui.chkUpdWinre.Checked = ((Get-W11JsonVal $upd 'winre' $false) -eq $true)
+            $ui.chkResetBase.Checked = ((Get-W11JsonVal $upd 'resetBase' $false) -eq $true)
+        } finally { $script:NoResetBaseAsk = $false }
+    }
+    $im = Get-W11JsonVal $d 'image'
+    if ($im) {
+        $ui.chkEsd.Checked = ([string](Get-W11JsonVal $im 'compression' 'Max') -eq 'Recovery')
+        $ui.chkCleanup.Checked = ((Get-W11JsonVal $im 'componentCleanup' $false) -eq $true)
+    }
+    Update-W11OptionStates
+}
+
+function Get-W11GuiPreset {
+    # current choices -> preset (no password)
+    param([string]$Name = 'Custom')
+    $ui = $script:ui
+    $mode = 'All'; $idx = @()
+    if ($ui.rbEdHP.Checked) { $mode = 'HomePro' }
+    if ($ui.rbEdCustom.Checked) { $mode = 'Custom'; foreach ($p in ($ui.tbIdx.Text -split '[,; ]+')) { if ($p -match '^\d+$') { $idx += [int]$p } } }
+    $apps = @(); foreach ($i in $ui.clbApps.CheckedIndices) { $apps += $script:AppIds[$i] }
+    $tw = @(); foreach ($i in $ui.clbTweaks.CheckedIndices) { $tw += $script:TweakIds[$i] }
+    $u = Get-W11GuiUnattend; $u.Remove('Password')
+    $up = @{ Enabled = [bool]$ui.chkUpdates.Checked; Folder = $ui.tbUpd.Text.Trim(); BootWim = [bool]$ui.chkUpdBoot.Checked; WinRE = [bool]$ui.chkUpdWinre.Checked; ResetBase = [bool]$ui.chkResetBase.Checked }
+    $comp = 'Max'; if ($ui.chkEsd.Checked) { $comp = 'Recovery' }
+    return (New-W11Preset -Name $Name -EditionMode $mode -Indexes $idx -Apps $apps -Tweaks $tw -UnattendEnabled ([bool]$ui.chkUnattend.Checked) -Unattend $u -Updates $up -Compression $comp -ComponentCleanup ([bool]$ui.chkCleanup.Checked))
+}
+
+function Format-W11UpdateInfo {
+    # "3 package(s): SSU 1, LCU 1, NetFx 1"
+    param([object[]]$Packages)
+    $parts = @()
+    foreach ($k in $script:W11UpdateKinds) { $n = @(@($Packages) | Where-Object { $_.Kind -eq $k }).Count; if ($n) { $parts += "$k $n" } }
+    $s = T 'w.packages' @($Packages).Count
+    if ($parts.Count) { $s += ': ' + ($parts -join ', ') }
+    return $s
+}
+#endregion
 
 function Set-W11ProfileLists {
     # (Re)fills the app and tweak lists for the effective target OS and, when known, the image build
@@ -814,18 +1082,24 @@ function Set-W11ProfileLists {
     }
     $script:ShownOs = $key
     $prof = Get-W11Profile -Config $script:Cfg -Os $os -Build $build
-    $script:ProfileApps = @($prof.Apps)
+    $script:ProfileApps = @($prof.Apps); $script:ProfileTweaks = @($prof.Tweaks)
+    # a preset chosen earlier is resolved again for the new list (other OS / build)
+    $presetA = $null; $presetT = $null
+    if ($null -eq $keepA -and $script:ActivePreset) {
+        $presetA = @(Resolve-W11PresetItems (Get-W11JsonVal $script:ActivePreset 'apps') @($prof.Apps))
+        $presetT = @(Resolve-W11PresetItems (Get-W11JsonVal $script:ActivePreset 'tweaks') @($prof.Tweaks))
+    }
     $ui.clbApps.Items.Clear(); $script:AppIds = @()
     foreach ($a in $prof.Apps) {
         $i = $ui.clbApps.Items.Add((Get-W11AppText $a))
-        $on = [bool]$a.Default; if ($null -ne $keepA) { $on = ($keepA -contains $a.Id) }
+        $on = [bool]$a.Default; if ($null -ne $keepA) { $on = ($keepA -contains $a.Id) } elseif ($null -ne $presetA) { $on = ($presetA -contains $a.Id) }
         $ui.clbApps.SetItemChecked($i, $on)
         $script:AppIds += $a.Id
     }
     $ui.clbTweaks.Items.Clear(); $script:TweakIds = @()
     foreach ($t in $prof.Tweaks) {
         $i = $ui.clbTweaks.Items.Add((Get-W11TweakText $t))
-        $on = [bool]$t.Default; if ($null -ne $keepT) { $on = ($keepT -contains $t.Id) }
+        $on = [bool]$t.Default; if ($null -ne $keepT) { $on = ($keepT -contains $t.Id) } elseif ($null -ne $presetT) { $on = ($presetT -contains $t.Id) }
         $ui.clbTweaks.SetItemChecked($i, $on)
         $script:TweakIds += $t.Id
     }
@@ -835,6 +1109,7 @@ function Set-W11ProfileLists {
     if ($build -gt 0) { $title = Get-W11ReleaseLabel -Build $build -Os $os }
     $ui.grpApps.Text = T 'grp.apps' $title
     $hidden = @($prof.SkippedApps).Count + @($prof.SkippedTweaks).Count
+    Update-W11OptionStates
     if (-not $KeepChecks -and $build -gt 0 -and $hidden -gt 0) { Write-W11Log -En "$hidden list entries do not apply to $title and are hidden" -Vi "$hidden mục không áp dụng cho bản này nên được ẩn" }
 }
 
@@ -896,6 +1171,10 @@ function Set-W11UiTexts {
     $ui.cbOs.SelectedIndex = $i
     if ($script:Aria2Exe) { $ui.lblAria2.Text = 'aria2: ' + $script:Aria2Exe } else { $ui.lblAria2.Text = T 'lbl.aria2Missing' }
     if ($ui.tip) { $ui.tip.SetToolTip($ui.cbUiLang, (T 'tip.uiLang')) }
+    Set-W11ComboItems $ui.cbRegion (T 'item.askSetup') $script:W11Regions
+    Set-W11ComboItems $ui.cbKeyboard (T 'item.kbRegion') $script:W11Keyboards
+    if ($script:UpdateScan) { $ui.lblUpdInfo.Text = Format-W11UpdateInfo $script:UpdateScan }
+    Update-W11PresetList
     Update-W11DetectedLabel
     $script:KeepLangIndex = $true
     try { if ($ui.cbRelease.Items.Count -gt 0) { Update-W11DownloadLists 'release' } } finally { $script:KeepLangIndex = $false }
@@ -948,10 +1227,10 @@ function Show-W11Gui {
     $ui = @{}
     $script:ui = $ui
     $f = New-Object Windows.Forms.Form
-    $f.ClientSize = New-Object Drawing.Size 980, 840
+    $f.ClientSize = New-Object Drawing.Size 980, 900
     $f.StartPosition = 'CenterScreen'
     $f.Font = New-Object Drawing.Font 'Segoe UI', 9
-    $f.MinimumSize = New-Object Drawing.Size 1000, 880
+    $f.MinimumSize = New-Object Drawing.Size 1000, 940
     Set-W11FormIcon $f
     $ui.form = $f
     $ui.tip = New-Object Windows.Forms.ToolTip
@@ -1018,33 +1297,92 @@ function Show-W11Gui {
     $ui.note.ForeColor = [Drawing.Color]::DimGray
     $g2.Controls.AddRange(@($ui.clbApps, $ui.btnAppDef, $ui.btnAppAll, $ui.btnAppNone, $ui.note))
 
-    # ---------- 3. options ----------
+    # ---------- 3. options (tabs) ----------
     $g3 = New-W11Ctl GroupBox '@grp.options' 580 180 390 330
     $ui.grpOptions = $g3
-    $le = New-W11Ctl Label '@lbl.editions' 12 22 300 20
+    $ui.tabOpts = New-Object Windows.Forms.TabControl
+    $ui.tabOpts.SetBounds(6, 18, 378, 306)
+    $ui.tpOptions = New-W11Ctl TabPage '@tab.options' 0 0 370 280
+    $ui.tpUnattend = New-W11Ctl TabPage '@tab.unattend' 0 0 370 280
+    $ui.tpUpdates = New-W11Ctl TabPage '@tab.updates' 0 0 370 280
+    foreach ($tp in @($ui.tpOptions, $ui.tpUnattend, $ui.tpUpdates)) { $tp.UseVisualStyleBackColor = $true }
+    $ui.tpUnattend.AutoScroll = $true; $ui.tpUpdates.AutoScroll = $true
+    $ui.tabOpts.TabPages.AddRange(@($ui.tpOptions, $ui.tpUnattend, $ui.tpUpdates))
+    # -- options page --
+    $le = New-W11Ctl Label '@lbl.editions' 6 6 300 20
     $ui.lblEditions = $le
-    $ui.rbEdAll = New-W11Ctl RadioButton '@rb.edAll' 12 42 100 22
-    $ui.rbEdHP = New-W11Ctl RadioButton 'Home + Pro' 116 42 100 22
-    $ui.rbEdCustom = New-W11Ctl RadioButton '@rb.edIdx' 218 42 92 22
+    $ui.rbEdAll = New-W11Ctl RadioButton '@rb.edAll' 6 26 100 22
+    $ui.rbEdHP = New-W11Ctl RadioButton 'Home + Pro' 110 26 100 22
+    $ui.rbEdCustom = New-W11Ctl RadioButton '@rb.edIdx' 212 26 92 22
     $ui.rbEdAll.Checked = $true
-    $ui.tbIdx = New-W11Ctl TextBox '' 312 42 66 23
-    $ui.btnEd = New-W11Ctl Button '@btn.listEditions' 12 66 366 25
-    $lt = New-W11Ctl Label '@lbl.tweaks' 12 96 300 18
+    $ui.tbIdx = New-W11Ctl TextBox '' 306 26 60 23
+    $ui.btnEd = New-W11Ctl Button '@btn.listEditions' 6 50 360 25
+    $lt = New-W11Ctl Label '@lbl.tweaks' 6 80 300 18
     $ui.lblTweaks = $lt
-    $ui.clbTweaks = New-W11Ctl CheckedListBox '' 12 115 366 128
+    $ui.clbTweaks = New-W11Ctl CheckedListBox '' 6 99 360 100
     $ui.clbTweaks.CheckOnClick = $true
     $ui.clbTweaks.HorizontalScrollbar = $true
     $ui.clbTweaks.IntegralHeight = $false
     $script:TweakIds = @()
-    $ui.chkUnattend = New-W11Ctl CheckBox '@chk.unattend' 12 246 370 34
+    $ui.chkCleanup = New-W11Ctl CheckBox '@chk.cleanup' 6 204 360 22
+    $ui.chkEsd = New-W11Ctl CheckBox '@chk.esd' 6 226 360 22
+    $ui.chkDry = New-W11Ctl CheckBox '@chk.dry' 6 248 360 22
+    $ui.tpOptions.Controls.AddRange(@($le, $ui.rbEdAll, $ui.rbEdHP, $ui.rbEdCustom, $ui.tbIdx, $ui.btnEd, $lt, $ui.clbTweaks, $ui.chkCleanup, $ui.chkEsd, $ui.chkDry))
+    # -- answer file page --
+    $ui.chkUnattend = New-W11Ctl CheckBox '@chk.unattend' 6 6 340 34
     $ui.chkUnattend.Checked = $true
-    $ui.chkCleanup = New-W11Ctl CheckBox '@chk.cleanup' 12 280 370 22
-    $ui.chkEsd = New-W11Ctl CheckBox '@chk.esd' 12 302 370 22
-    $ui.chkDry = New-W11Ctl CheckBox '@chk.dry' 12 324 370 22
-    $g3.Controls.AddRange(@($le, $ui.rbEdAll, $ui.rbEdHP, $ui.rbEdCustom, $ui.tbIdx, $ui.btnEd, $lt, $ui.clbTweaks, $ui.chkUnattend, $ui.chkCleanup, $ui.chkEsd, $ui.chkDry))
+    $ui.chkLocalAcc = New-W11Ctl CheckBox '@chk.localAcc' 6 42 340 22
+    $ui.lblUser = New-W11Ctl Label '@lbl.user' 26 69 90 20
+    $ui.tbUser = New-W11Ctl TextBox '' 120 66 200 23
+    $ui.tbUser.MaxLength = 20
+    $ui.lblPass = New-W11Ctl Label '@lbl.pass' 26 96 90 20
+    $ui.tbPass = New-W11Ctl TextBox '' 120 93 200 23
+    $ui.tbPass.UseSystemPasswordChar = $true
+    $ui.lblPassWarn = New-W11Ctl Label '@lbl.passWarn' 26 120 320 44
+    $ui.lblPassWarn.ForeColor = [Drawing.Color]::DimGray
+    $ui.chkBypassNro = New-W11Ctl CheckBox '@chk.bypassNro' 6 166 340 22
+    $ui.chkBypassNro.Checked = $true
+    $ui.chkBypassChecks = New-W11Ctl CheckBox '@chk.bypassChecks' 6 188 340 22
+    $ui.chkSkipPrivacy = New-W11Ctl CheckBox '@chk.skipPrivacy' 6 210 340 22
+    $ui.chkFirstLogon = New-W11Ctl CheckBox '@chk.firstLogon' 6 232 340 22
+    $ui.lblRegion = New-W11Ctl Label '@lbl.region' 6 261 80 20
+    $ui.cbRegion = New-W11Ctl ComboBox '' 90 258 200 23
+    $ui.lblKeyboard = New-W11Ctl Label '@lbl.keyboard' 6 288 80 20
+    $ui.cbKeyboard = New-W11Ctl ComboBox '' 90 285 200 23
+    foreach ($cb in @($ui.cbRegion, $ui.cbKeyboard)) { $cb.DropDownStyle = 'DropDownList'; $cb.DropDownWidth = 260 }
+    $ui.tpUnattend.Controls.AddRange(@($ui.chkUnattend, $ui.chkLocalAcc, $ui.lblUser, $ui.tbUser, $ui.lblPass, $ui.tbPass, $ui.lblPassWarn, $ui.chkBypassNro, $ui.chkBypassChecks, $ui.chkSkipPrivacy, $ui.chkFirstLogon, $ui.lblRegion, $ui.cbRegion, $ui.lblKeyboard, $ui.cbKeyboard))
+    # -- updates page --
+    $ui.chkUpdates = New-W11Ctl CheckBox '@chk.updates' 6 6 340 22
+    $ui.lblUpdFolder = New-W11Ctl Label '@lbl.updFolder' 6 33 60 20
+    $ui.tbUpd = New-W11Ctl TextBox '' 70 30 180 23
+    $ui.btnUpdBrowse = New-W11Ctl Button '@btn.browse' 256 28 90 27
+    $ui.btnUpdScan = New-W11Ctl Button '@btn.updScan' 6 60 120 27
+    $ui.lblUpdInfo = New-W11Ctl Label '@lbl.updNotScanned' 132 65 214 20
+    $ui.lblUpdInfo.AutoEllipsis = $true
+    $ui.lblUpdInfo.ForeColor = [Drawing.Color]::DimGray
+    $ui.chkUpdBoot = New-W11Ctl CheckBox '@chk.updBoot' 6 92 340 22
+    $ui.chkUpdWinre = New-W11Ctl CheckBox '@chk.updWinre' 6 114 340 22
+    $ui.chkResetBase = New-W11Ctl CheckBox '@chk.resetBase' 6 136 340 22
+    $ui.lblUpdNote = New-W11Ctl Label '@lbl.updNote' 6 162 340 90
+    $ui.lblUpdNote.ForeColor = [Drawing.Color]::DimGray
+    $ui.tpUpdates.Controls.AddRange(@($ui.chkUpdates, $ui.lblUpdFolder, $ui.tbUpd, $ui.btnUpdBrowse, $ui.btnUpdScan, $ui.lblUpdInfo, $ui.chkUpdBoot, $ui.chkUpdWinre, $ui.chkResetBase, $ui.lblUpdNote))
+    $g3.Controls.Add($ui.tabOpts)
+
+    # ---------- preset ----------
+    $g5 = New-W11Ctl GroupBox '@grp.preset' 10 516 960 56
+    $ui.grpPreset = $g5
+    $ui.cbPreset = New-W11Ctl ComboBox '' 12 22 240 23
+    $ui.cbPreset.DropDownStyle = 'DropDownList'; $ui.cbPreset.DropDownWidth = 320
+    $ui.btnPresetApply = New-W11Ctl Button '@btn.presetApply' 260 20 100 26
+    $ui.btnPresetLoad = New-W11Ctl Button '@btn.presetLoad' 366 20 100 26
+    $ui.btnPresetSave = New-W11Ctl Button '@btn.presetSave' 472 20 100 26
+    $ui.lblPresetDesc = New-W11Ctl Label '' 580 25 370 20
+    $ui.lblPresetDesc.AutoEllipsis = $true
+    $ui.lblPresetDesc.ForeColor = [Drawing.Color]::DimGray
+    $g5.Controls.AddRange(@($ui.cbPreset, $ui.btnPresetApply, $ui.btnPresetLoad, $ui.btnPresetSave, $ui.lblPresetDesc))
 
     # ---------- 4. output ----------
-    $g4 = New-W11Ctl GroupBox '@grp.output' 10 516 960 56
+    $g4 = New-W11Ctl GroupBox '@grp.output' 10 578 960 56
     $ui.grpOutput = $g4
     $ui.tbOut = New-W11Ctl TextBox '' 12 22 810 23
     $ui.btnOut = New-W11Ctl Button '@btn.saveAs' 830 20 118 26
@@ -1085,9 +1423,10 @@ function Show-W11Gui {
     $ui.lblWatermark.Font = New-Object Drawing.Font 'Segoe UI', 7.5
     $ui.lblWatermark.Text = $script:W11Watermark
     $ui.lblWatermark.Height = $ui.lblWatermark.Font.Height + 6
-    $f.Controls.AddRange(@($g1, $g2, $g3, $g4, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnCancel, $ui.pb, $ui.lblStatus, $ui.cbUiLang, $ui.picLog, $ui.lnkLog, $ui.tbLog, $ui.lblWatermark))
+    $f.Controls.AddRange(@($g1, $g2, $g3, $g5, $g4, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnCancel, $ui.pb, $ui.lblStatus, $ui.cbUiLang, $ui.picLog, $ui.lnkLog, $ui.tbLog, $ui.lblWatermark))
     Set-W11ControlIcons
 
+    $script:Presets = @(Get-W11BuiltinPresets); $script:ActivePreset = $null; $script:ActivePresetPath = $null; $script:UpdateScan = $null; $script:NoResetBaseAsk = $false
     $script:DetectedOs = $null; $script:DetectedBuild = 0; $script:DetectedSource = $null; $script:ShownOs = $null; $script:LastDlEntry = $null; $script:AutoDownload = $false
     $ui.cbOs.SelectedIndex = 0
     for ($i = 0; $i -lt $script:W11Langs.Count; $i++) { if ($script:W11Langs[$i].Code -eq $script:UiLang) { $ui.cbUiLang.SelectedIndex = $i } }
@@ -1115,7 +1454,8 @@ function Show-W11Gui {
     $ui.lnkLog.Add_LinkClicked({ Invoke-W11Handler 'lnkLog.LinkClicked' })
     $ui.picLog.Add_Click({ Invoke-W11Handler 'lnkLog.LinkClicked' })
 
-    $script:BusyControls = @($ui.cbOs, $ui.btnIso, $ui.btnFetch, $ui.btnDownload, $ui.cbRelease, $ui.cbArch, $ui.chkAria2, $ui.btnEd, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnOut, $ui.clbApps, $ui.clbTweaks)
+    $script:BusyControls = @($ui.cbOs, $ui.btnIso, $ui.btnFetch, $ui.btnDownload, $ui.cbRelease, $ui.cbArch, $ui.chkAria2, $ui.btnEd, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnOut, $ui.clbApps, $ui.clbTweaks,
+        $ui.cbPreset, $ui.btnPresetApply, $ui.btnPresetLoad, $ui.btnPresetSave, $ui.btnUpdBrowse, $ui.btnUpdScan)
 
     # ---------- events ----------
     $script:H['btnIso.Click'] = {
@@ -1269,6 +1609,90 @@ function Show-W11Gui {
         }
     $ui.btnCancel.Add_Click({ Invoke-W11Handler 'btnCancel.Click' })
 
+    # ---------- presets / answer file / updates ----------
+    $script:H['cbPreset.SelectedIndexChanged'] = { Update-W11PresetDesc }
+    $ui.cbPreset.Add_SelectedIndexChanged({ Invoke-W11Handler 'cbPreset.SelectedIndexChanged' })
+    $script:H['btnPresetApply.Click'] = {
+            $i = $script:ui.cbPreset.SelectedIndex
+            if ($i -lt 0 -or $i -ge @($script:Presets).Count) { return }
+            $p = $script:Presets[$i]
+            Set-W11GuiPreset $p.Data
+            $script:ActivePresetPath = $p.Path
+            $script:ui.lblStatus.Text = T 'status.presetApplied' (Get-W11PresetName $p)
+            Write-W11Log -En "Preset applied: $($p.Path)" -Vi 'Đã áp dụng mẫu cấu hình'
+        }
+    $ui.btnPresetApply.Add_Click({ Invoke-W11Handler 'btnPresetApply.Click' })
+    $script:H['btnPresetLoad.Click'] = {
+            $d = New-Object Windows.Forms.OpenFileDialog
+            $d.Filter = T 'dlg.presetFilter'
+            if ($d.ShowDialog($script:ui.form) -ne 'OK') { return }
+            try { $data = Read-W11Preset -Path $d.FileName }
+            catch { Show-W11Msg (T 'msg.presetBad' $_.Exception.Message) 'Warning' | Out-Null; return }
+            $script:Presets = @($script:Presets) + @(New-W11Obj @{ Id = [IO.Path]::GetFileNameWithoutExtension($d.FileName); Path = $d.FileName; Data = $data; User = $true })
+            Update-W11PresetList
+            $script:ui.cbPreset.SelectedIndex = $script:ui.cbPreset.Items.Count - 1
+            & $script:H['btnPresetApply.Click']
+        }
+    $ui.btnPresetLoad.Add_Click({ Invoke-W11Handler 'btnPresetLoad.Click' })
+    $script:H['btnPresetSave.Click'] = {
+            $d = New-Object Windows.Forms.SaveFileDialog
+            $d.Filter = T 'dlg.presetFilter'
+            $d.FileName = 'WinDebloat_preset.json'
+            if ($d.ShowDialog($script:ui.form) -ne 'OK') { return }
+            $pr = Get-W11GuiPreset -Name ([IO.Path]::GetFileNameWithoutExtension($d.FileName))
+            Save-W11Preset -Preset $pr -Path $d.FileName
+            Write-W11Log -Level OK -En "Preset saved (no password): $($d.FileName)" -Vi 'Đã lưu mẫu cấu hình (không kèm mật khẩu)'
+            Show-W11Msg (T 'msg.presetSaved' $d.FileName) | Out-Null
+        }
+    $ui.btnPresetSave.Add_Click({ Invoke-W11Handler 'btnPresetSave.Click' })
+    $script:H['optionState.Changed'] = { Update-W11OptionStates }
+    foreach ($c in @($ui.chkUnattend, $ui.chkLocalAcc, $ui.chkUpdates)) { $c.Add_CheckedChanged({ Invoke-W11Handler 'optionState.Changed' }) }
+    $script:H['chkResetBase.CheckedChanged'] = {
+            if (-not $script:ui.chkResetBase.Checked -or $script:NoResetBaseAsk) { return }
+            if ([string](Show-W11Msg (T 'msg.resetBase') 'Warning' 'YesNo') -ne 'Yes') { $script:ui.chkResetBase.Checked = $false }
+        }
+    $ui.chkResetBase.Add_CheckedChanged({ Invoke-W11Handler 'chkResetBase.CheckedChanged' })
+    $script:H['btnUpdBrowse.Click'] = {
+            $d = New-Object Windows.Forms.FolderBrowserDialog
+            $d.Description = T 'dlg.updFolder'
+            $cur = $script:ui.tbUpd.Text.Trim().Trim('"')
+            if (Test-W11PathText $cur -Container) { $d.SelectedPath = $cur }
+            if ($d.ShowDialog($script:ui.form) -ne 'OK') { return }
+            $script:ui.tbUpd.Text = [string]$d.SelectedPath
+            $script:ui.chkUpdates.Checked = $true
+            & $script:H['btnUpdScan.Click']
+        }
+    $ui.btnUpdBrowse.Add_Click({ Invoke-W11Handler 'btnUpdBrowse.Click' })
+    $script:H['btnUpdScan.Click'] = {
+            $dir = ConvertTo-W11CleanPath $script:ui.tbUpd.Text
+            if (-not $dir -or -not (Test-W11PathText $dir -Container)) { Show-W11Msg (T 'msg.updFolderMissing' $dir) 'Warning' | Out-Null; return }
+            $script:UpdateScan = $null
+            [void](Start-W11Job -Name 'Scan updates' -Script @'
+$r = @(Get-W11UpdatePackages -Path $JobArgs.Path)
+foreach ($u in $r) { $c = ''; if ($u.Combined) { $c = ' (SSU+LCU)' }; Write-W11Log -En ('  {0,-6} {1}{2}  {3}' -f $u.Kind, $u.RelativePath, $c, (Format-W11Size $u.Size)) }
+$sync.Result = $r
+'@ -JobArgs @{ Path = $dir } -OnDone {
+                    if ($script:Sync.Error) { return }
+                    $script:UpdateScan = @($script:Sync.Result | Where-Object { $_ })
+                    $script:ui.lblUpdInfo.Text = Format-W11UpdateInfo $script:UpdateScan
+                    $script:ui.lblStatus.Text = T 'status.updScanned' @($script:UpdateScan).Count
+                    if (@($script:UpdateScan).Count -eq 0) { Show-W11Msg (T 'msg.updNone' $script:ui.tbUpd.Text) 'Warning' | Out-Null }
+                })
+        }
+    $ui.btnUpdScan.Add_Click({ Invoke-W11Handler 'btnUpdScan.Click' })
+    # tweak descriptions as tooltips (hovered item)
+    $script:TipIdx = -1
+    $ui.clbTweaks.Add_MouseMove({
+            param($s, $e)
+            try {
+                $i = $script:ui.clbTweaks.IndexFromPoint($e.Location)
+                if ($i -eq $script:TipIdx) { return }
+                $script:TipIdx = $i
+                $txt = ''; if ($i -ge 0 -and $i -lt @($script:ProfileTweaks).Count) { $txt = Get-W11TweakTip $script:ProfileTweaks[$i] }
+                $script:ui.tip.SetToolTip($script:ui.clbTweaks, $txt)
+            } catch { $null = $_ }
+        })
+
     $script:StartRun = {
         $ui = $script:ui
         $iso = ConvertTo-W11CleanPath $ui.tbIso.Text
@@ -1295,6 +1719,15 @@ function Show-W11Gui {
         $useDefaults = ($ui.cbOs.SelectedIndex -eq 0 -and -not $script:DetectedOs)
         if ($useDefaults) { $targetOs = 'Auto'; $osNote = T 'os.autoNote' }
         $dry = $ui.chkDry.Checked
+        $uo = Get-W11GuiUnattend
+        if ($ui.chkUnattend.Checked -and $uo.LocalAccount -and -not (Test-W11LocalAccountName $uo.UserName)) { $ui.tabOpts.SelectedTab = $ui.tpUnattend; Show-W11Msg (T 'msg.userInvalid' $uo.UserName) 'Warning' | Out-Null; return }
+        $updDir = ''
+        if ($ui.chkUpdates.Checked) {
+            $updDir = ConvertTo-W11CleanPath $ui.tbUpd.Text
+            $full = $null; if ($updDir) { $full = Resolve-W11FullPath $updDir }
+            if (-not $full -or -not (Test-W11PathText $full -Container)) { $ui.tabOpts.SelectedTab = $ui.tpUpdates; Show-W11Msg (T 'msg.updFolderMissing' $updDir) 'Warning' | Out-Null; return }
+            $updDir = $full
+        }
         if (-not $dry -and -not (Find-W11Oscdimg)) { Invoke-W11OscInstall -ThenStart; return }
         # work folder: a leftover of this tool is cleaned by the engine; a folder with other files is never deleted
         $workDir = Get-W11DefaultWorkDir (Get-W11ParentDir $out)
@@ -1305,7 +1738,13 @@ function Show-W11Gui {
             $workDir = $alt
         }
         $yn = @{ $true = (T 'w.yes'); $false = (T 'w.no') }
-        $summary = T 'msg.summary' $iso $out $osNote ("$mode $($idx -join ',')".Trim()) $apps.Count $tw.Count $yn[[bool]$ui.chkUnattend.Checked] $yn[[bool]$ui.chkCleanup.Checked] $yn[[bool]$dry] $yn[[bool]$ui.chkEsd.Checked]
+        $updTxt = $yn[$false]
+        if ($updDir) {
+            $updTxt = $updDir
+            $ex = @(); if ($ui.chkUpdBoot.Checked) { $ex += 'boot.wim' }; if ($ui.chkUpdWinre.Checked) { $ex += 'WinRE' }; if ($ui.chkResetBase.Checked) { $ex += '/ResetBase' }
+            if ($ex.Count) { $updTxt += ' (' + ($ex -join ', ') + ')' }
+        }
+        $summary = T 'msg.summary' $iso $out $osNote ("$mode $($idx -join ',')".Trim()) $apps.Count $tw.Count $yn[[bool]$ui.chkUnattend.Checked] $yn[[bool]$ui.chkCleanup.Checked] $yn[[bool]$dry] $yn[[bool]$ui.chkEsd.Checked] $updTxt
         if ([string](Show-W11Msg $summary 'Question' 'YesNo') -ne 'Yes') { return }
         $ui.tbLog.Clear()
         $jobArgs = @{
@@ -1313,8 +1752,11 @@ function Show-W11Gui {
             Autounattend = $ui.chkUnattend.Checked; ComponentCleanup = $ui.chkCleanup.Checked; DryRun = $dry
             Compression = $(if ($ui.chkEsd.Checked) { 'Recovery' } else { 'Max' })
             WorkDir = $workDir; WorkDirConflict = 'Fail'
+            UnattendOptions = $uo; UpdatesPath = $updDir; UpdateBootWim = [bool]($updDir -and $ui.chkUpdBoot.Checked)
+            UpdateWinRE = [bool]($updDir -and $ui.chkUpdWinre.Checked); ResetBase = [bool]($updDir -and $ui.chkResetBase.Checked)
         }
         if (-not $useDefaults) { $jobArgs.RemoveApps = $apps; $jobArgs.Tweaks = $tw }
+        elseif ($script:ActivePreset -and $script:ActivePresetPath) { $jobArgs.Preset = $script:ActivePresetPath }   # apps / tweaks resolved for the real image
         [void](Start-W11Job -Name 'Build ISO' -Script '$sync.Result = Invoke-Win11Debloat @JobArgs -Sync $sync' -JobArgs $jobArgs -OnDone {
             $r = $script:Sync.Result
             if ($script:Sync.Error) {

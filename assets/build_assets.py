@@ -117,6 +117,15 @@ ICONS = {
   <path d="M19.5 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z" fill="#0F6CBD"/>''',
     'stop': '''<circle cx="12" cy="12" r="9" fill="#C42B1C" stroke="#86190F" stroke-width="1.4"/>
   <path d="M8.8 8.8l6.4 6.4M15.2 8.8l-6.4 6.4" stroke="#FFFFFF" stroke-width="2.3" stroke-linecap="round"/>''',
+    # preset: three sliders
+    'sliders': '''<path d="M4 6.5h16M4 12h16M4 17.5h16" stroke="#605E5C" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="9" cy="6.5" r="2.4" fill="#0F6CBD" stroke="#0B4F8C" stroke-width="1.2"/>
+  <circle cx="15.5" cy="12" r="2.4" fill="#0F6CBD" stroke="#0B4F8C" stroke-width="1.2"/>
+  <circle cx="7" cy="17.5" r="2.4" fill="#0F6CBD" stroke="#0B4F8C" stroke-width="1.2"/>''',
+    # update packages: a box with a down arrow
+    'package': '''<path d="M3.5 8.2L12 4l8.5 4.2v8.6L12 21l-8.5-4.2z" fill="#F7D79B" stroke="#8A5A12" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M3.5 8.2L12 12.4l8.5-4.2M12 12.4V21" fill="none" stroke="#8A5A12" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M12 1.2v6.3M9.4 5l2.6 2.6L14.6 5" fill="none" stroke="#0F6CBD" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>''',
 }
 SIZES_BTN = [16, 20, 24, 32]
 SIZES_ICO = [16, 20, 24, 32, 40, 48, 64, 128, 256]

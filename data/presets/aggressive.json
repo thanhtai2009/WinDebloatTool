@@ -1,0 +1,52 @@
+{
+  "schema": "windebloat-preset/1",
+  "name": {
+    "vi": "Gọn tối đa",
+    "en": "Aggressive (smallest)",
+    "zh-CN": "最精简",
+    "km": "ស្រាលបំផុត"
+  },
+  "description": {
+    "vi": "Chỉ giữ Home và Pro, gỡ thêm các ứng dụng tuỳ chọn (Camera, Đồng hồ, Media Player...), bật mọi tinh chỉnh trừ bỏ kiểm tra TPM, nén ESD và dọn WinSxS. Chạy lâu hơn nhiều.",
+    "en": "Keeps only Home and Pro, also removes the optional apps (Camera, Clock, Media Player...), turns on every tweak except the TPM check bypass, ESD compression and component cleanup. Takes much longer.",
+    "zh-CN": "仅保留家庭版和专业版，同时删除可选应用（相机、时钟、媒体播放器等），启用除跳过 TPM 检查之外的所有调整，使用 ESD 压缩并清理组件存储。耗时更长。",
+    "km": "រក្សាតែ Home និង Pro លុបកម្មវិធីជម្រើសបន្ថែម (Camera, Clock, Media Player...) បើកការកែសម្រួលទាំងអស់ លើកលែងតែការរំលងការពិនិត្យ TPM ប្រើការបង្ហាប់ ESD និងសម្អាត component store។ ចំណាយពេលយូរជាងមុនច្រើន។"
+  },
+  "editions": {
+    "mode": "HomePro",
+    "indexes": []
+  },
+  "apps": {
+    "select": "level",
+    "level": "aggressive"
+  },
+  "tweaks": {
+    "select": "level",
+    "level": "aggressive",
+    "exclude": [
+      "LabConfigBypass"
+    ]
+  },
+  "unattend": {
+    "enabled": true,
+    "localAccount": false,
+    "userName": "",
+    "bypassNro": true,
+    "bypassChecks": false,
+    "skipPrivacy": true,
+    "firstLogonCleanup": true,
+    "locale": "",
+    "keyboard": ""
+  },
+  "updates": {
+    "enabled": false,
+    "folder": "",
+    "bootWim": false,
+    "winre": false,
+    "resetBase": false
+  },
+  "image": {
+    "compression": "Recovery",
+    "componentCleanup": true
+  }
+}

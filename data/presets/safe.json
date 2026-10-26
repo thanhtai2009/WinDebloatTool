@@ -1,0 +1,47 @@
+{
+  "schema": "windebloat-preset/1",
+  "name": {
+    "vi": "An toàn",
+    "en": "Safe",
+    "zh-CN": "安全",
+    "km": "សុវត្ថិភាព"
+  },
+  "description": {
+    "vi": "Mặc định của công cụ: gỡ ứng dụng quảng cáo và rác, giữ Store, máy tính, ảnh và mọi thứ cần thiết. Phù hợp cho hầu hết mọi người.",
+    "en": "The tool defaults: removes ads and junk apps, keeps the Store, Calculator, Photos and everything you need. Right for most people.",
+    "zh-CN": "工具默认设置：删除广告和垃圾应用，保留应用商店、计算器、照片等必要组件。适合大多数人。",
+    "km": "ការកំណត់លំនាំដើមរបស់ឧបករណ៍៖ លុបកម្មវិធីពាណិជ្ជកម្ម និងកម្មវិធីមិនចាំបាច់ ហើយរក្សា Store, Calculator, Photos និងអ្វីៗដែលចាំបាច់។ សមស្របសម្រាប់មនុស្សភាគច្រើន។"
+  },
+  "editions": {
+    "mode": "All",
+    "indexes": []
+  },
+  "apps": {
+    "select": "defaults"
+  },
+  "tweaks": {
+    "select": "defaults"
+  },
+  "unattend": {
+    "enabled": true,
+    "localAccount": false,
+    "userName": "",
+    "bypassNro": true,
+    "bypassChecks": false,
+    "skipPrivacy": false,
+    "firstLogonCleanup": false,
+    "locale": "",
+    "keyboard": ""
+  },
+  "updates": {
+    "enabled": false,
+    "folder": "",
+    "bootWim": false,
+    "winre": false,
+    "resetBase": false
+  },
+  "image": {
+    "compression": "Max",
+    "componentCleanup": false
+  }
+}

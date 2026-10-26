@@ -12,3 +12,4 @@ tools/aria2/** -text
 *.ico binary
 *.svg text eol=lf
 *.py text eol=lf
+*.json text eol=crlf

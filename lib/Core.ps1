@@ -13,11 +13,13 @@ if ($MyInvocation.MyCommand.Path) {
     $script:W11Root = Split-Path -Parent $script:W11LibDir
 }
 $script:W11D = @{
-    Version      = '1.0.0'
+    Version      = '1.1.0'
     LogPath      = $null
     Sync         = $null
     HiveSoftware = 'HKLM\W11D_SOFTWARE'
-    HiveDefault  = 'HKLM\W11D_DEFAULT'
+    HiveDefault  = 'HKLM\W11D_DEFAULT'      # Users\Default\NTUSER.DAT (template for new users)
+    HiveSystem   = 'HKLM\W11D_SYSTEM'       # Windows\System32\config\SYSTEM (loaded only when a tweak needs it)
+    HiveDefProf  = 'HKLM\W11D_DEFPROFILE'   # Windows\System32\config\DEFAULT (.DEFAULT profile, same)
     AdkSetupUrl  = 'https://go.microsoft.com/fwlink/?linkid=2289980'   # official current ADK online installer
     Dism         = $null    # selected dism.exe
     DismCanAppx  = $false   # $false -> manual (registry + folder) app removal
@@ -75,13 +77,426 @@ function Test-W11Admin {
 }
 
 function Get-W11Config {
-    param([string]$Path)
+    <# Settings from config\DebloatConfig.psd1 (download / mirrors) + the app and tweak lists from data\apps.json and
+       data\tweaks.json. The lists keep the shape the engine always used: Apps / Tweaks (Windows 11),
+       Win10Apps / Win10Tweaks, Protected. Without the JSON files the lists of the .psd1 (if any) are used. #>
+    param([string]$Path, [string]$DataDir)
     if (-not $Path) { $Path = Join-Path $script:W11Root 'config\DebloatConfig.psd1' }
     if (-not (Test-Path -LiteralPath $Path)) { throw "Config not found: $Path" }
     # Import-LocalizedData parses .psd1 in restricted (data-only) language and exists since PS 2.0
     Import-LocalizedData -BaseDirectory (Split-Path -Parent $Path) -FileName ([IO.Path]::GetFileNameWithoutExtension($Path)) -BindingVariable w11cfg
+    if (-not $DataDir) { $DataDir = Join-Path $script:W11Root 'data' }
+    $w11cfg.DataSource = 'psd1'
+    $ap = Join-Path $DataDir 'apps.json'
+    $tp = Join-Path $DataDir 'tweaks.json'
+    if (Test-Path -LiteralPath $ap) {
+        $a = Import-W11AppData -Path $ap
+        $w11cfg.Apps = $a.Win11; $w11cfg.Win10Apps = $a.Win10; $w11cfg.Protected = $a.Protected
+        $w11cfg.DataSource = 'json'
+    }
+    if (Test-Path -LiteralPath $tp) {
+        $t = Import-W11TweakData -Path $tp
+        $w11cfg.Tweaks = $t.Win11; $w11cfg.Win10Tweaks = $t.Win10
+        $w11cfg.DataSource = 'json'
+    }
+    foreach ($k in @('Apps', 'Win10Apps', 'Tweaks', 'Win10Tweaks', 'Protected')) { if (-not $w11cfg.ContainsKey($k)) { $w11cfg[$k] = @() } }
     return $w11cfg
 }
+
+#region ---------- JSON (Windows PowerShell 2.0 has no ConvertFrom-Json) ----------
+function ConvertTo-W11Plain {
+    # ConvertFrom-Json (PSCustomObject) / JavaScriptSerializer (Dictionary, object[]) output -> hashtables, object[] and plain values
+    param($Value)
+    if ($null -eq $Value) { return $null }
+    if ($Value -is [string] -or $Value -is [bool]) { return $Value }
+    if ($Value -is [decimal] -or $Value -is [double] -or $Value -is [single]) {
+        $d = [double]$Value
+        if ($d -eq [Math]::Floor($d) -and [Math]::Abs($d) -lt 2147483648) { return [int]$d }
+        return $d
+    }
+    if ($Value -is [long]) { if ([Math]::Abs($Value) -lt 2147483648) { return [int]$Value }; return $Value }
+    if ($Value -is [ValueType]) { return $Value }
+    if ($Value -is [Collections.IDictionary]) {
+        $h = @{}
+        foreach ($k in @($Value.Keys)) { $h[[string]$k] = ConvertTo-W11Plain $Value[$k] }
+        return $h
+    }
+    if ($Value.PSObject -and @($Value.PSObject.TypeNames) -contains 'System.Management.Automation.PSCustomObject') {
+        $h = @{}
+        foreach ($p in @($Value.PSObject.Properties)) { $h[[string]$p.Name] = ConvertTo-W11Plain $p.Value }
+        return $h
+    }
+    if ($Value -is [Collections.IEnumerable]) {
+        $l = New-Object Collections.ArrayList
+        foreach ($x in $Value) { [void]$l.Add((ConvertTo-W11Plain $x)) }
+        return , ($l.ToArray())
+    }
+    return [string]$Value
+}
+
+function ConvertFrom-W11JsonString {
+    # JSON string token (with the quotes) -> text
+    param([string]$Token)
+    $s = $Token.Substring(1, $Token.Length - 2)
+    if ($s.IndexOf('\') -lt 0) { return $s }
+    $sb = New-Object Text.StringBuilder
+    $i = 0
+    while ($i -lt $s.Length) {
+        $c = $s[$i]
+        if ($c -ne '\') { [void]$sb.Append($c); $i++; continue }
+        $e = $s[$i + 1]
+        switch -casesensitive ([string]$e) {
+            'n' { [void]$sb.Append("`n") }
+            'r' { [void]$sb.Append("`r") }
+            't' { [void]$sb.Append("`t") }
+            'b' { [void]$sb.Append([char]8) }
+            'f' { [void]$sb.Append([char]12) }
+            'u' { [void]$sb.Append([char][Convert]::ToInt32($s.Substring($i + 2, 4), 16)); $i += 4 }
+            default { [void]$sb.Append($e) }   # \" \\ \/
+        }
+        $i += 2
+    }
+    return $sb.ToString()
+}
+
+function ConvertFrom-W11JsonText {
+    <# Small JSON parser (RFC 8259) for hosts that have neither ConvertFrom-Json (PS 3+) nor
+       JavaScriptSerializer (System.Web.Extensions). Objects -> hashtable, arrays -> object[]. #>
+    param([string]$Json)
+    if ($null -eq $Json) { throw 'JSON: empty text' }
+    $rx = New-Object Text.RegularExpressions.Regex '\G\s*(?:("(?:[^"\\\u0000-\u001F]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*")|(-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)|(true|false|null)|([{}\[\]:,]))'
+    $pos = 0; $len = $Json.Length
+    $stack = New-Object Collections.ArrayList
+    $result = $null; $haveResult = $false; $expect = 'value'   # value | key | colon | comma-or-end
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    $rxEnd = New-Object Text.RegularExpressions.Regex '\G\s*\z'
+    while ($true) {
+        if ($pos -ge $len -or $rxEnd.Match($Json, $pos).Success) { break }
+        $m = $rx.Match($Json, $pos)
+        if (-not $m.Success) { throw "JSON: unexpected character at position $pos" }
+        $pos = $m.Index + $m.Length
+        $isValue = $false; $val = $null
+        if ($m.Groups[1].Success) {
+            $str = ConvertFrom-W11JsonString $m.Groups[1].Value
+            if ($expect -eq 'key' -or $expect -eq 'key-or-end') { $stack[$stack.Count - 1].Key = $str; $expect = 'colon'; continue }
+            $isValue = $true; $val = $str
+        } elseif ($m.Groups[2].Success) {
+            $t = $m.Groups[2].Value
+            if ($t -match '^-?\d+$' -and [Math]::Abs([double]::Parse($t, $inv)) -lt 2147483648) { $val = [int]::Parse($t, $inv) } else { $val = [double]::Parse($t, $inv) }
+            $isValue = $true
+        } elseif ($m.Groups[3].Success) {
+            switch ($m.Groups[3].Value) { 'true' { $val = $true } 'false' { $val = $false } default { $val = $null } }
+            $isValue = $true
+        } else {
+            $p = $m.Groups[4].Value
+            if ($p -eq '{' -or $p -eq '[') {
+                if ($expect -ne 'value' -and $expect -ne 'value-or-end') { throw "JSON: unexpected '$p' at position $($m.Index)" }
+                if ($p -eq '{') { [void]$stack.Add(@{ C = @{}; Obj = $true; Key = $null }); $expect = 'key-or-end' }
+                else { [void]$stack.Add(@{ C = (New-Object Collections.ArrayList); Obj = $false; Key = $null }); $expect = 'value-or-end' }
+                continue
+            }
+            if ($p -eq ':') { if ($expect -ne 'colon') { throw "JSON: unexpected ':' at position $($m.Index)" }; $expect = 'value'; continue }
+            if ($p -eq ',') {
+                if ($expect -ne 'comma-or-end' -or $stack.Count -eq 0) { throw "JSON: unexpected ',' at position $($m.Index)" }
+                if ($stack[$stack.Count - 1].Obj) { $expect = 'key' } else { $expect = 'value' }
+                continue
+            }
+            # '}' or ']'
+            if ($stack.Count -eq 0) { throw "JSON: unexpected '$p' at position $($m.Index)" }
+            $top = $stack[$stack.Count - 1]
+            if (($p -eq '}') -ne $top.Obj) { throw "JSON: mismatched '$p' at position $($m.Index)" }
+            if ($expect -ne 'comma-or-end' -and $expect -ne 'key-or-end' -and $expect -ne 'value-or-end') { throw "JSON: unexpected '$p' at position $($m.Index)" }
+            $stack.RemoveAt($stack.Count - 1)
+            if ($top.Obj) { $val = $top.C } else { $val = $top.C.ToArray() }
+            $isValue = $true
+            $expect = 'value'   # the closed container is a value of its parent
+        }
+        if ($isValue) {
+            if ($expect -eq 'key-or-end' -or $expect -eq 'key' -or $expect -eq 'colon' -or $expect -eq 'comma-or-end') { throw "JSON: unexpected value at position $($m.Index)" }
+            if ($stack.Count -eq 0) {
+                if ($haveResult) { throw "JSON: extra data at position $($m.Index)" }
+                $result = $val; $haveResult = $true; $expect = 'end'
+            } else {
+                $top = $stack[$stack.Count - 1]
+                if ($top.Obj) { $top.C[$top.Key] = $val } else { [void]$top.C.Add($val) }
+                $expect = 'comma-or-end'
+            }
+        }
+    }
+    if ($stack.Count -gt 0 -or -not $haveResult) { throw 'JSON: unexpected end of text' }
+    if ($result -is [Array]) { return , $result }
+    return $result
+}
+
+function ConvertFrom-W11Json {
+    <# JSON text -> hashtables / object[]. ConvertFrom-Json when the host has it (PowerShell 3+), else
+       JavaScriptSerializer (.NET 3.5 SP1 / 4.x, System.Web.Extensions), else the built-in parser. #>
+    param([string]$Json, [ValidateSet('Auto', 'Native', 'Serializer', 'Parser')][string]$Engine = 'Auto')
+    if ($null -eq $Json -or -not $Json.Trim()) { throw 'JSON: empty text' }
+    if (($Engine -eq 'Auto' -or $Engine -eq 'Native') -and (Get-Command ConvertFrom-Json -ErrorAction SilentlyContinue)) {
+        $o = ConvertFrom-Json -InputObject $Json
+        return , (ConvertTo-W11Plain $o)
+    }
+    if ($Engine -eq 'Auto' -or $Engine -eq 'Serializer') {
+        if (-not ('System.Web.Script.Serialization.JavaScriptSerializer' -as [type])) {
+            try { Add-Type -AssemblyName System.Web.Extensions -ErrorAction Stop } catch { try { [void][Reflection.Assembly]::LoadWithPartialName('System.Web.Extensions') } catch { $null = $_ } }
+        }
+        if ('System.Web.Script.Serialization.JavaScriptSerializer' -as [type]) {
+            $ser = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+            $ser.MaxJsonLength = 67108864
+            return , (ConvertTo-W11Plain ($ser.DeserializeObject($Json)))
+        }
+        if ($Engine -eq 'Serializer') { throw 'JavaScriptSerializer (System.Web.Extensions) is not available' }
+    }
+    return , (ConvertFrom-W11JsonText $Json)
+}
+
+function Read-W11JsonFile {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $text = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8)
+    try { return , (ConvertFrom-W11Json $text) }
+    catch { throw "Invalid JSON in $Path ($($_.Exception.Message)) / File JSON bị lỗi: $Path" }
+}
+
+function ConvertTo-W11JsonString {
+    param([string]$Text)
+    $sb = New-Object Text.StringBuilder
+    [void]$sb.Append('"')
+    foreach ($c in $Text.ToCharArray()) {
+        $n = [int]$c
+        if ($c -eq '"') { [void]$sb.Append('\"') }
+        elseif ($c -eq '\') { [void]$sb.Append('\\') }
+        elseif ($n -eq 10) { [void]$sb.Append('\n') }
+        elseif ($n -eq 13) { [void]$sb.Append('\r') }
+        elseif ($n -eq 9) { [void]$sb.Append('\t') }
+        elseif ($n -lt 32) { [void]$sb.Append(('\u{0:x4}' -f $n)) }
+        else { [void]$sb.Append($c) }
+    }
+    [void]$sb.Append('"')
+    return $sb.ToString()
+}
+
+function ConvertTo-W11Json {
+    <# Value -> indented JSON text (PS 2.0 has no ConvertTo-Json). Hashtable keys are sorted, an
+       OrderedDictionary keeps its order. Arrays of plain values stay on one line. #>
+    param($Value, [int]$Indent = 0)
+    $pad = '  ' * $Indent
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    if ($null -eq $Value) { return 'null' }
+    if ($Value -is [bool]) { if ($Value) { return 'true' }; return 'false' }
+    if ($Value -is [string] -or $Value -is [char]) { return (ConvertTo-W11JsonString ([string]$Value)) }
+    if ($Value -is [int] -or $Value -is [long] -or $Value -is [short] -or $Value -is [byte] -or $Value -is [uint32] -or $Value -is [uint64]) { return ([IFormattable]$Value).ToString($null, $inv) }
+    if ($Value -is [double] -or $Value -is [single] -or $Value -is [decimal]) { return ([double]$Value).ToString('R', $inv) }
+    if ($Value -is [Collections.IDictionary]) {
+        $keys = @($Value.Keys)
+        if ($Value -is [hashtable]) { $keys = @($keys | Sort-Object) }
+        if ($keys.Count -eq 0) { return '{}' }
+        $parts = @()
+        foreach ($k in $keys) { $parts += ($pad + '  ' + (ConvertTo-W11JsonString ([string]$k)) + ': ' + (ConvertTo-W11Json $Value[$k] ($Indent + 1))) }
+        return ("{`r`n" + ($parts -join ",`r`n") + "`r`n" + $pad + '}')
+    }
+    if ($Value -is [Collections.IEnumerable]) {
+        $items = @(); $simple = $true
+        foreach ($x in $Value) { $items += , $x; if ($x -is [Collections.IDictionary] -or ($x -is [Collections.IEnumerable] -and -not ($x -is [string]))) { $simple = $false } }
+        if ($items.Count -eq 0) { return '[]' }
+        if ($simple) { return ('[' + ((@($items | ForEach-Object { ConvertTo-W11Json $_ })) -join ', ') + ']') }
+        $parts = @()
+        foreach ($x in $items) { $parts += ($pad + '  ' + (ConvertTo-W11Json $x ($Indent + 1))) }
+        return ("[`r`n" + ($parts -join ",`r`n") + "`r`n" + $pad + ']')
+    }
+    return (ConvertTo-W11JsonString ([string]$Value))
+}
+
+function New-W11Ordered {
+    # OrderedDictionary from name/value pairs (PS 2.0 has no [ordered])
+    $d = New-Object Collections.Specialized.OrderedDictionary
+    for ($i = 0; $i + 1 -lt $args.Count; $i += 2) { $d[[string]$args[$i]] = $args[$i + 1] }
+    return , $d
+}
+#endregion
+
+#region ---------- data files: data\apps.json, data\tweaks.json ----------
+$script:W11UiLangs = @('vi', 'en', 'zh-CN', 'km')
+$script:W11Hives = @('SOFTWARE', 'SYSTEM', 'DEFAULT', 'NTUSER')
+$script:W11RegTypes = @('REG_DWORD', 'REG_QWORD', 'REG_SZ', 'REG_EXPAND_SZ', 'REG_MULTI_SZ', 'REG_BINARY')
+
+function Get-W11LangText {
+    # text table { vi, en, zh-CN, km } -> text in $Lang, else English, else the first non-empty one
+    param($Table, [string]$Lang = 'en')
+    if ($null -eq $Table) { return '' }
+    if ($Table -is [string]) { return $Table }
+    if ($Table -is [Collections.IDictionary]) {
+        if ($Lang -and $Table.Contains($Lang) -and $Table[$Lang]) { return [string]$Table[$Lang] }
+        if ($Table.Contains('en') -and $Table['en']) { return [string]$Table['en'] }
+        foreach ($k in @($Table.Keys)) { if ($Table[$k]) { return [string]$Table[$k] } }
+    }
+    return ''
+}
+
+function Get-W11JsonVal {
+    # safe lookup in a parsed JSON object (missing key -> $Default)
+    param($Object, [string]$Key, $Default = $null)
+    if ($null -ne $Object -and $Object -is [Collections.IDictionary] -and $Object.Contains($Key) -and $null -ne $Object[$Key]) { return $Object[$Key] }
+    return $Default
+}
+
+function Get-W11EntryOsList {
+    # 'win10' | 'win11' | 'both' -> Win10 / Win11 profile names
+    param([string]$Os)
+    switch ($Os) { 'win10' { return @('Win10') } 'win11' { return @('Win11') } 'both' { return @('Win10', 'Win11') } }
+    return @()
+}
+
+function Test-W11LangTable {
+    param($Table)
+    if (-not ($Table -is [Collections.IDictionary])) { return $false }
+    foreach ($l in $script:W11UiLangs) { if (-not $Table.Contains($l) -or -not ([string]$Table[$l]).Trim()) { return $false } }
+    return $true
+}
+
+function Test-W11AppData {
+    <# Problems (texts) in a parsed apps.json; empty = valid. #>
+    param($Data)
+    $bad = @()
+    if (-not ($Data -is [Collections.IDictionary])) { return @('apps.json: not a JSON object') }
+    $apps = @(Get-W11JsonVal $Data 'apps' @())
+    if ($apps.Count -eq 0) { $bad += 'apps.json: no apps' }
+    $seen = @{}
+    $n = 0
+    foreach ($a in $apps) {
+        $n++
+        $p = [string](Get-W11JsonVal $a 'pattern' '')
+        $tag = "apps.json #$n ($p)"
+        if (-not $p -or $p -notmatch '^[A-Za-z0-9.*_-]+$') { $bad += "${tag}: pattern missing or has characters other than A-Z 0-9 . * _ -" }
+        $os = [string](Get-W11JsonVal $a 'os' '')
+        if (@('win10', 'win11', 'both') -notcontains $os) { $bad += "${tag}: os must be win10, win11 or both" }
+        if (@('safe', 'aggressive', 'unsafe') -notcontains [string](Get-W11JsonVal $a 'level' '')) { $bad += "${tag}: level must be safe, aggressive or unsafe" }
+        if (-not ((Get-W11JsonVal $a 'default') -is [bool])) { $bad += "${tag}: default must be true or false" }
+        if (-not (Test-W11LangTable (Get-W11JsonVal $a 'name'))) { $bad += "${tag}: name needs vi, en, zh-CN and km" }
+        foreach ($o in (Get-W11EntryOsList $os)) { $k = "$o|$p"; if ($seen.ContainsKey($k)) { $bad += "${tag}: listed twice for $o" }; $seen[$k] = 1 }
+    }
+    foreach ($x in @(Get-W11JsonVal $Data 'protected' @())) { if (-not ([string]$x)) { $bad += 'apps.json: empty protected pattern' } }
+    return $bad
+}
+
+function Test-W11RegOp {
+    param($Op, [string]$Kind, [string]$Tag)
+    $bad = @()
+    if ($script:W11Hives -notcontains [string](Get-W11JsonVal $Op 'hive' '')) { $bad += "${Tag}: hive must be SOFTWARE, SYSTEM, DEFAULT or NTUSER" }
+    $k = [string](Get-W11JsonVal $Op 'key' '')
+    if (-not $k -or $k.StartsWith('\') -or $k -match '^HK') { $bad += "${Tag}: key missing (relative to the hive, without HKLM\...)" }
+    if ($Kind -ne 'deleteKey' -and -not [string](Get-W11JsonVal $Op 'name' '')) { $bad += "${Tag}: value name missing" }
+    if ($Kind -eq 'set') {
+        if ($script:W11RegTypes -notcontains [string](Get-W11JsonVal $Op 'type' '')) { $bad += "${Tag}: type must be one of $($script:W11RegTypes -join ', ')" }
+        if ($null -eq (Get-W11JsonVal $Op 'value')) { $bad += "${Tag}: value missing" }
+    }
+    $u = Get-W11JsonVal $Op 'undo'
+    if (-not ($u -is [Collections.IDictionary]) -or @('delete', 'set', 'none') -notcontains [string](Get-W11JsonVal $u 'action' '')) { $bad += "${Tag}: undo.action must be delete, set or none" }
+    return $bad
+}
+
+function Test-W11TweakData {
+    <# Problems (texts) in a parsed tweaks.json; empty = valid. #>
+    param($Data)
+    $bad = @()
+    if (-not ($Data -is [Collections.IDictionary])) { return @('tweaks.json: not a JSON object') }
+    $list = @(Get-W11JsonVal $Data 'tweaks' @())
+    if ($list.Count -eq 0) { $bad += 'tweaks.json: no tweaks' }
+    $seen = @{}
+    $n = 0
+    foreach ($t in $list) {
+        $n++
+        $id = [string](Get-W11JsonVal $t 'id' '')
+        $tag = "tweaks.json #$n ($id)"
+        if ($id -notmatch '^[A-Za-z][A-Za-z0-9]*$') { $bad += "${tag}: id must be letters and digits" }
+        $os = [string](Get-W11JsonVal $t 'os' '')
+        if (@('win10', 'win11', 'both') -notcontains $os) { $bad += "${tag}: os must be win10, win11 or both" }
+        if (@('safe', 'aggressive') -notcontains [string](Get-W11JsonVal $t 'level' '')) { $bad += "${tag}: level must be safe or aggressive" }
+        if (-not ([string](Get-W11JsonVal $t 'category' ''))) { $bad += "${tag}: category missing" }
+        if (-not ((Get-W11JsonVal $t 'default') -is [bool])) { $bad += "${tag}: default must be true or false" }
+        if (-not ((Get-W11JsonVal $t 'bootWim' $false) -is [bool])) { $bad += "${tag}: bootWim must be true or false" }
+        if (-not (Test-W11LangTable (Get-W11JsonVal $t 'name'))) { $bad += "${tag}: name needs vi, en, zh-CN and km" }
+        if (-not (Test-W11LangTable (Get-W11JsonVal $t 'description'))) { $bad += "${tag}: description needs vi, en, zh-CN and km" }
+        $ops = 0
+        foreach ($kind in @('set', 'deleteKey', 'deleteValue')) {
+            $i = 0
+            foreach ($op in @(Get-W11JsonVal $t $kind @())) { $i++; $ops++; $bad += @(Test-W11RegOp $op $kind "$tag $kind #$i") }
+        }
+        if ($ops -eq 0) { $bad += "${tag}: no registry operation (set / deleteKey / deleteValue)" }
+        $boot = @(Get-W11JsonVal $t 'bootSet' @())
+        if ((Get-W11JsonVal $t 'bootWim' $false) -eq $true) {
+            if ($boot.Count -eq 0) { $bad += "${tag}: bootWim is true but bootSet is empty" }
+            $i = 0
+            foreach ($op in $boot) {
+                $i++; $bad += @(Test-W11RegOp $op 'set' "$tag bootSet #$i")
+                if (@('SYSTEM', 'SOFTWARE') -notcontains [string](Get-W11JsonVal $op 'hive' '')) { $bad += "$tag bootSet #${i}: boot.wim only has the SYSTEM and SOFTWARE hives" }
+            }
+        } elseif ($boot.Count -gt 0) { $bad += "${tag}: bootSet given but bootWim is false" }
+        foreach ($o in (Get-W11EntryOsList $os)) { $k = "$o|$id"; if ($seen.ContainsKey($k)) { $bad += "${tag}: id used twice for $o" }; $seen[$k] = 1 }
+    }
+    return $bad
+}
+
+function ConvertTo-W11RegOp {
+    # JSON registry operation -> engine form (Hive / Key / Value = value name / Type / Data)
+    param($Op)
+    $h = @{ Hive = [string]$Op['hive']; Key = [string]$Op['key'] }
+    if ($Op.Contains('name')) { $h.Value = [string]$Op['name'] }
+    if ($Op.Contains('type')) { $h.Type = [string]$Op['type'] }
+    if ($Op.Contains('value')) { $h.Data = [string]$Op['value'] }
+    if ($Op.Contains('undo')) { $h.Undo = $Op['undo'] }
+    return $h
+}
+
+function Import-W11AppData {
+    <# data\apps.json -> @{ Win11 = entries; Win10 = entries; Protected = patterns }. Entry: Id (= pattern), Name (English),
+       Names (per language), Default, Level, Os, MinBuild, MaxBuild. Invalid entries are skipped and logged. #>
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $d = Read-W11JsonFile $Path
+    $bad = @(Test-W11AppData $d)
+    foreach ($b in $bad) { Write-W11Log -Level WARN -En "  $b" -Vi 'mục này trong danh sách ứng dụng bị lỗi' }
+    $out = @{ Win11 = @(); Win10 = @(); Protected = @(@(Get-W11JsonVal $d 'protected' @()) | ForEach-Object { [string]$_ }) }
+    foreach ($a in @(Get-W11JsonVal $d 'apps' @())) {
+        $p = [string](Get-W11JsonVal $a 'pattern' '')
+        if (-not $p -or $p -notmatch '^[A-Za-z0-9.*_-]+$' -or -not (Test-W11LangTable (Get-W11JsonVal $a 'name'))) { continue }
+        $e = @{ Id = $p; Names = $a['name']; Name = (Get-W11LangText $a['name'] 'en'); Default = ((Get-W11JsonVal $a 'default' $false) -eq $true)
+            Level = [string](Get-W11JsonVal $a 'level' 'aggressive'); Os = [string]$a['os'] }
+        if (Get-W11JsonVal $a 'minBuild') { $e.MinBuild = [int]$a['minBuild'] }
+        if (Get-W11JsonVal $a 'maxBuild') { $e.MaxBuild = [int]$a['maxBuild'] }
+        foreach ($o in (Get-W11EntryOsList $e.Os)) { $out[$o] += $e }
+    }
+    return $out
+}
+
+function Import-W11TweakData {
+    <# data\tweaks.json -> @{ Win11 = entries; Win10 = entries } in the engine form: Id, Name / NameVi (log text),
+       Names, Descriptions, Category, Level, Default, BootWim, MinBuild, MaxBuild, Set / Delete / DeleteValue / BootSet. #>
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $d = Read-W11JsonFile $Path
+    $bad = @(Test-W11TweakData $d)
+    foreach ($b in $bad) { Write-W11Log -Level WARN -En "  $b" -Vi 'mục này trong danh sách tinh chỉnh bị lỗi' }
+    $badIdx = @{}
+    foreach ($b in $bad) { if ($b -match '^tweaks\.json #(\d+) ') { $badIdx[[int]$matches[1]] = 1 } }
+    $out = @{ Win11 = @(); Win10 = @() }
+    $n = 0
+    foreach ($t in @(Get-W11JsonVal $d 'tweaks' @())) {
+        $n++
+        if ($badIdx.ContainsKey($n)) { continue }
+        $e = @{ Id = [string]$t['id']; Names = $t['name']; Descriptions = $t['description']
+            Name = (Get-W11LangText $t['description'] 'en'); NameVi = (Get-W11LangText $t['description'] 'vi')
+            Category = [string]$t['category']; Level = [string]$t['level']; Default = ($t['default'] -eq $true)
+            BootWim = ((Get-W11JsonVal $t 'bootWim' $false) -eq $true); Os = [string]$t['os'] }
+        if (Get-W11JsonVal $t 'minBuild') { $e.MinBuild = [int]$t['minBuild'] }
+        if (Get-W11JsonVal $t 'maxBuild') { $e.MaxBuild = [int]$t['maxBuild'] }
+        $ops = @(@(Get-W11JsonVal $t 'set' @()) | ForEach-Object { ConvertTo-W11RegOp $_ }); if ($ops.Count) { $e.Set = $ops }
+        $ops = @(@(Get-W11JsonVal $t 'deleteKey' @()) | ForEach-Object { ConvertTo-W11RegOp $_ }); if ($ops.Count) { $e.Delete = $ops }
+        $ops = @(@(Get-W11JsonVal $t 'deleteValue' @()) | ForEach-Object { ConvertTo-W11RegOp $_ }); if ($ops.Count) { $e.DeleteValue = $ops }
+        $ops = @(@(Get-W11JsonVal $t 'bootSet' @()) | ForEach-Object { ConvertTo-W11RegOp $_ }); if ($ops.Count) { $e.BootSet = $ops }
+        foreach ($o in (Get-W11EntryOsList $e.Os)) { $out[$o] += $e }
+    }
+    return $out
+}
+#endregion
 
 function Get-W11FreeGB {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -795,16 +1210,53 @@ function Clear-W11StaleMount {
 #endregion
 
 #region ---------- registry / apps ----------
-function Mount-W11Hives {
+function Get-W11TweakHives {
+    # Hives (SOFTWARE / SYSTEM / DEFAULT / NTUSER) touched by these tweaks; -Boot = the bootSet operations
+    param([object[]]$TweakDefs, [switch]$Boot)
+    $seen = @{}
+    foreach ($t in @($TweakDefs)) {
+        if ($null -eq $t) { continue }
+        if ($Boot) { $kinds = @('BootSet') } else { $kinds = @('Set', 'Delete', 'DeleteValue') }
+        foreach ($k in $kinds) { if ($t.ContainsKey($k)) { foreach ($op in @($t[$k])) { $seen[(Get-W11HiveName $op.Hive)] = 1 } } }
+    }
+    return @($seen.Keys | Sort-Object)
+}
+
+function Get-W11HiveName([string]$Hive) {
+    # DEFAULTUSER was the 1.0 name of the default user's NTUSER.DAT
+    if ($Hive -eq 'DEFAULTUSER') { return 'NTUSER' }
+    return $Hive.ToUpperInvariant()
+}
+
+function Get-W11HiveFiles {
+    # hive name -> @{ Mount = HKLM\W11D_...; File = path inside the mounted image }
     param([Parameter(Mandatory = $true)][string]$MountDir)
-    $sw = Join-Path $MountDir 'Windows\System32\config\SOFTWARE'
-    $du = Join-Path $MountDir 'Users\Default\NTUSER.DAT'
-    if ((Invoke-W11Reg ('load {0} {1}' -f $script:W11D.HiveSoftware, (ConvertTo-W11Arg $sw))) -ne 0) { throw "reg load failed: $sw" }
-    if ((Invoke-W11Reg ('load {0} {1}' -f $script:W11D.HiveDefault, (ConvertTo-W11Arg $du))) -ne 0) { Dismount-W11Hives; throw "reg load failed: $du" }
+    return @{
+        SOFTWARE = @{ Mount = $script:W11D.HiveSoftware; File = (Join-Path $MountDir 'Windows\System32\config\SOFTWARE') }
+        NTUSER   = @{ Mount = $script:W11D.HiveDefault; File = (Join-Path $MountDir 'Users\Default\NTUSER.DAT') }
+        SYSTEM   = @{ Mount = $script:W11D.HiveSystem; File = (Join-Path $MountDir 'Windows\System32\config\SYSTEM') }
+        DEFAULT  = @{ Mount = $script:W11D.HiveDefProf; File = (Join-Path $MountDir 'Windows\System32\config\DEFAULT') }
+    }
+}
+
+function Mount-W11Hives {
+    <# Loads the offline hives. SOFTWARE and the default user's NTUSER.DAT are always loaded (app removal
+       and most tweaks need them); SYSTEM / DEFAULT only when listed in -Hives. -BootImage = boot.wim
+       (WinPE has no user profile: only SOFTWARE / SYSTEM). #>
+    param([Parameter(Mandatory = $true)][string]$MountDir, [string[]]$Hives, [switch]$BootImage)
+    $files = Get-W11HiveFiles -MountDir $MountDir
+    if ($BootImage) { $want = @() } else { $want = @('SOFTWARE', 'NTUSER') }
+    foreach ($h in @($Hives)) { if ($h -and $want -notcontains $h) { $want += $h } }
+    foreach ($h in $want) {
+        if (-not $files.ContainsKey($h)) { continue }
+        if ($BootImage -and $h -eq 'NTUSER') { continue }
+        $f = $files[$h]
+        if ((Invoke-W11Reg ('load {0} {1}' -f $f.Mount, (ConvertTo-W11Arg $f.File))) -ne 0) { Dismount-W11Hives; throw "reg load failed: $($f.File)" }
+    }
 }
 
 function Dismount-W11Hives {
-    foreach ($h in @($script:W11D.HiveSoftware, $script:W11D.HiveDefault)) {
+    foreach ($h in @($script:W11D.HiveSoftware, $script:W11D.HiveDefault, $script:W11D.HiveSystem, $script:W11D.HiveDefProf)) {
         if ((Invoke-W11Reg "query $h") -ne 0) { continue }   # not loaded
         $ok = $false
         for ($i = 0; $i -lt 10 -and -not $ok; $i++) {
@@ -816,24 +1268,35 @@ function Dismount-W11Hives {
     }
 }
 
+function ConvertTo-W11RegData([string]$Data) {
+    # reg.exe /d argument: plain numbers / words as-is (1.0 behaviour), quoted when empty or containing spaces
+    if ($Data -match '^[A-Za-z0-9_.:-]+$') { return $Data }
+    return (ConvertTo-W11Arg $Data)
+}
+
 function Invoke-W11Tweaks {
-    param([object[]]$TweakDefs, [switch]$DryRun)
-    $map = @{ SOFTWARE = $script:W11D.HiveSoftware; DEFAULTUSER = $script:W11D.HiveDefault }
+    <# Applies tweak entries to the loaded hives. -Boot applies the BootSet operations (boot.wim setup image)
+       instead of Set / DeleteValue / Delete. #>
+    param([object[]]$TweakDefs, [switch]$DryRun, [switch]$Boot)
+    $map = @{ SOFTWARE = $script:W11D.HiveSoftware; NTUSER = $script:W11D.HiveDefault; SYSTEM = $script:W11D.HiveSystem; DEFAULT = $script:W11D.HiveDefProf }
     foreach ($t in $TweakDefs) {
+        if ($Boot -and -not $t.ContainsKey('BootSet')) { continue }
         Write-W11Log -En "  Tweak: $($t.Name)" -Vi $t.NameVi
-        if ($t.ContainsKey('Set')) {
-            foreach ($v in $t.Set) {
-                $key = '{0}\{1}' -f $map[$v.Hive], $v.Key
-                if ($DryRun) { Write-W11Log -Level DRY -En "    would set $($v.Hive)\$($v.Key)\$($v.Value) = $($v.Data)"; continue }
-                $code = Invoke-W11Reg ('add {0} /v {1} /t {2} /d {3} /f' -f (ConvertTo-W11Arg $key), (ConvertTo-W11Arg $v.Value), $v.Type, $v.Data)
-                if ($code -ne 0) { Write-W11Log -Level WARN -En "    FAILED to set $($v.Key)\$($v.Value) (exit $code)" -Vi 'Không ghi được (có thể do quyền của key)' }
-                else { Write-W11Log -En "    set $($v.Key)\$($v.Value) = $($v.Data)" }
-            }
+        if ($Boot) { $sets = @($t.BootSet) } elseif ($t.ContainsKey('Set')) { $sets = @($t.Set) } else { $sets = @() }
+        foreach ($v in $sets) {
+            $hv = Get-W11HiveName $v.Hive
+            $key = '{0}\{1}' -f $map[$hv], $v.Key
+            if ($DryRun) { Write-W11Log -Level DRY -En "    would set $hv\$($v.Key)\$($v.Value) = $($v.Data)"; continue }
+            $code = Invoke-W11Reg ('add {0} /v {1} /t {2} /d {3} /f' -f (ConvertTo-W11Arg $key), (ConvertTo-W11Arg $v.Value), $v.Type, (ConvertTo-W11RegData $v.Data))
+            if ($code -ne 0) { Write-W11Log -Level WARN -En "    FAILED to set $($v.Key)\$($v.Value) (exit $code)" -Vi 'Không ghi được (có thể do quyền của key)' }
+            else { Write-W11Log -En "    set $($v.Key)\$($v.Value) = $($v.Data)" }
         }
+        if ($Boot) { continue }
         if ($t.ContainsKey('DeleteValue')) {
             foreach ($d in $t.DeleteValue) {
-                $key = '{0}\{1}' -f $map[$d.Hive], $d.Key
-                if ($DryRun) { Write-W11Log -Level DRY -En "    would delete value (if present) $($d.Hive)\$($d.Key)\$($d.Value)"; continue }
+                $hv = Get-W11HiveName $d.Hive
+                $key = '{0}\{1}' -f $map[$hv], $d.Key
+                if ($DryRun) { Write-W11Log -Level DRY -En "    would delete value (if present) $hv\$($d.Key)\$($d.Value)"; continue }
                 if ((Invoke-W11Reg ('query {0} /v {1}' -f (ConvertTo-W11Arg $key), (ConvertTo-W11Arg $d.Value))) -ne 0) { Write-W11Log -En "    (not present) $($d.Key)\$($d.Value)"; continue }
                 $code = Invoke-W11Reg ('delete {0} /v {1} /f' -f (ConvertTo-W11Arg $key), (ConvertTo-W11Arg $d.Value))
                 if ($code -ne 0) { Write-W11Log -Level WARN -En "    FAILED to delete value $($d.Key)\$($d.Value) (exit $code)" -Vi 'Không xoá được giá trị' }
@@ -842,8 +1305,9 @@ function Invoke-W11Tweaks {
         }
         if ($t.ContainsKey('Delete')) {
             foreach ($d in $t.Delete) {
-                $key = '{0}\{1}' -f $map[$d.Hive], $d.Key
-                if ($DryRun) { Write-W11Log -Level DRY -En "    would delete (if present) $($d.Hive)\$($d.Key)"; continue }
+                $hv = Get-W11HiveName $d.Hive
+                $key = '{0}\{1}' -f $map[$hv], $d.Key
+                if ($DryRun) { Write-W11Log -Level DRY -En "    would delete (if present) $hv\$($d.Key)"; continue }
                 if ((Invoke-W11Reg ('query {0}' -f (ConvertTo-W11Arg $key))) -ne 0) { Write-W11Log -En "    (not present) $($d.Key)"; continue }
                 $code = Invoke-W11Reg ('delete {0} /f' -f (ConvertTo-W11Arg $key))
                 if ($code -ne 0) { Write-W11Log -Level WARN -En "    FAILED to delete $($d.Key) (exit $code)" -Vi 'Không xoá được key' }
@@ -873,7 +1337,7 @@ function Write-W11OutOfRange {
     foreach ($pt in @($OutOfRange)) {
         if (-not $pt -or (Test-W11Like $pt @($Patterns))) { continue }
         foreach ($n in @($Names)) {
-            if (Test-W11Like $n @($pt)) { Write-W11Log -Level WARN -En "  $n is in this image but outside its MinBuild/MaxBuild range in DebloatConfig.psd1 - kept" -Vi 'app này có trong bản này nhưng nằm ngoài khoảng build trong cấu hình - được giữ lại'; break }
+            if (Test-W11Like $n @($pt)) { Write-W11Log -Level WARN -En "  $n is in this image but outside its minBuild/maxBuild range in data\apps.json - kept" -Vi 'app này có trong bản này nhưng nằm ngoài khoảng build trong cấu hình - được giữ lại'; break }
         }
     }
 }
@@ -977,6 +1441,640 @@ function Get-W11IsoEditions {
 }
 #endregion
 
+#region ---------- offline updates (.msu / .cab from a local folder) ----------
+<# Kinds: SSU (servicing stack), LCU (cumulative update, also checkpoint updates and the combined SSU+LCU .msu of
+   Windows 11 / newer Windows 10), NetFx (.NET Framework cumulative update), SafeOS (WinRE "Safe OS" dynamic update).
+   The kind comes from the sub-folder (ssu, lcu, netfx / dotnet / ndp, safeos / winre) or from the file name
+   (ssu-*, *ndp*, *netfx*, *dotnet*, *safeos*); anything else is treated as LCU. On Windows the .msu content is
+   listed (expand.exe -D) to recognise a combined SSU+LCU package or a stand-alone SSU. #>
+$script:W11UpdateKinds = @('SSU', 'SafeOS', 'LCU', 'NetFx')
+
+function Get-W11KbNumber {
+    param([string]$Name)
+    $m = [regex]::Match([string]$Name, '(?i)kb(\d{6,8})')
+    if ($m.Success) { return [int]$m.Groups[1].Value }
+    return 0
+}
+
+function Get-W11UpdateKind {
+    <# -RelativePath: path below the updates folder (sub-folder names count). -Contents: file names inside the .msu
+       (optional). Returns @{ Kind; Combined } #>
+    param([Parameter(Mandatory = $true)][string]$RelativePath, [string[]]$Contents)
+    $rel = ($RelativePath -replace '/', '\').ToLowerInvariant()
+    $leaf = Split-Path -Leaf $rel
+    $dirs = @(); $parts = $rel.Split('\'); if ($parts.Count -gt 1) { $dirs = $parts[0..($parts.Count - 2)] }
+    $kind = $null
+    foreach ($d in $dirs) {
+        if ($d -match '^(ssu|servicing[\s_-]*stack)') { $kind = 'SSU' }
+        elseif ($d -match '^(safe[\s_-]*os|winre|re)$') { $kind = 'SafeOS' }
+        elseif ($d -match '^(netfx|dotnet|\.net|ndp|net)') { $kind = 'NetFx' }
+        elseif ($d -match '^(lcu|cu|cumulative)') { $kind = 'LCU' }
+    }
+    if (-not $kind) {
+        if ($leaf -match '(^|[^a-z])ssu([^a-z]|$)') { $kind = 'SSU' }
+        elseif ($leaf -match 'safe[\s_-]*os|winre') { $kind = 'SafeOS' }
+        elseif ($leaf -match 'ndp\d|netfx|dotnet|[^a-z]net4') { $kind = 'NetFx' }
+    }
+    $combined = $false
+    $cabs = @(@($Contents) | Where-Object { $_ -and ([string]$_).ToLowerInvariant().EndsWith('.cab') -and ([string]$_) -notmatch '(?i)^wsusscan\.cab$' })
+    if ($cabs.Count -gt 0) {
+        $ssuCabs = @($cabs | Where-Object { ([string]$_) -match '(?i)^ssu-' })
+        if ($ssuCabs.Count -gt 0 -and $ssuCabs.Count -lt $cabs.Count) { $combined = $true; if (-not $kind -or $kind -eq 'SSU') { $kind = 'LCU' } }
+        elseif ($ssuCabs.Count -gt 0 -and $ssuCabs.Count -eq $cabs.Count -and -not $kind) { $kind = 'SSU' }
+    }
+    if (-not $kind) { $kind = 'LCU' }
+    return @{ Kind = $kind; Combined = $combined }
+}
+
+function Get-W11MsuContents {
+    # file names inside an .msu (expand.exe -D); empty when expand.exe is not there (not Windows) or fails
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $exe = Join-Path ([string]$env:windir) 'System32\expand.exe'
+    if (-not $env:windir -or -not (Test-Path -LiteralPath $exe)) { return @() }
+    try {
+        $r = Invoke-W11Process -FilePath $exe -Arguments ('-D {0}' -f (ConvertTo-W11Arg $Path)) -Quiet
+        $out = @()
+        foreach ($l in @($r.Lines)) { if ([string]$l -match ':\s*([^:\\]+\.(cab|xml|txt|psf|wim))\s*$') { $out += $Matches[1].Trim() } }
+        return $out
+    } catch { return @() }
+}
+
+function Get-W11UpdateOrder {
+    # DISM order: SSU first, then the WinRE Safe OS update, the cumulative update(s) (oldest KB first: checkpoint
+    # updates before the latest one) and the .NET update last
+    param([object[]]$Packages)
+    $out = @()
+    foreach ($k in $script:W11UpdateKinds) {
+        $out += @(@($Packages) | Where-Object { $_ -and $_.Kind -eq $k } | Sort-Object @{ Expression = { $_.Kb } }, @{ Expression = { $_.Name } })
+    }
+    return $out
+}
+
+function Get-W11UpdatePackages {
+    <# All .msu / .cab files below -Path (sub-folders too), with Kind / Kb / Combined, in install order.
+       -NoInspect skips listing the .msu content. #>
+    param([Parameter(Mandatory = $true)][string]$Path, [switch]$NoInspect)
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { throw "Updates folder not found / Không thấy thư mục bản cập nhật: $Path" }
+    $root = ((Resolve-Path -LiteralPath $Path).ProviderPath -replace '/', '\').TrimEnd('\')
+    $pk = @()
+    foreach ($f in @(Get-ChildItem -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue | Where-Object { -not $_.PSIsContainer })) {
+        $ext = $f.Extension.ToLowerInvariant()
+        if ($ext -ne '.msu' -and $ext -ne '.cab') { continue }
+        $full = ($f.FullName -replace '/', '\')
+        $rel = $full; if ($full.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) { $rel = $full.Substring($root.Length + 1) }
+        $contents = @()
+        if ($ext -eq '.msu' -and -not $NoInspect) { $contents = @(Get-W11MsuContents -Path $f.FullName) }
+        $k = Get-W11UpdateKind -RelativePath $rel -Contents $contents
+        $pk += (New-W11Obj @{ Path = $f.FullName; Name = $f.Name; RelativePath = $rel; Kind = $k.Kind; Combined = $k.Combined
+                Kb = (Get-W11KbNumber $f.Name); Size = [int64]$f.Length })
+    }
+    return @(Get-W11UpdateOrder $pk)
+}
+
+function Select-W11UpdatesFor {
+    # which packages go into which image: Install = SSU, LCU, NetFx; Boot (boot.wim) = SSU, LCU; WinRE = SSU, SafeOS
+    param([object[]]$Packages, [ValidateSet('Install', 'Boot', 'WinRE')][string]$Target)
+    switch ($Target) {
+        'Install' { $k = @('SSU', 'LCU', 'NetFx') }
+        'Boot' { $k = @('SSU', 'LCU') }
+        default { $k = @('SSU', 'SafeOS') }
+    }
+    return @(@($Packages) | Where-Object { $_ -and $k -contains $_.Kind })
+}
+
+function Add-W11UpdatePackages {
+    <# dism /Add-Package for each package (already in order) into a mounted image. A failing package is logged and
+       skipped (0x800f081e = not applicable to this image). Returns @{ Added; Skipped; Failed }. #>
+    param([Parameter(Mandatory = $true)][string]$MountDir, [object[]]$Packages, [string]$ScratchDir, [string]$Tag = '', [switch]$DryRun,
+        [double]$ProgressBase = -1, [double]$ProgressSpan = 0)
+    $res = @{ Added = 0; Skipped = 0; Failed = 0 }
+    $list = @($Packages | Where-Object { $_ })
+    $n = 0
+    foreach ($p in $list) {
+        $n++
+        $what = "$Tag $($p.Kind) $($p.Name)".Trim()
+        if ($p.Combined) { $what += ' (SSU+LCU)' }
+        if ($DryRun) { Write-W11Log -Level DRY -En "    would add package $what" -Vi 'sẽ tích hợp gói cập nhật'; $res.Added++; continue }
+        Assert-W11NotCancelled
+        Write-W11Log -En "    adding $what ..." -Vi "    đang tích hợp $($p.Name)..."
+        $a = '/Image:{0} /Add-Package /PackagePath:{1}' -f (ConvertTo-W11Arg $MountDir), (ConvertTo-W11Arg $p.Path)
+        if ($ScratchDir) { $a += ' /ScratchDir:' + (ConvertTo-W11Arg $ScratchDir) }
+        $pb = -1; if ($ProgressBase -ge 0 -and $list.Count -gt 0) { $pb = $ProgressBase + $ProgressSpan * ($n - 1) / $list.Count }
+        $r = Invoke-W11Dism $a -Quiet -NoThrow -ProgressBase $pb -ProgressSpan ($ProgressSpan / [Math]::Max(1, $list.Count)) -ProgressText "Update $($p.Name)"
+        $code = [int]$r.ExitCode
+        if ($code -eq 0 -or $code -eq 3010) { Write-W11Log -Level OK -En "    added $($p.Name)" -Vi 'đã tích hợp'; $res.Added++ }
+        elseif ($code -eq -2146498530) { Write-W11Log -En "    $($p.Name) does not apply to this image (0x800f081e) - skipped" -Vi 'gói này không dùng cho image này - bỏ qua'; $res.Skipped++ }
+        else {
+            foreach ($l in @($r.Lines | Select-Object -Last 4)) { Write-W11Log -Level WARN -En "      $l" }
+            Write-W11Log -Level WARN -En ('    FAILED to add {0} (exit 0x{1:x8}) - continuing with the next package' -f $p.Name, $code) -Vi 'tích hợp lỗi, chuyển sang gói tiếp theo'
+            $res.Failed++
+        }
+    }
+    return $res
+}
+
+function Invoke-W11ComponentCleanup {
+    param([Parameter(Mandatory = $true)][string]$MountDir, [string]$ScratchDir, [switch]$ResetBase, [string]$Tag = '', [double]$ProgressBase = -1, [double]$ProgressSpan = 0)
+    $a = '/Image:{0}' -f (ConvertTo-W11Arg $MountDir)
+    if ($ScratchDir) { $a += ' /ScratchDir:' + (ConvertTo-W11Arg $ScratchDir) }
+    $a += ' /Cleanup-Image /StartComponentCleanup'
+    if ($ResetBase) { $a += ' /ResetBase'; Write-W11Log -En '  /Cleanup-Image /StartComponentCleanup /ResetBase (slow; updates can no longer be uninstalled)...' -Vi '  Dọn component store kèm /ResetBase (chậm, không gỡ được bản cập nhật về sau)...' }
+    else { Write-W11Log -En '  /Cleanup-Image /StartComponentCleanup (slow)...' -Vi '  Dọn component store (chậm)...' }
+    $r = Invoke-W11Dism $a -Quiet -NoThrow -ProgressBase $ProgressBase -ProgressSpan $ProgressSpan -ProgressText (("$Tag Component cleanup").Trim())
+    if ($r.ExitCode -ne 0) { Write-W11Log -Level WARN -En "  Component cleanup failed (exit $($r.ExitCode)), continuing" -Vi '  Dọn component lỗi, bỏ qua' }
+}
+
+function Update-W11WinRE {
+    <# Services Windows\System32\Recovery\Winre.wim of the mounted install image: SSU + Safe OS update (+ cleanup),
+       re-exported so it does not grow. The serviced copy is cached by the SHA256 of the original, so editions that
+       share the same Winre.wim are serviced once. #>
+    param([Parameter(Mandatory = $true)][string]$MountDir, [Parameter(Mandatory = $true)]$Layout, [object[]]$Packages, [hashtable]$Cache,
+        [switch]$Cleanup, [switch]$DryRun)
+    $re = Join-W11Path $MountDir 'Windows\System32\Recovery\Winre.wim'
+    $pk = @(Select-W11UpdatesFor $Packages 'WinRE')
+    if ($pk.Count -eq 0) { Write-W11Log -En '  WinRE: no SSU / Safe OS package - skipped' -Vi '  WinRE: không có gói SSU / Safe OS - bỏ qua'; return }
+    if (-not (Test-Path -LiteralPath $re)) { Write-W11Log -Level WARN -En '  WinRE: Windows\System32\Recovery\Winre.wim not found - skipped' -Vi '  WinRE: không thấy Winre.wim - bỏ qua'; return }
+    if ($DryRun) { $null = Add-W11UpdatePackages -MountDir $Layout.MountRe -Packages $pk -Tag 'WinRE' -DryRun; return }
+    $hash = Get-W11Sha256 -Path $re
+    if ($Cache -and $Cache.ContainsKey($hash) -and (Test-Path -LiteralPath $Cache[$hash])) {
+        Write-W11Log -En '  WinRE: same Winre.wim as an earlier edition - reusing the serviced copy' -Vi '  WinRE: giống bản trước - dùng lại bản đã cập nhật'
+        $item = Get-Item -LiteralPath $re -Force; $item.Attributes = 'Normal'
+        Copy-Item -LiteralPath $Cache[$hash] -Destination $re -Force
+        return
+    }
+    Write-W11Log -Level STEP -En '  WinRE: servicing Winre.wim (SSU + Safe OS)...' -Vi '  WinRE: đang cập nhật Winre.wim (SSU + Safe OS)...'
+    New-W11Directory $Layout.MountRe
+    foreach ($f in @($Layout.WinReWork, $Layout.WinReDone)) { if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force } }
+    Copy-Item -LiteralPath $re -Destination $Layout.WinReWork -Force
+    (Get-Item -LiteralPath $Layout.WinReWork -Force).Attributes = 'Normal'
+    $mounted = $false
+    try {
+        $null = Invoke-W11Dism ('/Mount-Image /ImageFile:{0} /Index:1 /MountDir:{1}' -f (ConvertTo-W11Arg $Layout.WinReWork), (ConvertTo-W11Arg $Layout.MountRe)) -Quiet
+        $mounted = $true
+        $r = Add-W11UpdatePackages -MountDir $Layout.MountRe -Packages $pk -ScratchDir $Layout.Scratch -Tag 'WinRE'
+        if ($Cleanup -and $r.Added -gt 0) { Invoke-W11ComponentCleanup -MountDir $Layout.MountRe -ScratchDir $Layout.Scratch -ResetBase -Tag 'WinRE' }
+        if ($r.Added -eq 0) {
+            $null = Invoke-W11Dism ('/Unmount-Image /MountDir:{0} /Discard' -f (ConvertTo-W11Arg $Layout.MountRe)) -Quiet -NoThrow
+            $mounted = $false
+            Write-W11Log -Level WARN -En '  WinRE: nothing was added - Winre.wim left unchanged' -Vi '  WinRE: không tích hợp được gói nào - giữ nguyên Winre.wim'
+            return
+        }
+        $null = Invoke-W11Dism ('/Unmount-Image /MountDir:{0} /Commit' -f (ConvertTo-W11Arg $Layout.MountRe)) -Quiet
+        $mounted = $false
+        $null = Invoke-W11Dism (Get-W11ExportArgs -Source $Layout.WinReWork -Index 1 -Destination $Layout.WinReDone -Compression Max -ScratchDir $Layout.Scratch) -Quiet
+        $item = Get-Item -LiteralPath $re -Force; $attr = $item.Attributes; $item.Attributes = 'Normal'
+        Copy-Item -LiteralPath $Layout.WinReDone -Destination $re -Force
+        try { (Get-Item -LiteralPath $re -Force).Attributes = $attr } catch { $null = $_ }
+        if ($Cache) {
+            $keep = Join-W11Path $Layout.WinReCacheDir ('re_' + $Cache.Count + '.wim')
+            New-W11Directory $Layout.WinReCacheDir
+            Copy-Item -LiteralPath $Layout.WinReDone -Destination $keep -Force
+            $Cache[$hash] = $keep
+        }
+        Write-W11Log -Level OK -En ('  WinRE updated ({0})' -f (Format-W11Size (Get-W11FileLength $re))) -Vi '  Đã cập nhật WinRE'
+    } catch {
+        Write-W11Log -Level WARN -En "  WinRE update failed, Winre.wim left unchanged: $($_.Exception.Message)" -Vi '  Cập nhật WinRE lỗi, giữ nguyên Winre.wim'
+    } finally {
+        if ($mounted) { $null = Invoke-W11Dism ('/Unmount-Image /MountDir:{0} /Discard' -f (ConvertTo-W11Arg $Layout.MountRe)) -Quiet -NoThrow }
+        foreach ($f in @($Layout.WinReWork, $Layout.WinReDone)) { if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue } }
+    }
+}
+
+function Update-W11BootWim {
+    <# sources\boot.wim of the ISO tree: index 2 (Windows Setup) gets the bootSet tweaks (e.g. LabConfig), every
+       index gets SSU + LCU when -Packages is given. Re-exported into a new boot.wim (the file does not grow).
+       Failures are logged and the original boot.wim is kept. #>
+    param([Parameter(Mandatory = $true)][string]$Tree, [Parameter(Mandatory = $true)]$Layout, [object[]]$Packages, [object[]]$BootTweaks, [switch]$DryRun)
+    $boot = Join-W11Path $Tree 'sources\boot.wim'
+    $pk = @(Select-W11UpdatesFor $Packages 'Boot')
+    $tw = @(@($BootTweaks) | Where-Object { $_ -and $_.ContainsKey('BootSet') })
+    if ($pk.Count -eq 0 -and $tw.Count -eq 0) { return }
+    Write-W11Log -Level STEP -En ('Servicing boot.wim ({0} update package(s), {1} setup tweak(s))...' -f $pk.Count, $tw.Count) -Vi 'Đang xử lý boot.wim...'
+    if ($DryRun) {
+        $null = Add-W11UpdatePackages -MountDir $Layout.MountBoot -Packages $pk -Tag 'boot.wim' -DryRun
+        if ($tw.Count) { Invoke-W11Tweaks -TweakDefs $tw -Boot -DryRun }
+        return
+    }
+    if (-not (Test-Path -LiteralPath $boot)) { Write-W11Log -Level WARN -En 'sources\boot.wim not found - boot image not changed' -Vi 'Không thấy sources\boot.wim - bỏ qua boot image'; return }
+    # serviced on a copy next to the tree: on any failure the tree keeps the original boot.wim
+    $work = $Layout.BootWork
+    foreach ($f in @($work, $Layout.BootNew)) { if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force } }
+    Copy-Item -LiteralPath $boot -Destination $work -Force
+    (Get-Item -LiteralPath $work -Force).Attributes = 'Normal'
+    $infos = @(Get-W11ImageInfo -ImageFile $work)
+    $mounted = $false; $changed = $false
+    New-W11Directory $Layout.MountBoot
+    try {
+        foreach ($e in $infos) {
+            $isSetup = ([int]$e.Index -eq 2 -or $infos.Count -eq 1)
+            if ($pk.Count -eq 0 -and -not $isSetup) { continue }
+            Assert-W11NotCancelled
+            Write-W11Log -En "  boot.wim [$($e.Index)] $($e.Name)" -Vi '  boot.wim'
+            $null = Invoke-W11Dism ('/Mount-Image /ImageFile:{0} /Index:{1} /MountDir:{2}' -f (ConvertTo-W11Arg $work), $e.Index, (ConvertTo-W11Arg $Layout.MountBoot)) -Quiet
+            $mounted = $true
+            $r = @{ Added = 0 }
+            if ($pk.Count) { $r = Add-W11UpdatePackages -MountDir $Layout.MountBoot -Packages $pk -ScratchDir $Layout.Scratch -Tag "boot.wim[$($e.Index)]" }
+            $tweaked = $false
+            if ($isSetup -and $tw.Count) {
+                Mount-W11Hives -MountDir $Layout.MountBoot -Hives @(Get-W11TweakHives $tw -Boot) -BootImage
+                try { Invoke-W11Tweaks -TweakDefs $tw -Boot; $tweaked = $true } finally { Dismount-W11Hives }
+            }
+            if ($r.Added -gt 0 -or $tweaked) {
+                if ($r.Added -gt 0) { Invoke-W11ComponentCleanup -MountDir $Layout.MountBoot -ScratchDir $Layout.Scratch -ResetBase -Tag 'boot.wim' }
+                $null = Invoke-W11Dism ('/Unmount-Image /MountDir:{0} /Commit' -f (ConvertTo-W11Arg $Layout.MountBoot)) -Quiet
+                $changed = $true
+            } else { $null = Invoke-W11Dism ('/Unmount-Image /MountDir:{0} /Discard' -f (ConvertTo-W11Arg $Layout.MountBoot)) -Quiet -NoThrow }
+            $mounted = $false
+        }
+        if ($changed) {
+            foreach ($e in $infos) { $null = Invoke-W11Dism (Get-W11ExportArgs -Source $work -Index $e.Index -Destination $Layout.BootNew -Compression Max -ScratchDir $Layout.Scratch) -Quiet }
+            (Get-Item -LiteralPath $boot -Force).Attributes = 'Normal'
+            Remove-Item -LiteralPath $boot -Force
+            Move-Item -LiteralPath $Layout.BootNew -Destination $boot
+            Write-W11Log -Level OK -En ('  boot.wim updated ({0})' -f (Format-W11Size (Get-W11FileLength $boot))) -Vi '  Đã cập nhật boot.wim'
+        }
+    } catch {
+        if ($mounted) { $null = Invoke-W11Dism ('/Unmount-Image /MountDir:{0} /Discard' -f (ConvertTo-W11Arg $Layout.MountBoot)) -Quiet -NoThrow; $mounted = $false }
+        if ($_.Exception -is [System.OperationCanceledException]) { throw }
+        Write-W11Log -Level WARN -En "  boot.wim servicing failed, keeping the original: $($_.Exception.Message)" -Vi '  Xử lý boot.wim lỗi, giữ nguyên bản gốc'
+    } finally {
+        foreach ($f in @($work, $Layout.BootNew)) { if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue } }
+    }
+}
+#endregion
+
+#region ---------- answer file (autounattend.xml) ----------
+<# Generated answer file. Never contains DiskConfiguration: disk / partition selection always stays interactive,
+   nothing is wiped automatically. Options (hashtable, all optional):
+     LocalAccount (bool), UserName, Password (plain text, may be empty), BypassNro (default $true, Windows 11),
+     BypassChecks (TPM / Secure Boot / RAM / CPU / storage, Windows 11), SkipPrivacy, FirstLogonCleanup
+     (+ FirstLogonApps = app patterns removed again at first logon), Locale (e.g. vi-VN), Keyboard (e.g. 0409:00000409
+     or en-US). Without options the result matches the 1.0 template. #>
+$script:W11ReservedUsers = @('administrator', 'admin', 'guest', 'defaultaccount', 'wdagutilityaccount', 'system', 'user', 'users', 'none',
+    'everyone', 'localsystem', 'networkservice', 'localservice', 'administrators', 'defaultuser0', 'defaultuser100000')
+$script:W11FirstLogonScript = 'W11D-FirstLogon.ps1'
+
+function Get-W11UnattendDefaults {
+    return @{ LocalAccount = $false; UserName = ''; Password = ''; BypassNro = $true; BypassChecks = $false; SkipPrivacy = $false
+        FirstLogonCleanup = $false; FirstLogonApps = @(); Locale = ''; Keyboard = '' }
+}
+
+function Test-W11LocalAccountName {
+    # Windows local user name rules: 1-20 characters, none of " / \ [ ] : ; | = , + * ? < > @ %, not only dots / spaces, not a built-in name
+    param([string]$Name)
+    if (-not $Name) { return $false }
+    if ($Name.Length -gt 20) { return $false }
+    if ($Name -match '["/\\\[\]:;|=,+*?<>@%]') { return $false }
+    if ($Name -match '[\x00-\x1F]') { return $false }
+    if ($Name.Trim(' .'.ToCharArray()).Length -eq 0) { return $false }
+    if ($Name -ne $Name.Trim()) { return $false }
+    if ($script:W11ReservedUsers -contains $Name.ToLowerInvariant()) { return $false }
+    return $true
+}
+
+function Test-W11LocaleName([string]$Name) { return ($Name -match '^[a-z]{2,3}(-[A-Za-z]{2,4})?(-[A-Za-z0-9]{2,8})?$') }
+function Test-W11KeyboardName([string]$Name) { return ($Name -match '^[0-9A-Fa-f]{4}:[0-9A-Fa-f{}-]{8,40}$' -or (Test-W11LocaleName $Name)) }
+
+function ConvertTo-W11XmlText([string]$Text) {
+    return [Security.SecurityElement]::Escape([string]$Text)
+}
+
+function Get-W11SafePatterns {
+    # app patterns usable inside the first-logon script: letters, digits . _ - * only
+    param([string[]]$Patterns)
+    return @(@($Patterns) | Where-Object { $_ -and ([string]$_) -match '^[A-Za-z0-9.*_-]+$' } | ForEach-Object { [string]$_ } | Sort-Object -Unique)
+}
+
+function New-W11FirstLogonScript {
+    <# PowerShell script run once at the first logon: removes apps (from the selected list) that Windows
+       re-installed during setup or OOBE, for every user and from the provisioned list. Protected patterns are kept. #>
+    param([string[]]$Patterns, [string[]]$Protected)
+    $pt = @(Get-W11SafePatterns $Patterns)
+    $pr = @(Get-W11SafePatterns $Protected)
+    $q = { param($a) if ($a.Count -eq 0) { return '@()' }; return '@(' + ((@($a) | ForEach-Object { "'" + $_ + "'" }) -join ', ') + ')' }
+    $lines = @(
+        '# WinDebloat Tool - first logon clean-up (generated). Removes apps that came back during setup.',
+        '# Runs once from autounattend.xml (FirstLogonCommands); log: %WINDIR%\Setup\Scripts\W11D-FirstLogon.log',
+        "`$patterns = $(& $q $pt)",
+        "`$protected = $(& $q $pr)",
+        '$log = Join-Path $env:WINDIR ''Setup\Scripts\W11D-FirstLogon.log''',
+        'function Out-Log([string]$t) { try { Add-Content -LiteralPath $log -Value (''['' + (Get-Date -Format ''yyyy-MM-dd HH:mm:ss'') + ''] '' + $t) } catch { } }',
+        'function Test-Match([string]$n, $list) { foreach ($p in $list) { if ($n -like $p) { return $true } }; return $false }',
+        'Out-Log ''first logon clean-up started''',
+        'try {',
+        '    foreach ($p in @(Get-AppxProvisionedPackage -Online)) {',
+        '        if ((Test-Match $p.DisplayName $patterns) -and -not (Test-Match $p.DisplayName $protected)) {',
+        '            try { $null = Remove-AppxProvisionedPackage -Online -PackageName $p.PackageName -ErrorAction Stop; Out-Log (''deprovisioned '' + $p.PackageName) } catch { Out-Log (''failed '' + $p.PackageName + '': '' + $_.Exception.Message) }',
+        '        }',
+        '    }',
+        '} catch { Out-Log (''provisioned list: '' + $_.Exception.Message) }',
+        'try { $all = @(Get-AppxPackage -AllUsers -ErrorAction Stop) } catch { $all = @(Get-AppxPackage) }',
+        'foreach ($p in $all) {',
+        '    if ((Test-Match $p.Name $patterns) -and -not (Test-Match $p.Name $protected) -and -not $p.NonRemovable) {',
+        '        try { Remove-AppxPackage -Package $p.PackageFullName -AllUsers -ErrorAction Stop; Out-Log (''removed '' + $p.PackageFullName) }',
+        '        catch { try { Remove-AppxPackage -Package $p.PackageFullName -ErrorAction Stop; Out-Log (''removed (current user) '' + $p.PackageFullName) } catch { Out-Log (''failed '' + $p.PackageFullName + '': '' + $_.Exception.Message) } }',
+        '    }',
+        '}',
+        'Out-Log ''first logon clean-up finished'''
+    )
+    return (($lines -join "`r`n") + "`r`n")
+}
+
+function New-W11UnattendXml {
+    param([hashtable]$Options, [ValidateSet('Win10', 'Win11')][string]$Os = 'Win11', [string]$Arch = 'amd64', [string]$Language = 'en-US')
+    $o = Get-W11UnattendDefaults
+    if ($Options) { foreach ($k in @($Options.Keys)) { $o[$k] = $Options[$k] } }
+    $Arch = Get-W11ArchName $Arch
+    if (-not (Test-W11LocaleName $Language)) { $Language = 'en-US' }
+    if ($o.LocalAccount -and -not (Test-W11LocalAccountName ([string]$o.UserName))) { throw "Invalid local account name / Tên tài khoản không hợp lệ: '$($o.UserName)'" }
+    if ($o.Locale -and -not (Test-W11LocaleName ([string]$o.Locale))) { throw "Invalid region / Vùng không hợp lệ: '$($o.Locale)'" }
+    if ($o.Keyboard -and -not (Test-W11KeyboardName ([string]$o.Keyboard))) { throw "Invalid keyboard / Bàn phím không hợp lệ: '$($o.Keyboard)'" }
+    $isW11 = ($Os -eq 'Win11')
+    $c = 'processorArchitecture="{0}" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS"' -f $Arch
+    $x = New-Object Text.StringBuilder
+    $w = { param([string]$s) [void]$x.Append($s + "`r`n") }
+    $notes = @()
+    if ($o.LocalAccount) { $notes += "- Creates the local administrator account '$([string]$o.UserName -replace '--', '- -')' (password stored in this file as plain text)." }
+    else { $notes += '- Local account name/password stay INTERACTIVE.' }
+    if ($o.Locale -or $o.Keyboard) { $notes += '- Region / keyboard preset.' } else { $notes += '- Region and keyboard stay INTERACTIVE.' }
+    if ($o.SkipPrivacy) { $notes += '- Privacy questions skipped (Microsoft recommended answers turned off where possible).' } else { $notes += '- Privacy questions stay INTERACTIVE.' }
+    if ($isW11 -and $o.BypassChecks) { $notes += '- TPM / Secure Boot / RAM / CPU / storage checks are BYPASSED (LabConfig).' } else { $notes += '- TPM / Secure Boot / RAM / CPU requirement checks are NOT bypassed.' }
+    if ($o.FirstLogonCleanup) { $notes += '- First logon: removes apps that came back (sources\$OEM$ script).' }
+    & $w '<?xml version="1.0" encoding="utf-8"?>'
+    & $w '<!-- WinDebloat Tool answer file (Windows 10 / 11), generated.'
+    & $w '     - Disk/partition selection and edition stay INTERACTIVE (no disk is wiped automatically). EULA auto-accepted.'
+    foreach ($n in $notes) { & $w ('     ' + $n) }
+    & $w '-->'
+    & $w '<unattend xmlns="urn:schemas-microsoft-com:unattend" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">'
+    # ---- windowsPE ----
+    & $w '  <settings pass="windowsPE">'
+    & $w "    <component name=`"Microsoft-Windows-International-Core-WinPE`" $c>"
+    & $w '      <SetupUILanguage>'
+    & $w "        <UILanguage>$Language</UILanguage>"
+    & $w '      </SetupUILanguage>'
+    & $w '      <InputLocale>0409:00000409</InputLocale>'
+    & $w '      <SystemLocale>en-US</SystemLocale>'
+    & $w "      <UILanguage>$Language</UILanguage>"
+    & $w '      <UserLocale>en-US</UserLocale>'
+    & $w '    </component>'
+    & $w "    <component name=`"Microsoft-Windows-Setup`" $c>"
+    if ($isW11 -and $o.BypassChecks) {
+        & $w '      <RunSynchronous>'
+        $i = 0
+        foreach ($v in @('BypassTPMCheck', 'BypassSecureBootCheck', 'BypassRAMCheck', 'BypassCPUCheck', 'BypassStorageCheck')) {
+            $i++
+            & $w '        <RunSynchronousCommand wcm:action="add">'
+            & $w "          <Order>$i</Order>"
+            & $w "          <Path>reg.exe add &quot;HKLM\SYSTEM\Setup\LabConfig&quot; /v $v /t REG_DWORD /d 1 /f</Path>"
+            & $w '        </RunSynchronousCommand>'
+        }
+        & $w '      </RunSynchronous>'
+    }
+    & $w '      <UserData>'
+    & $w '        <AcceptEula>true</AcceptEula>'
+    & $w '      </UserData>'
+    & $w '    </component>'
+    & $w '  </settings>'
+    # ---- specialize ----
+    $cmds = @()
+    if ($isW11 -and $o.BypassNro) { $cmds += 'reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE" /v BypassNRO /t REG_DWORD /d 1 /f' }
+    $cmds += 'reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\CloudContent" /v DisableWindowsConsumerFeatures /t REG_DWORD /d 1 /f'
+    if ($o.SkipPrivacy) { $cmds += 'reg.exe add "HKLM\SOFTWARE\Policies\Microsoft\Windows\OOBE" /v DisablePrivacyExperience /t REG_DWORD /d 1 /f' }
+    & $w '  <settings pass="specialize">'
+    & $w "    <component name=`"Microsoft-Windows-Deployment`" $c>"
+    & $w '      <RunSynchronous>'
+    $i = 0
+    foreach ($cmd in $cmds) {
+        $i++
+        & $w '        <RunSynchronousCommand wcm:action="add">'
+        & $w "          <Order>$i</Order>"
+        & $w ('          <Path>{0}</Path>' -f ($cmd -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;'))
+        & $w '        </RunSynchronousCommand>'
+    }
+    & $w '      </RunSynchronous>'
+    & $w '    </component>'
+    & $w '  </settings>'
+    # ---- oobeSystem ----
+    & $w '  <settings pass="oobeSystem">'
+    if ($o.Locale -or $o.Keyboard) {
+        $loc = [string]$o.Locale; if (-not $loc) { $loc = $Language }
+        $kb = [string]$o.Keyboard; if (-not $kb) { $kb = $loc }
+        & $w "    <component name=`"Microsoft-Windows-International-Core`" $c>"
+        & $w "      <InputLocale>$(ConvertTo-W11XmlText $kb)</InputLocale>"
+        & $w "      <SystemLocale>$(ConvertTo-W11XmlText $loc)</SystemLocale>"
+        & $w "      <UILanguage>$Language</UILanguage>"
+        & $w "      <UserLocale>$(ConvertTo-W11XmlText $loc)</UserLocale>"
+        & $w '    </component>'
+    }
+    & $w "    <component name=`"Microsoft-Windows-Shell-Setup`" $c>"
+    if ($o.FirstLogonCleanup) {
+        & $w '      <FirstLogonCommands>'
+        & $w '        <SynchronousCommand wcm:action="add">'
+        & $w '          <Order>1</Order>'
+        & $w ('          <CommandLine>cmd.exe /c powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;%WINDIR%\Setup\Scripts\{0}&quot;</CommandLine>' -f $script:W11FirstLogonScript)
+        & $w '          <Description>WinDebloat Tool: remove apps that came back</Description>'
+        & $w '        </SynchronousCommand>'
+        & $w '      </FirstLogonCommands>'
+    }
+    & $w '      <OOBE>'
+    & $w '        <HideEULAPage>true</HideEULAPage>'
+    if ($o.LocalAccount) { & $w '        <HideLocalAccountScreen>true</HideLocalAccountScreen>' }
+    & $w '        <HideOEMRegistrationScreen>true</HideOEMRegistrationScreen>'
+    & $w '        <HideOnlineAccountScreens>true</HideOnlineAccountScreens>'
+    if ($o.SkipPrivacy) { & $w '        <ProtectYourPC>3</ProtectYourPC>' }
+    & $w '      </OOBE>'
+    if ($o.LocalAccount) {
+        $u = ConvertTo-W11XmlText ([string]$o.UserName)
+        & $w '      <UserAccounts>'
+        & $w '        <LocalAccounts>'
+        & $w '          <LocalAccount wcm:action="add">'
+        & $w "            <Name>$u</Name>"
+        & $w "            <DisplayName>$u</DisplayName>"
+        & $w '            <Group>Administrators</Group>'
+        & $w '            <Password>'
+        & $w "              <Value>$(ConvertTo-W11XmlText ([string]$o.Password))</Value>"
+        & $w '              <PlainText>true</PlainText>'
+        & $w '            </Password>'
+        & $w '          </LocalAccount>'
+        & $w '        </LocalAccounts>'
+        & $w '      </UserAccounts>'
+    }
+    & $w '    </component>'
+    & $w '  </settings>'
+    & $w '</unattend>'
+    return $x.ToString()
+}
+
+function Write-W11UnattendFiles {
+    <# Writes autounattend.xml to the ISO tree root and, with FirstLogonCleanup, the first-logon script to
+       sources\$OEM$\$$\Setup\Scripts (Windows Setup copies it to %WINDIR%\Setup\Scripts). The password is never logged. #>
+    param([Parameter(Mandatory = $true)][string]$Tree, [hashtable]$Options, [string]$Os = 'Win11', [string]$Arch = 'amd64', [string]$Language = 'en-US',
+        [string[]]$Protected)
+    $xml = New-W11UnattendXml -Options $Options -Os $Os -Arch $Arch -Language $Language
+    $doc = New-Object Xml.XmlDocument
+    $doc.LoadXml($xml)   # well-formed check before it goes on the ISO
+    $utf8 = New-Object Text.UTF8Encoding $false
+    [IO.File]::WriteAllText((Join-W11Path $Tree 'autounattend.xml'), $xml, $utf8)
+    $o = Get-W11UnattendDefaults; if ($Options) { foreach ($k in @($Options.Keys)) { $o[$k] = $Options[$k] } }
+    $desc = @()
+    if ($o.LocalAccount) { $desc += "local account '$($o.UserName)'"; if ([string]$o.Password) { $desc += 'password set (plain text in autounattend.xml)' } else { $desc += 'no password' } }
+    if ($Os -eq 'Win11' -and $o.BypassNro) { $desc += 'BypassNRO' }
+    if ($Os -eq 'Win11' -and $o.BypassChecks) { $desc += 'TPM/Secure Boot/RAM check bypass' }
+    if ($o.SkipPrivacy) { $desc += 'skip privacy' }
+    if ($o.Locale -or $o.Keyboard) { $desc += "region $($o.Locale) keyboard $($o.Keyboard)" }
+    if ($o.FirstLogonCleanup) {
+        $dir = Join-W11Path $Tree 'sources\$OEM$\$$\Setup\Scripts'
+        New-W11Directory $dir
+        $ps = New-W11FirstLogonScript -Patterns @($o.FirstLogonApps) -Protected $Protected
+        [IO.File]::WriteAllText((Join-W11Path $dir $script:W11FirstLogonScript), $ps, (New-Object Text.UTF8Encoding $true))
+        $desc += ('first-logon clean-up ({0} app patterns)' -f @(Get-W11SafePatterns @($o.FirstLogonApps)).Count)
+    }
+    if ($desc.Count) { Write-W11Log -En ('  autounattend.xml: ' + ($desc -join ', ')) -Vi '  autounattend.xml đã tạo' }
+    if ($o.LocalAccount -and [string]$o.Password) { Write-W11Log -Level WARN -En '  The account password is stored as PLAIN TEXT in autounattend.xml on the ISO - do not share this ISO.' -Vi '  Mật khẩu tài khoản nằm dạng chữ thường trong autounattend.xml trên ISO - đừng chia sẻ ISO này.' }
+}
+#endregion
+
+#region ---------- presets (data\presets\*.json, user .json files) ----------
+<# Preset schema (version 1):
+   { "schema": "windebloat-preset/1", "name": {vi,en,...}, "description": {...},
+     "editions": { "mode": "All|HomePro|Custom", "indexes": [] },
+     "apps":   { "select": "defaults|level|list|all|none", "level": "safe|aggressive", "ids": [], "exclude": [] },
+     "tweaks": { "select": ..., "level": ..., "ids": [] },
+     "unattend": { "enabled": true, "localAccount": false, "userName": "", "bypassNro": true, "bypassChecks": false,
+                   "skipPrivacy": false, "firstLogonCleanup": false, "locale": "", "keyboard": "" },
+     "updates": { "enabled": false, "folder": "", "bootWim": false, "winre": false, "resetBase": false },
+     "image": { "compression": "Max|Recovery", "componentCleanup": false } }
+   A password is never written to a preset. "list" uses ids; the other modes are resolved for the image's OS. #>
+$script:W11PresetSchema = 'windebloat-preset/1'
+$script:W11PresetLevels = @{ safe = 1; aggressive = 2; unsafe = 3 }
+
+function Get-W11PresetDir { return (Join-Path $script:W11Root 'data\presets') }
+
+function Get-W11BuiltinPresets {
+    # built-in presets: @{ Id; Path; Data } sorted by file name (safe.json first)
+    $dir = Get-W11PresetDir
+    $out = @()
+    if (-not (Test-Path -LiteralPath $dir)) { return $out }
+    foreach ($f in @(Get-ChildItem -LiteralPath $dir -Filter '*.json' | Sort-Object @{ Expression = { $_.Name -ne 'safe.json' } }, Name)) {
+        try { $d = Read-W11Preset -Path $f.FullName; $out += (New-W11Obj @{ Id = [IO.Path]::GetFileNameWithoutExtension($f.Name); Path = $f.FullName; Data = $d }) }
+        catch { Write-W11Log -Level WARN -En "Preset $($f.Name) skipped: $($_.Exception.Message)" -Vi 'bỏ qua mẫu cấu hình lỗi' }
+    }
+    return $out
+}
+
+function Test-W11Preset {
+    # problems in a parsed preset (empty = valid)
+    param($Data)
+    $bad = @()
+    if (-not ($Data -is [Collections.IDictionary])) { return @('not a JSON object') }
+    if ([string](Get-W11JsonVal $Data 'schema' '') -ne $script:W11PresetSchema) { $bad += "schema must be '$($script:W11PresetSchema)'" }
+    $ed = Get-W11JsonVal $Data 'editions'
+    if ($ed -and @('All', 'HomePro', 'Custom') -notcontains [string](Get-W11JsonVal $ed 'mode' 'All')) { $bad += 'editions.mode must be All, HomePro or Custom' }
+    foreach ($s in @('apps', 'tweaks')) {
+        $x = Get-W11JsonVal $Data $s
+        if ($null -eq $x) { continue }
+        if (@('defaults', 'level', 'list', 'all', 'none') -notcontains [string](Get-W11JsonVal $x 'select' 'defaults')) { $bad += "$s.select must be defaults, level, list, all or none" }
+        if ([string](Get-W11JsonVal $x 'select' '') -eq 'level' -and -not $script:W11PresetLevels.ContainsKey([string](Get-W11JsonVal $x 'level' ''))) { $bad += "$s.level must be safe or aggressive" }
+    }
+    $im = Get-W11JsonVal $Data 'image'
+    if ($im -and @('Max', 'Recovery') -notcontains [string](Get-W11JsonVal $im 'compression' 'Max')) { $bad += 'image.compression must be Max or Recovery' }
+    $un = Get-W11JsonVal $Data 'unattend'
+    if ($un) {
+        if ((Get-W11JsonVal $un 'password')) { $bad += 'unattend.password is not allowed in a preset' }
+        $u = [string](Get-W11JsonVal $un 'userName' '')
+        if ($u -and -not (Test-W11LocalAccountName $u)) { $bad += "unattend.userName '$u' is not a valid account name" }
+    }
+    return $bad
+}
+
+function Read-W11Preset {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $d = Read-W11JsonFile $Path
+    $bad = @(Test-W11Preset $d)
+    if ($bad.Count) { throw ("Invalid preset / Mẫu cấu hình không hợp lệ ({0}): {1}" -f (Split-Path -Leaf $Path), ($bad -join '; ')) }
+    $un = Get-W11JsonVal $d 'unattend'
+    if ($un -and $un.Contains('password')) { $un.Remove('password') }
+    return $d
+}
+
+function Resolve-W11PresetItems {
+    <# apps / tweaks section of a preset -> selected ids among $Items (profile entries with Id / Default / Level).
+       Unknown ids in a list are ignored (they may belong to the other OS). #>
+    param($Section, [object[]]$Items)
+    $sel = [string](Get-W11JsonVal $Section 'select' 'defaults')
+    $ex = @(@(Get-W11JsonVal $Section 'exclude' @()) | ForEach-Object { [string]$_ })
+    if ($ex.Count) { $Items = @(@($Items) | Where-Object { $_ -and $ex -notcontains $_.Id }) }
+    switch ($sel) {
+        'none' { return @() }
+        'all' { return @(@($Items) | Where-Object { $_ -and $_.Level -ne 'unsafe' } | ForEach-Object { $_.Id }) }
+        'level' {
+            $max = $script:W11PresetLevels[[string](Get-W11JsonVal $Section 'level' 'safe')]
+            if (-not $max) { $max = 1 }
+            return @(@($Items) | Where-Object { $_ -and ($_.Default -or ($script:W11PresetLevels.ContainsKey([string]$_.Level) -and $script:W11PresetLevels[[string]$_.Level] -le $max)) } | ForEach-Object { $_.Id })
+        }
+        'list' {
+            $ids = @(@(Get-W11JsonVal $Section 'ids' @()) | ForEach-Object { [string]$_ })
+            return @(@($Items) | Where-Object { $_ -and $ids -contains $_.Id } | ForEach-Object { $_.Id })
+        }
+        default { return @(@($Items) | Where-Object { $_ -and $_.Default } | ForEach-Object { $_.Id }) }
+    }
+}
+
+function New-W11Preset {
+    <# Builds a preset (OrderedDictionary, ready for ConvertTo-W11Json) from the current choices. -Unattend is the
+       answer-file option hashtable; its Password is dropped. #>
+    param([string]$Name = 'Custom', [string]$EditionMode = 'All', [int[]]$Indexes, [string[]]$Apps, [string[]]$Tweaks,
+        [bool]$UnattendEnabled = $true, [hashtable]$Unattend, [hashtable]$Updates, [string]$Compression = 'Max', [bool]$ComponentCleanup = $false)
+    $u = Get-W11UnattendDefaults; if ($Unattend) { foreach ($k in @($Unattend.Keys)) { $u[$k] = $Unattend[$k] } }
+    $up = @{ Enabled = $false; Folder = ''; BootWim = $false; WinRE = $false; ResetBase = $false }
+    if ($Updates) { foreach ($k in @($Updates.Keys)) { $up[$k] = $Updates[$k] } }
+    $idx = @(); foreach ($i in @($Indexes)) { if ($i) { $idx += [int]$i } }
+    return (New-W11Ordered 'schema' $script:W11PresetSchema `
+            'name' (New-W11Ordered 'vi' $Name 'en' $Name 'zh-CN' $Name 'km' $Name) `
+            'editions' (New-W11Ordered 'mode' $EditionMode 'indexes' $idx) `
+            'apps' (New-W11Ordered 'select' 'list' 'ids' @(@($Apps) | Where-Object { $_ })) `
+            'tweaks' (New-W11Ordered 'select' 'list' 'ids' @(@($Tweaks) | Where-Object { $_ })) `
+            'unattend' (New-W11Ordered 'enabled' ([bool]$UnattendEnabled) 'localAccount' ([bool]$u.LocalAccount) 'userName' ([string]$u.UserName) `
+                'bypassNro' ([bool]$u.BypassNro) 'bypassChecks' ([bool]$u.BypassChecks) 'skipPrivacy' ([bool]$u.SkipPrivacy) `
+                'firstLogonCleanup' ([bool]$u.FirstLogonCleanup) 'locale' ([string]$u.Locale) 'keyboard' ([string]$u.Keyboard)) `
+            'updates' (New-W11Ordered 'enabled' ([bool]$up.Enabled) 'folder' ([string]$up.Folder) 'bootWim' ([bool]$up.BootWim) 'winre' ([bool]$up.WinRE) 'resetBase' ([bool]$up.ResetBase)) `
+            'image' (New-W11Ordered 'compression' $Compression 'componentCleanup' ([bool]$ComponentCleanup)))
+}
+
+function Save-W11Preset {
+    param([Parameter(Mandatory = $true)]$Preset, [Parameter(Mandatory = $true)][string]$Path)
+    $un = $Preset['unattend']
+    if ($un -and $un.Contains('password')) { $un.Remove('password') }
+    [IO.File]::WriteAllText($Path, (ConvertTo-W11Json $Preset) + "`r`n", (New-Object Text.UTF8Encoding $false))
+}
+
+function Get-W11PresetUnattend {
+    # preset unattend section -> answer-file option hashtable (no password)
+    param($Preset)
+    $o = Get-W11UnattendDefaults
+    $un = Get-W11JsonVal $Preset 'unattend'
+    if (-not $un) { return $o }
+    $o.LocalAccount = ((Get-W11JsonVal $un 'localAccount' $false) -eq $true)
+    $o.UserName = [string](Get-W11JsonVal $un 'userName' '')
+    $o.BypassNro = ((Get-W11JsonVal $un 'bypassNro' $true) -eq $true)
+    $o.BypassChecks = ((Get-W11JsonVal $un 'bypassChecks' $false) -eq $true)
+    $o.SkipPrivacy = ((Get-W11JsonVal $un 'skipPrivacy' $false) -eq $true)
+    $o.FirstLogonCleanup = ((Get-W11JsonVal $un 'firstLogonCleanup' $false) -eq $true)
+    $o.Locale = [string](Get-W11JsonVal $un 'locale' '')
+    $o.Keyboard = [string](Get-W11JsonVal $un 'keyboard' '')
+    return $o
+}
+
+function Resolve-W11PresetRef {
+    # preset name (built-in file name without .json, e.g. safe / aggressive) or a path -> full path
+    param([Parameter(Mandatory = $true)][string]$Preset)
+    if (Test-Path -LiteralPath $Preset -PathType Leaf) { return (Resolve-Path -LiteralPath $Preset).ProviderPath }
+    $p = Join-Path (Get-W11PresetDir) ($Preset.ToLowerInvariant() + '.json')
+    if (Test-Path -LiteralPath $p -PathType Leaf) { return $p }
+    throw "Preset not found / Không thấy mẫu cấu hình: $Preset"
+}
+#endregion
+
 #region ---------- image export / size checks ----------
 function Test-W11PathInside {
     # $true when $Path is $Parent itself or anything below it (case-insensitive, '\' and '/' are the same)
@@ -995,6 +2093,9 @@ function Get-W11WorkLayout {
         Tree = (Join-W11Path $WorkDir 'iso'); Mount = (Join-W11Path $WorkDir 'mount'); Scratch = (Join-W11Path $WorkDir 'scratch')
         WorkWim = (Join-W11Path $WorkDir 'install.work.wim'); NewImage = (Join-W11Path $WorkDir ('install.new.' + $ext))
         Marker = (Join-W11Path $WorkDir '.w11debloat-work'); Ext = $ext
+        MountBoot = (Join-W11Path $WorkDir 'mountboot'); BootWork = (Join-W11Path $WorkDir 'boot.work.wim'); BootNew = (Join-W11Path $WorkDir 'boot.new.wim')
+        MountRe = (Join-W11Path $WorkDir 'mountre'); WinReWork = (Join-W11Path $WorkDir 'winre.work.wim'); WinReDone = (Join-W11Path $WorkDir 'winre.new.wim')
+        WinReCacheDir = (Join-W11Path $WorkDir 'winrecache')
     })
 }
 
@@ -1003,7 +2104,7 @@ function Assert-W11WorkLayout {
     param([Parameter(Mandatory = $true)]$Layout, [string]$OutputIso)
     $t = $Layout.Tree
     $bad = @()
-    foreach ($n in @('Mount', 'Scratch', 'WorkWim', 'NewImage')) {
+    foreach ($n in @('Mount', 'Scratch', 'WorkWim', 'NewImage', 'MountBoot', 'BootWork', 'BootNew', 'MountRe', 'WinReWork', 'WinReDone', 'WinReCacheDir')) {
         $p = $Layout.$n
         if ((Test-W11PathInside $p $t) -or (Test-W11PathInside $t $p)) { $bad += "$n=$p" }
     }
@@ -1077,9 +2178,12 @@ function Clear-W11TreeTemp {
 #endregion
 
 #region ---------- work folder ownership / cleanup ----------
-$script:W11WorkFiles = @('.w11debloat-work', 'install.work.wim', 'install.new.wim', 'install.new.esd', 'install.wim', 'install.esd')
+$script:W11WorkFiles = @('.w11debloat-work', 'install.work.wim', 'install.new.wim', 'install.new.esd', 'install.wim', 'install.esd',
+    'boot.work.wim', 'boot.new.wim', 'winre.work.wim', 'winre.new.wim')
 $script:W11IsoRootNames = @('boot', 'efi', 'sources', 'support', 'setup.exe', 'autorun.inf', 'bootmgr', 'bootmgr.efi', 'autounattend.xml', '[boot]')
 $script:W11ImageRootNames = @('windows', 'program files', 'program files (x86)', 'programdata', 'users', 'perflogs', 'recovery', '$recycle.bin', '$windows.~bt', '$windows.~ws', 'system volume information', 'documents and settings', 'config.msi', 'msocache', 'inetpub', 'program files (arm)')
+# boot.wim (Windows Setup) and WinRE images also have sources\ and setup.exe at their root
+$script:W11BootRootNames = @('windows', 'program files', 'program files (x86)', 'programdata', 'users', 'sources', 'setup.exe', 'recovery', 'program files (arm)', '$recycle.bin', 'system volume information')
 
 function Get-W11LocalText {
     <# Engine texts are bilingual 'English / Tiếng Việt' (the log keeps both). The GUI shows one language:
@@ -1115,6 +2219,11 @@ function Test-W11KnownWorkItem {
         $names = $null
         if ($n -eq 'iso') { $names = $script:W11IsoRootNames }
         elseif ($n -eq 'mount') { $names = $script:W11ImageRootNames }
+        elseif ($n -eq 'mountboot' -or $n -eq 'mountre') { $names = $script:W11BootRootNames }
+        elseif ($n -eq 'winrecache') {
+            foreach ($c in @(Get-ChildItem -LiteralPath $Item.FullName -Force -ErrorAction SilentlyContinue)) { if ($c.PSIsContainer -or $c.Name -notlike '*.wim') { return $false } }
+            return $true
+        }
         else { return $false }
         foreach ($c in @(Get-ChildItem -LiteralPath $Item.FullName -Force -ErrorAction SilentlyContinue)) {
             if ($names -notcontains $c.Name.ToLower()) { return $false }
@@ -1200,9 +2309,11 @@ function Clear-W11WorkDir {
     if ($dismOk) {
         $dirs = @()
         foreach ($m in @(Get-W11MountedImages)) { if (Test-W11PathInside $m $WorkDir) { $dirs += $m } }
-        if ((Test-Path -LiteralPath $MountDir -PathType Container) -and @(Get-ChildItem -LiteralPath $MountDir -Force -ErrorAction SilentlyContinue).Count -gt 0) {
-            $known = $false; foreach ($d in $dirs) { if ((Test-W11PathInside $d $MountDir) -and (Test-W11PathInside $MountDir $d)) { $known = $true } }
-            if (-not $known) { $dirs += $MountDir }
+        foreach ($md in @((Join-W11Path $WorkDir 'mountre'), (Join-W11Path $WorkDir 'mountboot'), $MountDir)) {
+            if ((Test-Path -LiteralPath $md -PathType Container) -and @(Get-ChildItem -LiteralPath $md -Force -ErrorAction SilentlyContinue).Count -gt 0) {
+                $known = $false; foreach ($d in $dirs) { if ((Test-W11PathInside $d $md) -and (Test-W11PathInside $md $d)) { $known = $true } }
+                if (-not $known) { $dirs += $md }
+            }
         }
         foreach ($d in $dirs) {
             Write-W11Log -Level WARN -En "  Image still mounted at $d - discarding (dism /Unmount-Image /Discard)..." -Vi "  Image còn mount ở $d - đang huỷ mount..."
@@ -1243,10 +2354,50 @@ function Invoke-Win11Debloat {
         [string]$LogPath,
         [bool]$KeepWorkDir = $false,
         [ValidateSet('NewFolder', 'Fail')][string]$WorkDirConflict = 'NewFolder',   # work folder with foreign files: use <dir>_2 or stop
+        [hashtable]$UnattendOptions,    # generated answer file options (see New-W11UnattendXml); ignored with -AutounattendPath
+        [string]$UpdatesPath,           # folder with .msu / .cab updates to integrate (SSU, LCU, .NET, Safe OS)
+        [bool]$UpdateBootWim = $false,  # also add SSU + LCU to boot.wim
+        [bool]$UpdateWinRE = $false,    # also add SSU + Safe OS update to WinRE (Winre.wim inside each edition)
+        [bool]$ResetBase = $false,      # /StartComponentCleanup /ResetBase after updating (smaller, updates can no longer be removed)
+        [string]$Preset,                # preset name (safe, aggressive) or .json path; explicit parameters win
         [hashtable]$Sync
     )
     $ErrorActionPreference = 'Stop'
     if ($Sync) { $script:W11D.Sync = $Sync }
+    # ---- preset: fills every option that was not given explicitly ----
+    $presetData = $null
+    if ($Preset) {
+        $presetFile = Resolve-W11PresetRef $Preset
+        $presetData = Read-W11Preset -Path $presetFile
+        $bp = $PSBoundParameters
+        $ed = Get-W11JsonVal $presetData 'editions'
+        if ($ed -and -not $bp.ContainsKey('EditionMode')) { $EditionMode = [string](Get-W11JsonVal $ed 'mode' 'All') }
+        if ($ed -and -not $bp.ContainsKey('Indexes') -and @(Get-W11JsonVal $ed 'indexes' @()).Count) { $Indexes = @(@(Get-W11JsonVal $ed 'indexes' @()) | ForEach-Object { [int]$_ }) }
+        $im = Get-W11JsonVal $presetData 'image'
+        if ($im -and -not $bp.ContainsKey('Compression')) { $Compression = [string](Get-W11JsonVal $im 'compression' 'Max') }
+        if ($im -and -not $bp.ContainsKey('ComponentCleanup')) { $ComponentCleanup = ((Get-W11JsonVal $im 'componentCleanup' $false) -eq $true) }
+        $un = Get-W11JsonVal $presetData 'unattend'
+        if ($un -and -not $bp.ContainsKey('Autounattend')) { $Autounattend = ((Get-W11JsonVal $un 'enabled' $true) -eq $true) }
+        if ($un -and -not $bp.ContainsKey('UnattendOptions')) { $UnattendOptions = Get-W11PresetUnattend $presetData }
+        $upd = Get-W11JsonVal $presetData 'updates'
+        if ($upd -and (Get-W11JsonVal $upd 'enabled' $false) -eq $true) {
+            if (-not $bp.ContainsKey('UpdatesPath') -and [string](Get-W11JsonVal $upd 'folder' '')) { $UpdatesPath = [string](Get-W11JsonVal $upd 'folder' '') }
+            if (-not $bp.ContainsKey('UpdateBootWim')) { $UpdateBootWim = ((Get-W11JsonVal $upd 'bootWim' $false) -eq $true) }
+            if (-not $bp.ContainsKey('UpdateWinRE')) { $UpdateWinRE = ((Get-W11JsonVal $upd 'winre' $false) -eq $true) }
+            if (-not $bp.ContainsKey('ResetBase')) { $ResetBase = ((Get-W11JsonVal $upd 'resetBase' $false) -eq $true) }
+        }
+    }
+    $customUnattend = [bool]$AutounattendPath
+    $uo = Get-W11UnattendDefaults
+    if ($UnattendOptions) { foreach ($k in @($UnattendOptions.Keys)) { $uo[$k] = $UnattendOptions[$k] } }
+    if ($Autounattend -and -not $customUnattend -and $uo.LocalAccount -and -not (Test-W11LocalAccountName ([string]$uo.UserName))) {
+        throw "Invalid local account name / Tên tài khoản không hợp lệ: '$($uo.UserName)'"
+    }
+    if ($UpdatesPath) {
+        $p = Resolve-W11FullPath $UpdatesPath
+        if (-not $p -or -not (Test-Path -LiteralPath $p -PathType Container)) { throw "Updates folder not found / Không thấy thư mục bản cập nhật: '$UpdatesPath'" }
+        $UpdatesPath = $p
+    }
     # every path is cleaned (quotes, spaces, invisible characters) and made absolute with Windows rules;
     # the output folder is only created when missing and never through New-Item on a drive root
     # (New-Item -Force 'D:\' fails with "The path is not of a legal form" on Windows PowerShell 5.1)
@@ -1274,7 +2425,6 @@ function Invoke-Win11Debloat {
     New-W11Directory $outDir
     if (-not $LogPath) { $LogPath = Join-W11Path $outDir ('WinDebloat_{0}.log' -f (Get-Date -Format 'yyyyMMdd_HHmmss')) }
     $script:W11D.LogPath = $LogPath
-    if (-not $AutounattendPath) { $AutounattendPath = Join-Path $script:W11Root 'autounattend.xml' }
 
     $cfg = Get-W11Config -Path $ConfigPath
     $userApps = $RemoveApps; $userTweaks = $Tweaks
@@ -1284,8 +2434,12 @@ function Invoke-Win11Debloat {
     $planFor = {
         param($o, [int]$b = 0)
         $script:__prof = Get-W11Profile -Config $cfg -Os $o -Build $b
-        $a = $userApps; if ($null -eq $a) { $a = @($script:__prof.Apps | Where-Object { $_.Default } | ForEach-Object { $_.Id }) }
-        $t = $userTweaks; if ($null -eq $t) { $t = @($script:__prof.Tweaks | Where-Object { $_.Default } | ForEach-Object { $_.Id }) }
+        $a = $userApps
+        if ($null -eq $a -and $presetData) { $a = @(Resolve-W11PresetItems (Get-W11JsonVal $presetData 'apps') @($script:__prof.Apps)) }
+        if ($null -eq $a) { $a = @($script:__prof.Apps | Where-Object { $_.Default } | ForEach-Object { $_.Id }) }
+        $t = $userTweaks
+        if ($null -eq $t -and $presetData) { $t = @(Resolve-W11PresetItems (Get-W11JsonVal $presetData 'tweaks') @($script:__prof.Tweaks)) }
+        if ($null -eq $t) { $t = @($script:__prof.Tweaks | Where-Object { $_.Default } | ForEach-Object { $_.Id }) }
         # an explicitly chosen tweak that does not apply to this build is skipped (and logged)
         $script:__skippedTweaks = @($script:__prof.SkippedTweaks | Where-Object { $t -contains $_.Id } | ForEach-Object { $_.Id })
         $t = @($t | Where-Object { $script:__skippedTweaks -notcontains $_ })
@@ -1313,6 +2467,8 @@ function Invoke-Win11Debloat {
     Write-W11Log -En "Work dir state: $wdState" -Vi 'Trạng thái thư mục tạm'
     Write-W11Log -En ("Layout    : tree=$tree mount=$mountDir scratch=$scratch image=$newImage")
     Write-W11Log -En ("Compression: {0} (install.{1})" -f $Compression, $lay.Ext) -Vi ('Kiểu nén: ' + $Compression)
+    if ($presetData) { Write-W11Log -En "Preset: $(Get-W11LangText (Get-W11JsonVal $presetData 'name') 'en') ($presetFile)" -Vi ('Mẫu cấu hình: ' + (Get-W11LangText (Get-W11JsonVal $presetData 'name') 'vi')) }
+    Write-W11Log -En "Data: apps/tweaks from $($cfg.DataSource)"
     if ($DryRun) { Write-W11Log -Level DRY -En 'DRY RUN: nothing will be modified.' -Vi 'CHẠY THỬ: không thay đổi gì.' }
 
     try {
@@ -1320,7 +2476,19 @@ function Invoke-Win11Debloat {
         if (-not (Test-W11Admin)) { throw 'Administrator rights required / Cần quyền Administrator' }
         if (-not (Test-Path -LiteralPath $IsoPath)) { throw "ISO not found / Không thấy ISO: $IsoPath" }
         if ($OutputIso -eq $IsoPath) { throw 'Output ISO must differ from source ISO / ISO đầu ra phải khác ISO nguồn' }
-        if ($Autounattend -and -not (Test-Path -LiteralPath $AutounattendPath)) { throw "autounattend.xml not found: $AutounattendPath" }
+        if ($Autounattend -and $customUnattend -and -not (Test-Path -LiteralPath $AutounattendPath)) { throw "autounattend.xml not found: $AutounattendPath" }
+        $updates = @()
+        if ($UpdatesPath) {
+            Write-W11Log -Level STEP -En "Update packages in $UpdatesPath :" -Vi 'Các gói cập nhật sẽ tích hợp:'
+            $updates = @(Get-W11UpdatePackages -Path $UpdatesPath)
+            foreach ($u in $updates) { $cmb = ''; if ($u.Combined) { $cmb = ' (SSU+LCU)' }; Write-W11Log -En ('  {0,-6} {1}{2}  {3}' -f $u.Kind, $u.RelativePath, $cmb, (Format-W11Size $u.Size)) }
+            if ($updates.Count -eq 0) { Write-W11Log -Level WARN -En '  no .msu / .cab file found - nothing to integrate' -Vi '  không có file .msu / .cab nào - bỏ qua bước cập nhật' }
+            if ($ResetBase) { Write-W11Log -Level WARN -En 'ResetBase: integrated updates can no longer be uninstalled from the installed Windows.' -Vi 'ResetBase: các bản cập nhật đã tích hợp sẽ không gỡ được trên Windows sau khi cài.' }
+        }
+        $installUpdates = @(Select-W11UpdatesFor $updates 'Install')
+        $bootUpdates = @(); if ($UpdateBootWim) { $bootUpdates = @(Select-W11UpdatesFor $updates 'Boot') }
+        $doWinRe = ($UpdateWinRE -and @(Select-W11UpdatesFor $updates 'WinRE').Count -gt 0)
+        $winReCache = @{}
 
         $free = Get-W11FreeGB -Path $WorkDir
         Write-W11Log -En "Free space on work drive: $free GB (need >= $MinFreeGB GB)" -Vi "Dung lượng trống: $free GB (cần >= $MinFreeGB GB)"
@@ -1341,6 +2509,7 @@ function Invoke-Win11Debloat {
             Write-W11Log -Level DRY -En 'Windows 7: dry run cannot look inside the ISO without extracting it (7-Zip). Plan only.' -Vi 'Win7: chạy thử không xem được bên trong ISO, chỉ in kế hoạch.'
             Write-W11Log -En ('Apps to remove: ' + ($RemoveApps -join ', '))
             Invoke-W11Tweaks -TweakDefs $tweakDefs -DryRun
+            if ($installUpdates.Count) { $null = Add-W11UpdatePackages -MountDir $mountDir -Packages $installUpdates -Tag 'install.wim' -DryRun }
             return $result
         }
 
@@ -1418,7 +2587,14 @@ function Invoke-Win11Debloat {
                 Write-W11Log -Level DRY -En 'install.esd will be converted to WIM first.' -Vi 'install.esd sẽ được chuyển sang WIM trước.'
             }
             Invoke-W11Tweaks -TweakDefs $tweakDefs -DryRun
-            if ($Autounattend) { Write-W11Log -Level DRY -En "Would add autounattend.xml (UILanguage=$lang, arch=$archName, $(Get-W11OsLabel $os))" -Vi 'Sẽ thêm autounattend.xml' }
+            if ($installUpdates.Count) { $null = Add-W11UpdatePackages -MountDir $mountDir -Packages $installUpdates -Tag 'install.wim' -DryRun }
+            if ($doWinRe) { Update-W11WinRE -MountDir $mountDir -Layout $lay -Packages $updates -DryRun }
+            Update-W11BootWim -Tree $tree -Layout $lay -Packages $bootUpdates -BootTweaks @($tweakDefs | Where-Object { $_.BootWim }) -DryRun
+            if ($ComponentCleanup -or $ResetBase) { Write-W11Log -Level DRY -En "Would run /StartComponentCleanup$(if ($ResetBase) { ' /ResetBase' })" -Vi 'Sẽ dọn component store' }
+            if ($Autounattend) {
+                Write-W11Log -Level DRY -En "Would add autounattend.xml (UILanguage=$lang, arch=$archName, $(Get-W11OsLabel $os))" -Vi 'Sẽ thêm autounattend.xml'
+                if (-not $customUnattend) { $null = New-W11UnattendXml -Options $uo -Os $os -Arch $archName -Language $lang }
+            }
             Write-W11Log -Level DRY -En "Would build $OutputIso with oscdimg (BIOS+UEFI)." -Vi 'Sẽ tạo ISO bằng oscdimg.'
             Write-W11Log -Level OK -En 'Dry run finished.' -Vi 'Chạy thử xong.'
             $success = $true
@@ -1472,23 +2648,28 @@ function Invoke-Win11Debloat {
             $null = Invoke-W11Dism ('/Mount-Image /ImageFile:{0} /Index:{1} /MountDir:{2}' -f (ConvertTo-W11Arg $workWim), $t.WorkIndex, (ConvertTo-W11Arg $mountDir)) -Quiet -ProgressBase $base -ProgressSpan ($span * 0.2) -ProgressText "$tag Mount"
             $imageMounted = $true
             $kept = Join-W11Path $outDir ('kept_index{0}.txt' -f $t.WorkIndex)
-            Set-W11Progress ($base + $span * 0.2) "$tag Removing apps / Gỡ app"
+            if ($installUpdates.Count) {
+                Write-W11Log -En "  Integrating $($installUpdates.Count) update package(s)..." -Vi "  Đang tích hợp $($installUpdates.Count) gói cập nhật..."
+                $ur = Add-W11UpdatePackages -MountDir $mountDir -Packages $installUpdates -ScratchDir $scratch -Tag $tag -ProgressBase ($base + $span * 0.2) -ProgressSpan ($span * 0.3)
+                Write-W11Log -Level OK -En "  updates: $($ur.Added) added, $($ur.Skipped) not applicable, $($ur.Failed) failed" -Vi "  cập nhật: $($ur.Added) đã thêm, $($ur.Skipped) không áp dụng, $($ur.Failed) lỗi"
+            }
+            if ($doWinRe) { Update-W11WinRE -MountDir $mountDir -Layout $lay -Packages $updates -Cache $winReCache -Cleanup:($ComponentCleanup -or $ResetBase) }
+            Set-W11Progress ($base + $span * 0.5) "$tag Removing apps / Gỡ app"
+            $hives = @(Get-W11TweakHives $tweakDefs)
             if ($script:W11D.DismCanAppx) {
                 Remove-W11AppsDism -MountDir $mountDir -Patterns $RemoveApps -Protected $cfgProtected -OutOfRange $outOfRange -KeptListPath $kept
-                Mount-W11Hives -MountDir $mountDir
+                Mount-W11Hives -MountDir $mountDir -Hives $hives
                 try { Invoke-W11Tweaks -TweakDefs $tweakDefs } finally { Dismount-W11Hives }
             } else {
-                Mount-W11Hives -MountDir $mountDir
+                Mount-W11Hives -MountDir $mountDir -Hives $hives
                 try {
                     Remove-W11AppsManual -MountDir $mountDir -Patterns $RemoveApps -Protected $cfgProtected -KeptListPath $kept
                     Invoke-W11Tweaks -TweakDefs $tweakDefs
                 } finally { Dismount-W11Hives }
             }
             Assert-W11NotCancelled
-            if ($ComponentCleanup) {
-                Write-W11Log -En '  /Cleanup-Image /StartComponentCleanup (slow)...' -Vi '  Dọn component store (chậm)...'
-                $r = Invoke-W11Dism ('/Image:{0} /ScratchDir:{1} /Cleanup-Image /StartComponentCleanup' -f (ConvertTo-W11Arg $mountDir), (ConvertTo-W11Arg $scratch)) -Quiet -NoThrow -ProgressBase ($base + $span * 0.5) -ProgressSpan ($span * 0.3) -ProgressText "$tag Component cleanup"
-                if ($r.ExitCode -ne 0) { Write-W11Log -Level WARN -En "  Component cleanup failed (exit $($r.ExitCode)), continuing" -Vi '  Dọn component lỗi, bỏ qua' }
+            if ($ComponentCleanup -or $ResetBase) {
+                Invoke-W11ComponentCleanup -MountDir $mountDir -ScratchDir $scratch -ResetBase:$ResetBase -Tag $tag -ProgressBase ($base + $span * 0.6) -ProgressSpan ($span * 0.2)
             }
             Write-W11Log -En '  Committing image...' -Vi '  Đang lưu image...'
             $null = Invoke-W11Dism ('/Unmount-Image /MountDir:{0} /Commit' -f (ConvertTo-W11Arg $mountDir)) -Quiet -ProgressBase ($base + $span * 0.8) -ProgressSpan ($span * 0.2) -ProgressText "$tag Commit"
@@ -1535,10 +2716,18 @@ function Invoke-Win11Debloat {
             Write-W11Log -Level WARN -En ('The new image is {0} larger than the source one. Each serviced edition stores its own changed files; keep fewer editions (Home + Pro) or use ESD compression.' -f (Format-W11Size ($newLen - $srcImgLen))) -Vi 'Image mới lớn hơn image gốc: mỗi phiên bản đã sửa lưu riêng phần thay đổi; hãy giữ ít phiên bản hơn (Home + Pro) hoặc chọn nén ESD.'
         }
 
+        # ---- boot.wim: setup tweaks (LabConfig) and SSU + LCU ----
+        Update-W11BootWim -Tree $tree -Layout $lay -Packages $bootUpdates -BootTweaks @($tweakDefs | Where-Object { $_.BootWim })
+
         # ---- autounattend ----
         if ($Autounattend) {
             Write-W11Log -Level STEP -En 'Adding autounattend.xml to ISO root...' -Vi 'Thêm autounattend.xml vào gốc ISO...'
-            Write-W11Autounattend -Template $AutounattendPath -Destination (Join-W11Path $tree 'autounattend.xml') -Language $lang -Arch $archName -Os $os
+            if ($customUnattend) { Write-W11Autounattend -Template $AutounattendPath -Destination (Join-W11Path $tree 'autounattend.xml') -Language $lang -Arch $archName -Os $os }
+            else {
+                $opt = @{}; foreach ($k in @($uo.Keys)) { $opt[$k] = $uo[$k] }
+                $opt.FirstLogonApps = @($RemoveApps)
+                Write-W11UnattendFiles -Tree $tree -Options $opt -Os $os -Arch $archName -Language $lang -Protected $cfgProtected
+            }
         }
 
         # ---- build ISO ----

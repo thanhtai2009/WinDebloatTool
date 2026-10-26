@@ -2,7 +2,9 @@
 # Flags syntax/cmdlets that do not exist in Windows PowerShell 2.0 (Windows 7 SP1 in-box).
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 # Win8+ cmdlets are allowed only where guarded by Get-Command checks (Open-W11Iso / Close-W11Iso / Get-W11IsoEditions)
-$guarded = @{ 'Mount-DiskImage' = 1; 'Dismount-DiskImage' = 1; 'Get-Volume' = 1 }
+$isoFns = @('Open-W11Iso', 'Close-W11Iso', 'Get-W11IsoEditions')
+# ConvertFrom-Json only inside ConvertFrom-W11Json, which checks Get-Command first and falls back to JavaScriptSerializer / own parser
+$guarded = @{ 'Mount-DiskImage' = $isoFns; 'Dismount-DiskImage' = $isoFns; 'Get-Volume' = $isoFns; 'ConvertFrom-Json' = @('ConvertFrom-W11Json') }
 $ps3Cmdlets = @('Invoke-WebRequest', 'Invoke-RestMethod', 'ConvertFrom-Json', 'ConvertTo-Json', 'Get-FileHash', 'Import-PowerShellDataFile',
     'Expand-Archive', 'Compress-Archive', 'Get-CimInstance', 'New-TemporaryFile', 'Unblock-File', 'Get-WindowsImage', 'Mount-WindowsImage',
     'Dismount-WindowsImage', 'Export-WindowsImage', 'Get-AppxProvisionedPackage', 'Remove-AppxProvisionedPackage', 'Repair-WindowsImage',
@@ -35,7 +37,7 @@ Get-ChildItem -Path $root -Recurse -Include *.ps1 | Where-Object { $_.FullName -
                 if ($name -and ($ps3Cmdlets -contains $name)) {
                     $fn = $n.Parent; while ($fn -and $fn.GetType().Name -ne 'FunctionDefinitionAst') { $fn = $fn.Parent }
                     $fname = ''; if ($fn) { $fname = $fn.Name }
-                    if (-not ($guarded.ContainsKey($name) -and @('Open-W11Iso', 'Close-W11Iso', 'Get-W11IsoEditions') -contains $fname)) { Report $file $n "$name is not in PS2/Win7" }
+                    if (-not ($guarded.ContainsKey($name) -and @($guarded[$name]) -contains $fname)) { Report $file $n "$name is not in PS2/Win7" }
                 }
                 foreach ($el in $n.CommandElements) {
                     if ($el.GetType().Name -eq 'CommandParameterAst' -and ($ps3Params -contains $el.ParameterName) -and $name -match '^(Get-Content|Set-Content|Out-File|Get-ChildItem|ConvertTo-Json)$') { Report $file $el "-$($el.ParameterName) on $name is PS3+" }

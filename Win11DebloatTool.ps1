@@ -18,7 +18,21 @@ param(
     [switch]$Check,
     [switch]$KeepWorkDir,
     [int]$MinFreeGB = 25,
-    [string]$OscdimgPath
+    [string]$OscdimgPath,
+    [string]$Preset,                # safe | aggressive | path of a preset .json (explicit parameters win)
+    [string]$UpdatesPath,           # folder with .msu / .cab updates (SSU, LCU, .NET, Safe OS)
+    [switch]$UpdateBootWim,
+    [switch]$UpdateWinRE,
+    [switch]$ResetBase,
+    [string]$LocalUser,             # answer file: create this local administrator account
+    [string]$LocalPassword,         # plain text; without it the password is asked (empty = no password)
+    [switch]$NoBypassNro,
+    [switch]$BypassChecks,          # Windows 11: skip TPM / Secure Boot / RAM checks in setup
+    [switch]$SkipPrivacy,
+    [switch]$FirstLogonCleanup,
+    [string]$Locale,                # e.g. vi-VN
+    [string]$Keyboard,              # e.g. 0409:00000409 or en-US
+    [string]$AutounattendPath       # your own answer file instead of the generated one
 )
 $target = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'WinDebloatTool.ps1'
 if ($WhatIfPreference) { $PSBoundParameters['DryRun'] = [switch]$true; [void]$PSBoundParameters.Remove('WhatIf') }

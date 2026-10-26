@@ -50,7 +50,7 @@ Assert (-not ($script:dismCalls | Where-Object { $_ -match 'WindowsStore' })) 'S
 # --- tweaks (mock reg) ---
 $script:regCalls = @()
 function Invoke-W11Reg { param([string]$Arguments) $script:regCalls += $Arguments; if ($Arguments -like 'query*') { return 0 }; return 0 }
-Invoke-W11Tweaks -TweakDefs @($p11.Tweaks)
+Invoke-W11Tweaks -TweakDefs @($p11.Tweaks | Where-Object { $_.Default })   # the 1.0 defaults: same registry writes as before
 $adds = @($script:regCalls | Where-Object { $_ -like 'add *' })
 $dels = @($script:regCalls | Where-Object { $_ -like 'delete *' })
 Assert ($adds.Count -eq 28) "28 registry values written (got $($adds.Count))"
@@ -618,9 +618,9 @@ $wmLit = "'Designed by TaiNT13@PNC STG'"
 $langAll = (@($codes | ForEach-Object { [IO.File]::ReadAllText((Join-Path $langDir "$_.psd1")) }) -join "`n")
 Assert ($guiSrc.Contains('$script:W11Watermark = ' + $wmLit) -and $guiSrc -match "lblWatermark\.Dock = 'Bottom'" -and $guiSrc -match 'lblWatermark\.Text = \$script:W11Watermark' -and -not $langAll.Contains('TaiNT13')) 'watermark: exact text, docked bottom, same in every language (not in lang files)'
 $cfgT = Get-W11Config
-$tIds = @(@($cfgT.Tweaks) + @($cfgT.Win10Tweaks) | ForEach-Object { $_.Id } | Sort-Object -Unique)
-$noTw = @($tIds | Where-Object { $enKeys -notcontains "tweak.$_" })
-Assert ($tIds.Count -ge 10 -and $noTw.Count -eq 0) "every tweak Id has a translated name (missing: $($noTw -join ','))"
+$tAll = @(@($cfgT.Tweaks) + @($cfgT.Win10Tweaks))
+$noTw = @($tAll | Where-Object { -not (Test-W11LangTable $_.Names) -or -not (Test-W11LangTable $_.Descriptions) } | ForEach-Object { $_.Id })
+Assert ($tAll.Count -ge 20 -and $noTw.Count -eq 0) "every tweak has a name and a description in vi, en, zh-CN, km (data\tweaks.json) (missing: $($noTw -join ','))"
 $vnBad = @($enKeys | Where-Object { [string]$tabs['vi'][$_] -match ' / ' -and [string]$tabs['en'][$_] -notmatch ' / ' })
 Assert ($vnBad.Count -eq 0) "no leftover 'English / Việt' pairs in vi.psd1 ($($vnBad -join ','))"
 
@@ -632,7 +632,7 @@ Assert ((T 'btn.cancel') -eq 'Cancel' -and (T 'no.such.key') -eq 'no.such.key') 
 Set-W11Language 'xx'
 Assert ($script:UiLang -eq 'vi' -and (T 'btn.start') -eq 'BẮT ĐẦU') 'unknown language code -> Vietnamese (default)'
 Set-W11Language 'zh-CN'
-Assert ((T 'btn.start') -eq '开始' -and (Get-W11TweakText @{ Id = 'CopilotOff'; Name = 'x' }) -match 'Copilot' -and (Get-W11TweakText @{ Id = 'NoSuchTweak'; Name = 'Fallback' }) -eq 'Fallback') 'Chinese texts + tweak name falls back to config'
+Assert ((T 'btn.start') -eq '开始' -and (Get-W11TweakText @($cfgT.Tweaks | Where-Object { $_.Id -eq 'CopilotOff' })[0]) -match '^关闭 Copilot' -and (Get-W11TweakText @($cfgT.Tweaks | Where-Object { $_.Id -eq 'LabConfigBypass' })[0]) -match '\[激进\]$' -and (Get-W11TweakText @{ Id = 'NoSuchTweak'; Name = 'Fallback' }) -eq 'Fallback') 'Chinese texts + tweak name falls back to config'
 Set-W11Language 'en'
 Assert ((Get-W11AppText @{ Id = 'X.Y'; Name = 'Clipchamp (optional)' }) -eq 'Clipchamp (optional)   [X.Y]') 'app text: English stays as in config'
 Set-W11Language 'vi'
@@ -651,7 +651,7 @@ public class W11MockImg { public int Width = 16; }
 public class W11MockCtl {
     public W11MockImg Image;
     public string Name = ""; public string Text = ""; public W11MockFont Font = new W11MockFont();
-    public int Left, Top, Width = 10, Height = 10; public int DropDownWidth, HorizontalExtent;
+    public int Left, Top, Width = 10, Height = 10; public int DropDownWidth, HorizontalExtent; public bool AutoScroll;
     public ArrayList Items = new ArrayList(); public W11MockCtl Parent;
     public int Right { get { return Left + Width; } } public int Bottom { get { return Top + Height; } }
     public void SetBounds(int x, int y, int w, int h) { Left = x; Top = y; Width = w; Height = h; }
@@ -668,21 +668,35 @@ $gSrcKeys = @{
     grpApps = 'grp.apps'; clbApps = ''; btnAppDef = 'btn.appDef'; btnAppAll = 'btn.appAll'; btnAppNone = 'btn.appNone'; note = 'lbl.keptNote'
     grpOptions = 'grp.options'; lblEditions = 'lbl.editions'; rbEdAll = 'rb.edAll'; rbEdHP = ''; rbEdCustom = 'rb.edIdx'; tbIdx = ''; btnEd = 'btn.listEditions'; lblTweaks = 'lbl.tweaks'
     clbTweaks = ''; chkUnattend = 'chk.unattend'; chkCleanup = 'chk.cleanup'; chkEsd = 'chk.esd'; chkDry = 'chk.dry'
+    tabOpts = ''; tpOptions = 'tab.options'; tpUnattend = 'tab.unattend'; tpUpdates = 'tab.updates'
+    chkLocalAcc = 'chk.localAcc'; lblUser = 'lbl.user'; tbUser = ''; lblPass = 'lbl.pass'; tbPass = ''; lblPassWarn = 'lbl.passWarn'; chkBypassNro = 'chk.bypassNro'
+    chkBypassChecks = 'chk.bypassChecks'; chkSkipPrivacy = 'chk.skipPrivacy'; chkFirstLogon = 'chk.firstLogon'; lblRegion = 'lbl.region'; cbRegion = 'item.askSetup'
+    lblKeyboard = 'lbl.keyboard'; cbKeyboard = 'item.kbRegion'; chkUpdates = 'chk.updates'; lblUpdFolder = 'lbl.updFolder'; tbUpd = ''; btnUpdBrowse = 'btn.browse'
+    btnUpdScan = 'btn.updScan'; lblUpdInfo = 'lbl.updNotScanned'; chkUpdBoot = 'chk.updBoot'; chkUpdWinre = 'chk.updWinre'; chkResetBase = 'chk.resetBase'; lblUpdNote = 'lbl.updNote'
+    grpPreset = 'grp.preset'; cbPreset = ''; btnPresetApply = 'btn.presetApply'; btnPresetLoad = 'btn.presetLoad'; btnPresetSave = 'btn.presetSave'; lblPresetDesc = ''
     grpOutput = 'grp.output'; tbOut = ''; btnOut = 'btn.saveAs'
     btnCheck = 'btn.check'; btnOsc = 'btn.osc'; btnStart = 'btn.start'; btnCancel = 'btn.cancel'; pb = ''; lblStatus = 'status.ready'; cbUiLang = ''; lnkLog = 'lnk.log'; tbLog = ''; lblWatermark = ''
 }
 $inner = @{
     grpSource = @('picMs', 'rbLocal', 'lblTargetOs', 'cbOs', 'lblOs', 'tbIso', 'btnIso', 'rbDl', 'lnkMs', 'btnFetch', 'lblVersion', 'cbRelease', 'lblArch', 'cbArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'lblAria2')
     grpApps = @('clbApps', 'btnAppDef', 'btnAppAll', 'btnAppNone', 'note')
-    grpOptions = @('lblEditions', 'rbEdAll', 'rbEdHP', 'rbEdCustom', 'tbIdx', 'btnEd', 'lblTweaks', 'clbTweaks', 'chkUnattend', 'chkCleanup', 'chkEsd', 'chkDry')
+    grpOptions = @('tabOpts')
+    grpPreset = @('cbPreset', 'btnPresetApply', 'btnPresetLoad', 'btnPresetSave', 'lblPresetDesc')
     grpOutput = @('tbOut', 'btnOut')
 }
-$top = @('grpSource', 'grpApps', 'grpOptions', 'grpOutput', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'pb', 'lblStatus', 'cbUiLang', 'picLog', 'lnkLog', 'tbLog')
-$oneLine = @('rbLocal', 'lblTargetOs', 'btnIso', 'rbDl', 'lnkMs', 'btnFetch', 'lblVersion', 'lblArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'btnAppDef', 'btnAppAll', 'btnAppNone', 'rbEdAll', 'rbEdCustom', 'btnEd', 'btnOut', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'lnkLog')
+# tab pages of section 3 (the answer-file and update pages scroll vertically: only the width must fit)
+$pages = @{
+    tpOptions = @('lblEditions', 'rbEdAll', 'rbEdHP', 'rbEdCustom', 'tbIdx', 'btnEd', 'lblTweaks', 'clbTweaks', 'chkCleanup', 'chkEsd', 'chkDry')
+    tpUnattend = @('chkUnattend', 'chkLocalAcc', 'lblUser', 'tbUser', 'lblPass', 'tbPass', 'lblPassWarn', 'chkBypassNro', 'chkBypassChecks', 'chkSkipPrivacy', 'chkFirstLogon', 'lblRegion', 'cbRegion', 'lblKeyboard', 'cbKeyboard')
+    tpUpdates = @('chkUpdates', 'lblUpdFolder', 'tbUpd', 'btnUpdBrowse', 'btnUpdScan', 'lblUpdInfo', 'chkUpdBoot', 'chkUpdWinre', 'chkResetBase', 'lblUpdNote')
+}
+$top = @('grpSource', 'grpApps', 'grpOptions', 'grpPreset', 'grpOutput', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'pb', 'lblStatus', 'cbUiLang', 'picLog', 'lnkLog', 'tbLog')
+$oneLine = @('rbLocal', 'lblTargetOs', 'btnIso', 'rbDl', 'lnkMs', 'btnFetch', 'lblVersion', 'lblArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'btnAppDef', 'btnAppAll', 'btnAppNone', 'rbEdAll', 'rbEdCustom', 'btnEd', 'btnOut', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'lnkLog',
+    'btnPresetApply', 'btnPresetLoad', 'btnPresetSave', 'lblUser', 'lblPass', 'lblRegion', 'lblKeyboard', 'lblUpdFolder', 'btnUpdBrowse', 'btnUpdScan')
 $saveUi = $script:ui; $layBad = @()
 foreach ($c in $codes) {
     Set-W11Language $c
-    foreach ($sz in @(@(984, 841), @(1904, 1001), @(1264, 921))) {
+    foreach ($sz in @(@(984, 901), @(1904, 1001), @(1264, 961))) {
         $mf = New-Object W11MockForm; $mf.ClientSize.Width = $sz[0]; $mf.ClientSize.Height = $sz[1]
         $mu = @{ form = $mf }
         foreach ($k in $gSrcKeys.Keys) { $o = New-Object W11MockCtl; $o.Name = $k; if ($gSrcKeys[$k]) { $o.Text = T $gSrcKeys[$k] '' }; $mu[$k] = $o }
@@ -694,7 +708,7 @@ foreach ($c in $codes) {
         $mu.lblWatermark.Top = $sz[1] - $mu.lblWatermark.Height
         $tag = "$c $($sz[0])x$($sz[1])"
         foreach ($k in $oneLine) { $need = Get-W11TextWidth $mu[$k].Text $null; if ($mu[$k].Image) { $need += 22 }; if ($need -gt $mu[$k].Width) { $layBad += "$tag ${k}: text wider than control" } }
-        $sets = @(, $top) + @($inner.Keys | ForEach-Object { , $inner[$_] })
+        $sets = @(, $top) + @($inner.Keys | ForEach-Object { , $inner[$_] }) + @($pages.Keys | ForEach-Object { , $pages[$_] })
         foreach ($set in $sets) {
             for ($i = 0; $i -lt $set.Count; $i++) {
                 $a = $mu[$set[$i]]
@@ -706,8 +720,18 @@ foreach ($c in $codes) {
             }
         }
         foreach ($g in $inner.Keys) { foreach ($k in $inner[$g]) { $o = $mu[$k]; if ($o.Left -lt 0 -or $o.Top -lt 14 -or $o.Right -gt $mu[$g].Width -or $o.Bottom -gt $mu[$g].Height) { $layBad += "$tag $k outside $g" } } }
+        $pgW = $mu.tabOpts.Width - 8; $pgH = $mu.tabOpts.Height - [Math]::Max(23, $mf.Font.Height + 8) - 10
+        foreach ($g in $pages.Keys) {
+            foreach ($k in $pages[$g]) {
+                $o = $mu[$k]
+                if ($o.Left -lt 0 -or $o.Top -lt 0 -or $o.Right -gt $pgW) { $layBad += "$tag $k outside $g (width)" }
+                $scrolls = ($g -ne 'tpOptions' -or $mu.tpOptions.AutoScroll)
+                if (-not $scrolls -and $o.Bottom -gt $pgH) { $layBad += "$tag $k below $g" }
+                if ($scrolls -and $o.Right -gt $pgW - 18) { $layBad += "$tag $k under the scroll bar of $g" }
+            }
+        }
         foreach ($k in $top) { $o = $mu[$k]; if ($o.Left -lt 0 -or $o.Right -gt $sz[0] -or $o.Bottom -gt $mu.lblWatermark.Top) { $layBad += "$tag $k outside the window / under the watermark" } }
-        if ($mu.grpSource.Right -ne $sz[0] - 10 -or $mu.grpOptions.Right -ne $sz[0] - 10 -or $mu.grpOutput.Right -ne $sz[0] - 10 -or $mu.tbLog.Right -ne $sz[0] - 10 -or $mu.pb.Right -ne $sz[0] - 10) { $layBad += "$tag sections / progress / log do not reach the right edge" }
+        if ($mu.grpSource.Right -ne $sz[0] - 10 -or $mu.grpOptions.Right -ne $sz[0] - 10 -or $mu.grpPreset.Right -ne $sz[0] - 10 -or $mu.grpOutput.Right -ne $sz[0] - 10 -or $mu.tbLog.Right -ne $sz[0] - 10 -or $mu.pb.Right -ne $sz[0] - 10) { $layBad += "$tag sections / progress / log do not reach the right edge" }
         if ([Math]::Abs($mu.grpApps.Width / [double]($mu.grpApps.Width + $mu.grpOptions.Width) - 0.58) -gt 0.01) { $layBad += "$tag 2/3 width split" }
     }
 }
@@ -891,13 +915,13 @@ function Get-W11FreeGB { param([string]$Path) return 100 }
 function Find-W11Oscdimg { param([string]$Hint) return 'oscdimg.exe' }
 function Clear-W11StaleMount { param([string]$MountDir) }
 function Dismount-W11Hives { }
-function Mount-W11Hives { param([string]$MountDir) }
+function Mount-W11Hives { param([string]$MountDir, [string[]]$Hives, [switch]$BootImage) [void]$script:pCalls.Add(('hives ' + $MountDir + ' ' + (@($Hives) -join ',') + ' boot=' + [bool]$BootImage)) }
 function Open-W11Iso { param([string]$IsoPath, [string]$ExtractTo) return (New-W11Obj @{ Root = $script:pSrcRoot + '/'; Label = 'CCCOMA'; Mode = 'Mounted' }) }
 function Close-W11Iso { param($Iso, [string]$IsoPath) }
 function Select-W11Dism { param([string]$IsoSourcesDir) $script:W11D.Dism = 'dism.exe'; $script:W11D.DismCanAppx = $true; return (New-W11Obj @{ Path = 'dism.exe'; Kind = 'Host'; Version = '10.0.26100' }) }
 function Get-W11ImageInfo { param([string]$ImageFile) return @(1, 2, 3 | ForEach-Object { New-W11Obj @{ Index = $_; Name = "Windows 11 E$_"; EditionId = @('Core', 'Professional', 'Education')[$_ - 1]; DefaultLanguage = 'en-US'; Architecture = 'x64'; Build = 26300 } }) }
 function Remove-W11AppsDism { param($MountDir, $Patterns, $Protected, $OutOfRange, $KeptListPath, [switch]$DryRun) }
-function Invoke-W11Tweaks { param([object[]]$TweakDefs, [switch]$DryRun) }
+function Invoke-W11Tweaks { param([object[]]$TweakDefs, [switch]$DryRun, [switch]$Boot) [void]$script:pCalls.Add(('tweaks ' + (@($TweakDefs | ForEach-Object { $_.Id }) -join ',') + ' boot=' + [bool]$Boot)) }
 function Get-W11Sha256 { param([string]$Path) return 'AB' }
 function Invoke-W11Process { param([string]$FilePath, [string]$Arguments, [switch]$Quiet, [switch]$MergeStdErr, $ProgressBase, $ProgressSpan, $ProgressText)
     [void]$script:pCalls.Add("$FilePath $Arguments")
@@ -915,7 +939,7 @@ function Invoke-W11Dism { param([string]$Arguments, [switch]$Quiet, $ProgressBas
     [void]$script:pCalls.Add("dism $Arguments")
     if ($Arguments -match '/Get-MountedImageInfo') { $ml = New-Object Collections.ArrayList; foreach ($x in @($script:pMounted)) { [void]$ml.Add("Mount Dir : $x"); [void]$ml.Add('Image File : x.wim') }; return (New-W11Obj @{ ExitCode = 0; Lines = $ml }) }
     if ($Arguments -match '/DestinationImageFile:"([^"]+)"') { $fs = [IO.File]::Open($Matches[1], 'OpenOrCreate'); $fs.SetLength($fs.Length + $script:pExportLen); $fs.Close() }
-    if ($Arguments -match '/Unmount-Image .*/Commit') { $fs = [IO.File]::Open((Join-Path $script:pWork 'install.work.wim'), 'Open'); $fs.SetLength($fs.Length + 100); $fs.Close() }
+    if ($Arguments -match '/Unmount-Image .*/Commit' -and (Test-Path -LiteralPath (Join-Path $script:pWork 'install.work.wim'))) { $fs = [IO.File]::Open((Join-Path $script:pWork 'install.work.wim'), 'Open'); $fs.SetLength($fs.Length + 100); $fs.Close() }
     if ($Arguments -match '/SWMFile:"([^"]+)"') { $b = $Matches[1]; [IO.File]::WriteAllBytes($b, (New-Object byte[] 3)); [IO.File]::WriteAllBytes(($b -replace 'install\.swm$', 'install2.swm'), (New-Object byte[] 3)) }
     return (New-W11Obj @{ ExitCode = 0; Lines = (New-Object Collections.ArrayList) })
 }
@@ -936,6 +960,32 @@ foreach ($r in $runs) {
     $pRes[$r.Name] = New-W11Obj @{ Err = $e12; Log = ($script:pLog -join "`n"); Calls = @($script:pCalls); Work = $script:pWork
         Sources = @(Get-ChildItem -LiteralPath (Join-Path $script:pWork 'iso/sources') -Force | ForEach-Object { $_.Name } | Sort-Object) }
 }
+
+# 1.1: updates (install.wim, WinRE, boot.wim), setup tweak in boot.wim, generated answer file, preset
+$updDir = Join-Path $pr 'updates'
+foreach ($f in @('ssu/windows11.0-kb5000100-x64.msu', 'windows11.0-kb5043080-x64.msu', 'windows11.0-kb5044284-x64.msu', 'windows11.0-kb5044033-x64-ndp481.msu', 'safeos/windows11.0-kb5044615-x64.cab', 'readme.txt')) {
+    $fp = Join-Path $updDir $f; $null = [IO.Directory]::CreateDirectory((Split-Path -Parent $fp)); [IO.File]::WriteAllBytes($fp, (New-Object byte[] 10))
+}
+$saveDismP = ${function:Invoke-W11Dism}
+function Invoke-W11Dism { param([string]$Arguments, [switch]$Quiet, $ProgressBase, $ProgressSpan, $ProgressText, [switch]$NoThrow)
+    # every install.wim mount brings a Winre.wim (like a real image)
+    if ($Arguments -match '/Mount-Image .*install\.work\.wim.*/MountDir:"([^"]+)"') { $re = Join-Path $Matches[1] 'Windows/System32/Recovery/Winre.wim'; $null = [IO.Directory]::CreateDirectory((Split-Path -Parent $re)); [IO.File]::WriteAllBytes($re, (New-Object byte[] 50)) }
+    if ($Arguments -match 'ndp481' -and $script:pFailNdp) { [void]$script:pCalls.Add("dism $Arguments"); return (New-W11Obj @{ ExitCode = 5; Lines = (New-Object Collections.ArrayList) }) }
+    return (& $saveDismP -Arguments $Arguments -Quiet:$Quiet -ProgressBase $ProgressBase -ProgressSpan $ProgressSpan -ProgressText $ProgressText -NoThrow:$NoThrow)
+}
+$script:pWork = Join-Path $pr 'work_v11'; $script:pOut = Join-Path $pr 'out/v11.iso'; $script:pExportLen = 1000; $script:pIsoLen = 2000
+$script:pLog = New-Object Collections.ArrayList; $script:pCalls = New-Object Collections.ArrayList; $script:pFailNdp = $true
+$e14 = $null
+$uo14 = @{ LocalAccount = $true; UserName = 'Tai'; Password = 'S3cret&<pw>'; FirstLogonCleanup = $true; SkipPrivacy = $true; BypassChecks = $true; Locale = 'vi-VN' }
+try { $null = Invoke-Win11Debloat -IsoPath $srcIso -OutputIso $script:pOut -WorkDir $script:pWork -EditionMode HomePro -Autounattend $true -UnattendOptions $uo14 -Tweaks @('BypassNRO', 'LabConfigBypass') -UpdatesPath $updDir -UpdateBootWim $true -UpdateWinRE $true -ResetBase $true -KeepWorkDir $true -LogPath (Join-Path $pr 'v11.log') } catch { $e14 = $_.Exception.Message + ' @ ' + $_.InvocationInfo.PositionMessage }
+$pRes['v11'] = New-W11Obj @{ Err = $e14; Log = ($script:pLog -join "`n"); Calls = @($script:pCalls); Work = $script:pWork }
+# the same with a built-in preset only (aggressive: Home + Pro, ESD, cleanup)
+$script:pWork = Join-Path $pr 'work_preset'; $script:pOut = Join-Path $pr 'out/preset.iso'; $script:pFailNdp = $false
+$script:pLog = New-Object Collections.ArrayList; $script:pCalls = New-Object Collections.ArrayList
+$e15 = $null
+try { $null = Invoke-Win11Debloat -IsoPath $srcIso -OutputIso $script:pOut -WorkDir $script:pWork -Preset 'aggressive' -KeepWorkDir $true -LogPath (Join-Path $pr 'preset.log') } catch { $e15 = $_.Exception.Message + ' @ ' + $_.InvocationInfo.PositionMessage }
+$pRes['preset'] = New-W11Obj @{ Err = $e15; Log = ($script:pLog -join "`n"); Calls = @($script:pCalls); Work = $script:pWork }
+Set-Item function:Invoke-W11Dism $saveDismP
 
 # 13) work folder left by an earlier run (report: "Work dir is not empty and was not
 #     created by this tool: D:\WinDebloat_work"), foreign folders, mounted leftovers, cleanup in finally, one-language UI
@@ -1012,7 +1062,7 @@ $r13f = Invoke-T13Run $wF 'fail'
 Set-Item function:Remove-W11AppsDism $saveApps
 Assert ($r13f.Err -eq 'BOOM-apps' -and $r13f.Calls -contains ('dism /Unmount-Image /MountDir:"' + (Join-Path $wF 'mount') + '" /Discard') -and -not (Test-Path -LiteralPath $wF)) "failure: mounted image discarded and work folder deleted in finally ($($r13f.Err))"
 $saveTw = ${function:Invoke-W11Tweaks}
-function Invoke-W11Tweaks { param([object[]]$TweakDefs, [switch]$DryRun) $script:W11D.Sync.Cancel = $true }
+function Invoke-W11Tweaks { param([object[]]$TweakDefs, [switch]$DryRun, [switch]$Boot) $script:W11D.Sync.Cancel = $true }
 $wC = Join-Path $pr 'work_cancel'
 $r13g = Invoke-T13Run $wC 'cancel' @{ Sync = @{ Cancel = $false; Percent = 0; Status = ''; LogQueue = (New-Object Collections.Queue) } }
 Set-Item function:Invoke-W11Tweaks $saveTw; $script:W11D.Sync = $null
@@ -1046,6 +1096,200 @@ Assert (-not $rv.Err -and $expR.Count -eq 3 -and ($rv.Sources -join ',') -eq 'bo
 $sp = $pRes['split']
 Assert (-not $sp.Err -and ($sp.Sources -join ',') -eq 'boot.wim,install.swm,install2.swm' -and @($sp.Calls | Where-Object { $_ -like 'dism /Split-Image*/FileSize:3800*' }).Count -eq 1 -and -not (Test-Path -LiteralPath (Join-Path $sp.Work 'install.new.wim'))) "pipeline (split): >4 GB install.wim -> install.swm + install2.swm in the tree ($($sp.Err); $($sp.Sources -join ','))"
 Assert ($sp.Log -match '\[WARN\] The new image is .* larger than the source one') 'pipeline: new image much bigger than the source image -> WARN with the advice (fewer editions / ESD)'
+# 14) 1.1: JSON data, presets, answer file, offline updates
+$p14 = Join-Path $tp 'v11'; $null = [IO.Directory]::CreateDirectory($p14)
+function Get-T14Canon($v) { return (ConvertTo-W11Json $v) }
+# JSON reader: built-in parser (PowerShell 2.0 without System.Web.Extensions) = ConvertFrom-Json
+$jsonFiles = @('data/apps.json', 'data/tweaks.json', 'data/presets/safe.json', 'data/presets/aggressive.json')
+$jDiff = @()
+foreach ($jf in $jsonFiles) {
+    $txt = [IO.File]::ReadAllText((Join-Path $root $jf))
+    $a14 = ConvertFrom-W11Json $txt -Engine Parser; $b14 = ConvertFrom-W11Json $txt -Engine Native
+    if ((Get-T14Canon $a14) -ne (Get-T14Canon $b14)) { $jDiff += $jf }
+    if ((Get-T14Canon (ConvertFrom-W11Json (ConvertTo-W11Json $a14 -Indent 2) -Engine Parser)) -ne (Get-T14Canon $a14)) { $jDiff += "$jf (round trip)" }
+}
+Assert ($jDiff.Count -eq 0) "JSON: built-in parser = ConvertFrom-Json on every shipped file, ConvertTo-W11Json round trip ($($jDiff -join ', '))"
+$j14 = ConvertFrom-W11Json '{ "s": "a\"b\\c\/d\u00e9\u1ec7\n\t", "n": -12.5e1, "i": 42, "t": true, "f": false, "z": null, "e": {}, "ea": [], "nest": [[1, 2], {"k": "v"}] }' -Engine Parser
+Assert ($j14.s -eq "a`"b\c/déệ`n`t" -and $j14.n -eq -125 -and $j14.i -eq 42 -and $j14.t -eq $true -and $j14.f -eq $false -and $null -eq $j14.z -and $j14.ContainsKey('z') -and $j14.e -is [hashtable] -and $j14.e.Count -eq 0 -and @($j14.ea).Count -eq 0 -and $j14.nest[0][1] -eq 2 -and $j14.nest[1].k -eq 'v') 'JSON parser: escapes, unicode, numbers, literals, empty and nested objects/arrays'
+$badJ = @()
+foreach ($bj in @('{"a": 1,}', '{"a": 1', '[1, 2', '{"a" 1}', '{"a": tru}', '"abc', '{"a": 1} x', '')) {
+    $ok14 = $false; try { $null = ConvertFrom-W11Json $bj -Engine Parser } catch { $ok14 = $true }
+    if (-not $ok14) { $badJ += $bj }
+}
+Assert ($badJ.Count -eq 0) "JSON parser: broken JSON throws ($($badJ -join ' | '))"
+$u14 = (ConvertTo-W11Json (New-W11Ordered 'b' 'x"y' 'a' @(1, $true, $null) 'c' 'Tiếng Việt')) -replace '(?m)^\s+', '' -replace '\r?\n', '' -replace '": ', '":' -replace ', ', ','
+Assert ($u14 -eq '{"b":"x\"y","a":[1,true,null],"c":"Tiếng Việt"}') "ConvertTo-W11Json: keeps ordered keys, escapes quotes, keeps unicode ($u14)"
+$serOk = $true; $serNote = 'not available here'
+if ('System.Web.Script.Serialization.JavaScriptSerializer' -as [type]) { $serNote = 'compared'; foreach ($jf in $jsonFiles) { $txt = [IO.File]::ReadAllText((Join-Path $root $jf)); if ((Get-T14Canon (ConvertFrom-W11Json $txt -Engine Serializer)) -ne (Get-T14Canon (ConvertFrom-W11Json $txt -Engine Parser))) { $serOk = $false } } }
+Assert $serOk "JSON: JavaScriptSerializer engine gives the same data ($serNote)"
+
+# data files: valid, and 1.0 lists unchanged
+$ad14 = Read-W11JsonFile (Join-Path $root 'data/apps.json'); $td14 = Read-W11JsonFile (Join-Path $root 'data/tweaks.json')
+$pa14 = @(Test-W11AppData $ad14); $pt14 = @(Test-W11TweakData $td14)
+Assert ($pa14.Count -eq 0 -and $pt14.Count -eq 0) "data/apps.json and data/tweaks.json pass validation ($($pa14 + $pt14 -join '; '))"
+$langMiss = @()
+foreach ($e in @($ad14.apps) + @($td14.tweaks)) { foreach ($l in @('vi', 'en', 'zh-CN', 'km')) { if (-not [string](Get-W11JsonVal $e.name $l '')) { $langMiss += "$($e.id):name.$l" } } }
+foreach ($e in @($td14.tweaks)) { foreach ($l in @('vi', 'en', 'zh-CN', 'km')) { if (-not [string](Get-W11JsonVal $e.description $l '')) { $langMiss += "$($e.id):description.$l" } } }
+Assert ($langMiss.Count -eq 0) "every app/tweak has a name (and every tweak a description) in vi, en, zh-CN, km ($($langMiss -join ', '))"
+$cfg14 = Get-W11Config
+$sig14 = @()
+foreach ($pair in @(@('Win11', 'Apps'), @('Win10', 'Win10Apps'))) { foreach ($a in @($cfg14[$pair[1]])) { $sig14 += ('{0}|app|{1}|{2}|{3}|{4}' -f $pair[0], $a.Id, [bool]$a.Default, [int]$a.MinBuild, [int]$a.MaxBuild) } }
+foreach ($pair in @(@('Win11', 'Tweaks'), @('Win10', 'Win10Tweaks'))) {
+    foreach ($t in @($cfg14[$pair[1]])) {
+        $ops = @()
+        foreach ($k in @('Set', 'DeleteValue', 'Delete')) { if ($t.ContainsKey($k)) { foreach ($o in $t[$k]) { $h = $o.Hive; if ($h -eq 'DEFAULTUSER') { $h = 'NTUSER' }; $ops += ('{0}:{1}\{2}\{3}={4}:{5}' -f $k, $h, $o.Key, $o.Value, $o.Type, $o.Data) } } }
+        $sig14 += ('{0}|tweak|{1}|{2}|{3}|{4}|{5}' -f $pair[0], $t.Id, [bool]$t.Default, [int]$t.MinBuild, [int]$t.MaxBuild, ($ops -join ';'))
+    }
+}
+$sig14 += ('protected|' + (@($cfg14.Protected) -join ','))
+$v1 = @([IO.File]::ReadAllLines((Join-Path $fx 'v1_config_signature.txt')) | Where-Object { $_ -and -not $_.StartsWith('#') })
+$v1Miss = @($v1 | Where-Object { $sig14 -notcontains $_ })
+$v1Ids = @($v1 | ForEach-Object { ($_ -split '\|')[0..2] -join '|' })
+$newOn = @($sig14 | Where-Object { $_ -notmatch '^protected' -and $v1Ids -notcontains (($_ -split '\|')[0..2] -join '|') -and ($_ -split '\|')[3] -eq 'True' })
+$order14 = @($sig14 | Where-Object { $_ -notmatch '^protected' -and $v1Ids -contains (($_ -split '\|')[0..2] -join '|') } | ForEach-Object { ($_ -split '\|')[0..2] -join '|' })
+Assert ($v1.Count -gt 90 -and $v1Miss.Count -eq 0) "1.0 lists unchanged: every app/tweak of 1.0 has the same default, builds and registry writes in 1.1 ($($v1Miss -join ' || '))"
+Assert ($newOn.Count -eq 0 -and (($order14 -join ',') -eq (@($v1Ids | Where-Object { $_ -notmatch '^protected' }) -join ','))) "1.0 defaults preserved: new entries are off by default, old order kept ($($newOn -join ', '))"
+Assert ($cfg14.DataSource -eq 'json') "Get-W11Config loads data\*.json ($($cfg14.DataSource))"
+# broken entries are reported and skipped (the rest still loads)
+$badData = '{ "schema": 1, "tweaks": [ { "id": "Good", "os": "win11", "category": "ads", "level": "safe", "default": false, "name": {"vi":"a","en":"a","zh-CN":"a","km":"a"}, "description": {"vi":"a","en":"a","zh-CN":"a","km":"a"}, "set": [ { "hive": "SOFTWARE", "key": "A\\B", "name": "V", "type": "REG_DWORD", "value": "1", "undo": { "action": "delete" } } ] }, { "id": "BadHive", "os": "win11", "category": "ads", "level": "safe", "default": false, "name": {"vi":"a","en":"a","zh-CN":"a","km":"a"}, "description": {"vi":"a","en":"a","zh-CN":"a","km":"a"}, "set": [ { "hive": "HKCU", "key": "A\\B", "name": "V", "type": "REG_DWORD", "value": "1", "undo": { "action": "delete" } } ] }, { "id": "BadType", "os": "win11", "category": "ads", "level": "safe", "default": false, "name": {"vi":"a","en":"a","zh-CN":"a","km":"a"}, "description": {"vi":"a","en":"a","zh-CN":"a","km":"a"}, "set": [ { "hive": "SOFTWARE", "key": "A\\B", "name": "V", "type": "REG_FOO", "value": "1", "undo": { "action": "delete" } } ] } ] }'
+$bdf = Join-Path $p14 'tweaks_bad.json'; [IO.File]::WriteAllText($bdf, $badData)
+$tdBad = @(Test-W11TweakData (Read-W11JsonFile $bdf))
+$script:W11D.LogLines = $null
+$imp = $null; try { $imp = Import-W11TweakData -Path $bdf } catch { $imp = $_.Exception.Message }
+Assert ($tdBad.Count -ge 2 -and (($tdBad -join ' ') -match 'BadHive') -and (($tdBad -join ' ') -match 'BadType')) "tweaks.json validation: unknown hive / registry type reported ($($tdBad -join '; '))"
+Assert (($imp -is [hashtable]) -and @($imp.Win11 | ForEach-Object { $_.Id }) -join ',' -eq 'Good') "Import-W11TweakData: broken entries skipped, valid ones kept ($(if ($imp -is [hashtable]) { @($imp.Win11 | ForEach-Object { $_.Id }) -join ',' } else { $imp }))"
+$hv = @(Get-W11TweakHives -TweakDefs @(@($cfg14.Tweaks) | Where-Object { $_.Id -eq 'LabConfigBypass' -or $_.Id -eq 'BypassNRO' }) -Boot)
+Assert (($hv -join ',') -eq 'SYSTEM') "boot.wim tweaks only need the SYSTEM hive ($($hv -join ','))"
+
+# answer file
+$tpl = Join-Path $root 'autounattend.xml'
+function Get-T14Norm([string]$x) {
+    $d = New-Object Xml.XmlDocument; $d.LoadXml($x)
+    foreach ($c in @($d.SelectNodes('//comment()'))) { [void]$c.ParentNode.RemoveChild($c) }
+    $s = $d.DocumentElement.OuterXml -replace '>\s+<', '><'
+    return $s.Trim()
+}
+$eqOs = @()
+foreach ($os in @('Win11', 'Win10')) {
+    $legacy = Join-Path $p14 "legacy_$os.xml"
+    Write-W11Autounattend -Template $tpl -Destination $legacy -Language 'vi-VN' -Arch 'amd64' -Os $os
+    $gen = New-W11UnattendXml -Options (Get-W11UnattendDefaults) -Os $os -Arch 'amd64' -Language 'vi-VN'
+    if ((Get-T14Norm ([IO.File]::ReadAllText($legacy))) -ne (Get-T14Norm $gen)) { $eqOs += $os; [IO.File]::WriteAllText((Join-Path $p14 "gen_$os.xml"), $gen) }
+}
+Assert ($eqOs.Count -eq 0) "generated answer file with default options = the 1.0 template result (Win11, Win10) ($($eqOs -join ','))"
+$combo = @(); $bad14 = @()
+foreach ($os in @('Win11', 'Win10')) { foreach ($arch in @('amd64', 'arm64')) { foreach ($la in @($false, $true)) { foreach ($bc in @($false, $true)) { foreach ($sp in @($false, $true)) { foreach ($fl in @($false, $true)) {
+    $o = Get-W11UnattendDefaults; $o.LocalAccount = $la; $o.UserName = 'Tài & Co'; $o.Password = 'p"w<&>'''; $o.BypassChecks = $bc; $o.SkipPrivacy = $sp; $o.FirstLogonCleanup = $fl; $o.Locale = 'vi-VN'; $o.Keyboard = '042a:0000042a'
+    $x = $null; try { $x = New-W11UnattendXml -Options $o -Os $os -Arch $arch -Language 'en-US'; $d = New-Object Xml.XmlDocument; $d.LoadXml($x) } catch { $bad14 += "$os/$arch/$la/$bc/$sp/$fl : $($_.Exception.Message)"; continue }
+    $combo += 1
+    $ns = New-Object Xml.XmlNamespaceManager $d.NameTable; $ns.AddNamespace('u', 'urn:schemas-microsoft-com:unattend')
+    $why = @()
+    if ($x -match 'DiskConfiguration|<Disk |InstallTo') { $why += 'disk config' }
+    if (@($d.SelectNodes('//u:component', $ns) | Where-Object { $_.GetAttribute('processorArchitecture') -ne $arch }).Count) { $why += 'arch' }
+    if ($la -and @($d.SelectNodes('//u:LocalAccount/u:Name', $ns) | Where-Object { $_.InnerText -eq 'Tài & Co' }).Count -ne 1) { $why += 'user name' }
+    if ($la -and @($d.SelectNodes('//u:LocalAccount/u:Password/u:Value', $ns) | Where-Object { $_.InnerText -eq 'p"w<&>''' }).Count -ne 1) { $why += 'password' }
+    if (-not $la -and $x -match 'LocalAccount') { $why += 'account without option' }
+    if ($os -eq 'Win10' -and $x -match 'BypassNRO|LabConfig') { $why += 'Win11-only setting on Win10' }
+    if ($os -eq 'Win11' -and $bc -and ($x -notmatch 'BypassTPMCheck' -or $x -notmatch 'BypassSecureBootCheck' -or $x -notmatch 'BypassRAMCheck')) { $why += 'checks' }
+    if (-not $bc -and $x -match 'BypassTPMCheck') { $why += 'checks without option' }
+    if ($sp -and ($x -notmatch '<ProtectYourPC>3</ProtectYourPC>' -or $x -notmatch 'DisablePrivacyExperience')) { $why += 'privacy' }
+    if ($fl -and $x -notmatch 'W11D-FirstLogon\.ps1') { $why += 'first logon' }
+    if (-not $fl -and $x -match 'W11D-FirstLogon') { $why += 'first logon without option' }
+    if ($x -notmatch '<InputLocale>042a:0000042a</InputLocale>' -or $x -notmatch '<UserLocale>vi-VN</UserLocale>' -or $x -notmatch '<UILanguage>en-US</UILanguage>') { $why += 'region' }
+    if ($why.Count) { $bad14 += "$os/$arch/$la/$bc/$sp/$fl : $($why -join ',')" }
+} } } } } }
+Assert ($combo.Count -eq 64 -and $bad14.Count -eq 0) "answer file: 64 option combinations are well-formed XML, escaped, right arch, no disk settings, Win11-only settings only on Win11 ($($bad14 -join ' || '))"
+$nameBad = @(@('', 'a/b', 'x' * 21, 'Administrator', 'guest', ' tai', '...', 'a@b', 'a%b') | Where-Object { Test-W11LocalAccountName $_ })
+$nameGood = @(@('Tai', 'Tài Nguyễn', 'user.01', 'x' * 20) | Where-Object { -not (Test-W11LocalAccountName $_) })
+Assert ($nameBad.Count -eq 0 -and $nameGood.Count -eq 0) "local account name rules ($($nameBad + $nameGood -join ' | '))"
+$thr = $false; $o = Get-W11UnattendDefaults; $o.LocalAccount = $true; $o.UserName = 'Admin/x'
+try { $null = New-W11UnattendXml -Options $o } catch { $thr = $true }
+Assert $thr 'answer file: invalid account name throws'
+$fls = New-W11FirstLogonScript -Patterns @('Microsoft.BingNews', 'Clipchamp.*', 'bad;rm -rf', "x'); Remove-Item C:\ #") -Protected @('Microsoft.WindowsStore')
+$pe14 = $null; $null = [Management.Automation.Language.Parser]::ParseInput($fls, [ref]$null, [ref]$pe14)
+Assert (@($pe14).Count -eq 0 -and $fls -match "'Microsoft\.BingNews'" -and $fls -match "'Clipchamp\.\*'" -and $fls -notmatch 'rm -rf' -and $fls -notmatch 'Remove-Item C:' -and $fls -match "'Microsoft\.WindowsStore'") 'first-logon script: valid PowerShell, only safe app patterns, protected list kept'
+$tree14 = Join-Path $p14 'tree'; $null = [IO.Directory]::CreateDirectory($tree14)
+$script:pLog = New-Object Collections.ArrayList
+$o = Get-W11UnattendDefaults; $o.LocalAccount = $true; $o.UserName = 'Tai'; $o.Password = 'Sup3r-Secret'; $o.FirstLogonCleanup = $true; $o.FirstLogonApps = @('Microsoft.BingNews')
+$wlog = New-Object Collections.ArrayList
+$saveLog14 = ${function:Write-W11Log}
+function Write-W11Log { param([string]$Level = 'INFO', [string]$En, [string]$Vi) [void]$wlog.Add("[$Level] $En | $Vi") }
+Write-W11UnattendFiles -Tree $tree14 -Options $o -Os Win11 -Arch amd64 -Language 'en-US' -Protected @('Microsoft.WindowsStore')
+Set-Item function:Write-W11Log $saveLog14
+$scr14 = Join-W11Path (Join-W11Path $tree14 'sources\$OEM$\$$\Setup\Scripts') 'W11D-FirstLogon.ps1'
+Assert ((Test-Path -LiteralPath (Join-Path $tree14 'autounattend.xml')) -and [IO.File]::Exists($scr14) -and ([IO.File]::ReadAllText($scr14) -match 'Microsoft\.BingNews')) 'Write-W11UnattendFiles: autounattend.xml at the ISO root, first-logon script in sources\$OEM$\$$\Setup\Scripts'
+Assert ((($wlog -join "`n") -notmatch 'Sup3r-Secret') -and (($wlog -join "`n") -match '\[WARN\].*PLAIN TEXT')) 'Write-W11UnattendFiles: password never logged, plain-text warning'
+
+# presets
+$bp = @(Get-W11BuiltinPresets)
+Assert ($bp.Count -eq 2 -and $bp[0].Id -eq 'safe' -and $bp[1].Id -eq 'aggressive' -and [string]$bp[0].Data.name.vi -eq 'An toàn' -and [string]$bp[1].Data.name.vi -eq 'Gọn tối đa') "built-in presets: safe ('An toàn') first, aggressive ('Gọn tối đa') ($(@($bp | ForEach-Object { $_.Id }) -join ','))"
+$pr11 = Get-W11Profile -Config $cfg14 -Os Win11 -Build 26100
+$defA = @($pr11.Apps | Where-Object { $_.Default } | ForEach-Object { $_.Id }); $defT = @($pr11.Tweaks | Where-Object { $_.Default } | ForEach-Object { $_.Id })
+$sa = @(Resolve-W11PresetItems $bp[0].Data.apps $pr11.Apps); $st = @(Resolve-W11PresetItems $bp[0].Data.tweaks $pr11.Tweaks)
+Assert ((($sa -join ',') -eq ($defA -join ',')) -and (($st -join ',') -eq ($defT -join ','))) 'safe preset = the default selection'
+$ga = @(Resolve-W11PresetItems $bp[1].Data.apps $pr11.Apps); $gt = @(Resolve-W11PresetItems $bp[1].Data.tweaks $pr11.Tweaks)
+$unsafeIn = @($pr11.Apps | Where-Object { $_.Level -eq 'unsafe' -and $ga -contains $_.Id } | ForEach-Object { $_.Id })
+Assert ($ga.Count -gt $sa.Count -and $gt.Count -gt $st.Count -and $gt -notcontains 'LabConfigBypass' -and $unsafeIn.Count -eq 0 -and @($defA | Where-Object { $ga -notcontains $_ }).Count -eq 0) "aggressive preset: more apps/tweaks than safe, includes every default, no unsafe app, no LabConfig ($($ga.Count) apps, $($gt.Count) tweaks)"
+Assert (@(Resolve-W11PresetItems (@{ select = 'none' }) $pr11.Apps).Count -eq 0 -and ((@(Resolve-W11PresetItems (@{ select = 'list'; ids = @('Clipchamp.Clipchamp', 'Nope') }) $pr11.Apps) -join ',') -eq 'Clipchamp.Clipchamp') -and (@(Resolve-W11PresetItems (@{ select = 'defaults'; exclude = @('Clipchamp.Clipchamp') }) $pr11.Apps) -notcontains 'Clipchamp.Clipchamp')) 'preset selection: none / list (unknown ids ignored) / exclude'
+$o = Get-W11UnattendDefaults; $o.LocalAccount = $true; $o.UserName = 'Tai'; $o.Password = 'Sup3r-Secret'; $o.SkipPrivacy = $true; $o.Locale = 'vi-VN'
+$np = New-W11Preset -Name 'Của tôi' -EditionMode Custom -Indexes @(1, 3) -Apps @('Clipchamp.Clipchamp') -Tweaks @('BypassNRO') -Unattend $o -Updates @{ Enabled = $true; Folder = 'D:\upd'; WinRE = $true } -Compression Recovery -ComponentCleanup $true
+$pf = Join-Path $p14 'mine.json'; Save-W11Preset -Preset $np -Path $pf
+$ptxt = [IO.File]::ReadAllText($pf); $rp = Read-W11Preset -Path $pf; $ru = Get-W11PresetUnattend $rp
+Assert ($ptxt -notmatch 'Sup3r-Secret' -and $ptxt -notmatch '(?i)password' -and [string]$rp.name.vi -eq 'Của tôi' -and (@($rp.editions.indexes) -join ',') -eq '1,3' -and (@($rp.apps.ids) -join ',') -eq 'Clipchamp.Clipchamp' -and $rp.updates.folder -eq 'D:\upd' -and $rp.updates.winre -eq $true -and $rp.image.compression -eq 'Recovery' -and $ru.UserName -eq 'Tai' -and $ru.SkipPrivacy -and $ru.Locale -eq 'vi-VN' -and -not $ru.Password) 'preset save/load round trip; the password is never saved'
+$pw = Join-Path $p14 'pw.json'; [IO.File]::WriteAllText($pw, ($ptxt -replace '"userName":', '"password": "x", "userName":'))
+$thr = $null; try { $null = Read-W11Preset -Path $pw } catch { $thr = $_.Exception.Message }
+$pb = Join-Path $p14 'bad.json'; [IO.File]::WriteAllText($pb, '{ "schema": "other/9" }')
+$thr2 = $null; try { $null = Read-W11Preset -Path $pb } catch { $thr2 = $_.Exception.Message }
+Assert ($thr -match 'password' -and $thr2 -match 'schema') "preset with a password or a wrong schema is rejected ($thr / $thr2)"
+Assert ((Resolve-W11PresetRef 'Safe') -like '*safe.json' -and (Resolve-W11PresetRef $pf) -like '*mine.json') 'preset by name (built-in) or by path'
+
+# offline updates
+$kinds = @(
+    @('ssu/windows11.0-kb5043937-x64.msu', $null, 'SSU', $false), @('Servicing Stack/x.cab', $null, 'SSU', $false),
+    @('SSU-26100.1742-x64.cab', $null, 'SSU', $false), @('windows11.0-kb5044284-x64.msu', $null, 'LCU', $false),
+    @('windows11.0-kb5044033-x64-ndp481.msu', $null, 'NetFx', $false), @('dotnet/windows10.0-kb5044029-x64.msu', $null, 'NetFx', $false),
+    @('safeos/windows11.0-kb5044615-x64.cab', $null, 'SafeOS', $false), @('lcu/windows11.0-kb5044284-x64.msu', @('SSU-26100.2033-x64.cab', 'Windows11.0-KB5044284-x64.cab', 'WSUSSCAN.cab'), 'LCU', $true),
+    @('windows10.0-kb5005112-x64.msu', @('SSU-19041.1161-x64.cab'), 'SSU', $false)
+)
+$kBad = @()
+foreach ($k in $kinds) { $r = Get-W11UpdateKind -RelativePath $k[0] -Contents $k[1]; if ($r.Kind -ne $k[2] -or [bool]$r.Combined -ne $k[3]) { $kBad += "$($k[0]) -> $($r.Kind)/$($r.Combined)" } }
+Assert ($kBad.Count -eq 0) "update kind from folder / name / .msu contents (combined SSU+LCU) ($($kBad -join ', '))"
+$ul = @(Get-W11UpdatePackages -Path $updDir -NoInspect)
+Assert ((@($ul | ForEach-Object { $_.Kind + ':' + $_.Kb }) -join ',') -eq 'SSU:5000100,SafeOS:5044615,LCU:5043080,LCU:5044284,NetFx:5044033' -and @($ul | Where-Object { $_.Name -eq 'readme.txt' }).Count -eq 0) "update folder: .msu/.cab only, order SSU, SafeOS, LCU (older KB first), .NET ($(@($ul | ForEach-Object { $_.Name }) -join ', '))"
+$sel = @{}; foreach ($t in @('Install', 'Boot', 'WinRE')) { $sel[$t] = (@(Select-W11UpdatesFor $ul $t | ForEach-Object { $_.Kind }) -join ',') }
+Assert ($sel.Install -eq 'SSU,LCU,LCU,NetFx' -and $sel.Boot -eq 'SSU,LCU,LCU' -and $sel.WinRE -eq 'SSU,SafeOS') "packages per image: install.wim SSU+LCU+.NET, boot.wim SSU+LCU, WinRE SSU+Safe OS ($($sel.Install) / $($sel.Boot) / $($sel.WinRE))"
+$thr = $false; try { $null = Get-W11UpdatePackages -Path (Join-Path $p14 'nope') } catch { $thr = $true }
+Assert $thr 'missing updates folder throws'
+$saveD14 = ${function:Invoke-W11Dism}; $saveL14 = ${function:Write-W11Log}
+$script:codes = @{ 'a.msu' = 0; 'b.msu' = 3010; 'c.msu' = -2146498530; 'd.msu' = 5; 'e.msu' = 0 }; $script:d14 = @(); $wlog = New-Object Collections.ArrayList
+function Invoke-W11Dism { param([string]$Arguments, [switch]$Quiet, $ProgressBase, $ProgressSpan, $ProgressText, [switch]$NoThrow)
+    $script:d14 += $Arguments; $n = ''; if ($Arguments -match '([a-e]\.msu)') { $n = $Matches[1] }
+    if (-not $NoThrow -and $script:codes[$n] -ne 0) { throw "dism failed $($script:codes[$n])" }
+    return (New-W11Obj @{ ExitCode = $script:codes[$n]; Lines = (New-Object Collections.ArrayList) }) }
+function Write-W11Log { param([string]$Level = 'INFO', [string]$En, [string]$Vi) [void]$wlog.Add("[$Level] $En") }
+$pkgs = @('a', 'b', 'c', 'd', 'e') | ForEach-Object { New-W11Obj @{ Path = "X:\u\$_.msu"; Name = "$_.msu"; Kind = 'LCU'; Combined = $false; Kb = 1 } }
+$ar = Add-W11UpdatePackages -MountDir 'X:\m' -Packages $pkgs -ScratchDir 'X:\s' -Tag 'test'
+Set-Item function:Invoke-W11Dism $saveD14; Set-Item function:Write-W11Log $saveL14
+Assert ($ar.Added -eq 3 -and $ar.Skipped -eq 1 -and $ar.Failed -eq 1 -and $script:d14.Count -eq 5 -and (($wlog -join "`n") -match '\[WARN\].*d\.msu') -and (($wlog -join "`n") -match 'c\.msu')) "Add-W11UpdatePackages: 0/3010 added, 0x800f081e not applicable, other errors WARN and the next package still runs (added $($ar.Added), skipped $($ar.Skipped), failed $($ar.Failed))"
+
+# pipeline with updates / WinRE / boot.wim / answer file (mocked run above)
+$v = $pRes['v11']; $vc = @($v.Calls)
+$ix = @{}; for ($i = 0; $i -lt $vc.Count; $i++) { $c = [string]$vc[$i]; foreach ($kk in @('mount1', 'ssu', 'lcu1', 'lcu2', 'ndp', 'remount', 'hives', 'commit1', 'export1', 'bootmount', 'bootexport', 'osc')) { if ($ix.ContainsKey($kk)) { continue }
+        $hit = switch ($kk) { 'mount1' { $c -match '/Mount-Image .*install\.work\.wim.*/Index:1 ' } 'ssu' { $c -match 'mount" /Add-Package .*kb5000100' } 'lcu1' { $c -match 'mount" /Add-Package .*kb5043080' } 'lcu2' { $c -match 'mount" /Add-Package .*kb5044284' } 'ndp' { $c -match 'mount" /Add-Package .*ndp481' }
+            'remount' { $c -match '/Mount-Image .*winre\.work\.wim' } 'hives' { $c -match '^hives .*mount ' } 'commit1' { $c -match '/Unmount-Image .*mount" /Commit' } 'export1' { $c -match '/Export-Image .*install\.work\.wim' } 'bootmount' { $c -match '/Mount-Image .*boot\.work\.wim' } 'bootexport' { $c -match '/Export-Image .*boot\.work\.wim.*boot\.new\.wim' } 'osc' { $c -like 'oscdimg*' } }
+        if ($hit) { $ix[$kk] = $i } } }
+$seq = @('mount1', 'ssu', 'lcu1', 'lcu2', 'ndp', 'remount', 'hives', 'commit1', 'export1', 'bootmount', 'bootexport', 'osc')
+$seqOk = $true; for ($i = 0; $i -lt $seq.Count; $i++) { if (-not $ix.ContainsKey($seq[$i])) { $seqOk = $false } elseif ($i -gt 0 -and $ix[$seq[$i]] -le $ix[$seq[$i - 1]]) { $seqOk = $false } }
+Assert (-not $v.Err -and $seqOk) "pipeline (updates): mount -> SSU -> LCU (old, new) -> .NET -> WinRE -> registry -> commit -> export -> boot.wim -> oscdimg ($($v.Err); $(@($seq | ForEach-Object { "$_=$($ix[$_])" }) -join ' '))"
+Assert ($v.Log -match '\[WARN\].*FAILED to add windows11\.0-kb5044033-x64-ndp481\.msu' -and $v.Log -match 'updates: 3 added, 0 not applicable, 1 failed' -and @($vc | Where-Object { $_ -match 'mountboot" /Add-Package .*ndp481' -or $_ -match 'mountboot" /Add-Package .*safeos' }).Count -eq 0) 'pipeline: a failing package is a WARN and the build goes on; boot.wim gets no .NET / Safe OS'
+Assert (@($vc | Where-Object { $_ -match 'mountre" /Add-Package' }).Count -eq 2 -and $v.Log -match 'same Winre\.wim as an earlier edition' -and $v.Log -match 'WinRE updated' -and $v.Log -notmatch 'WinRE update failed') 'pipeline: WinRE serviced once (SSU + Safe OS) and reused for the next edition'
+Assert (@($vc | Where-Object { $_ -match 'mount" .*/Cleanup-Image /StartComponentCleanup /ResetBase' }).Count -eq 2 -and @($vc | Where-Object { $_ -match '^hives .*mountboot SYSTEM boot=True' }).Count -eq 1 -and @($vc | Where-Object { $_ -match '^tweaks LabConfigBypass boot=True' }).Count -eq 1 -and @($vc | Where-Object { $_ -match '^hives .*mount DEFAULT,NTUSER,SOFTWARE,SYSTEM boot=False' }).Count -eq 2) 'pipeline: ResetBase per edition, LabConfig into boot.wim index 2 via the SYSTEM hive, install image loads the hives its tweaks need'
+$vt = Join-Path $v.Work 'iso'
+$vx = [IO.File]::ReadAllText((Join-Path $vt 'autounattend.xml'))
+Assert ($vx -match '<Name>Tai</Name>' -and $vx -match 'S3cret&amp;&lt;pw&gt;' -and $vx -match 'BypassTPMCheck' -and $vx -match '<UserLocale>vi-VN</UserLocale>' -and [IO.File]::Exists((Join-W11Path (Join-W11Path $vt 'sources\$OEM$\$$\Setup\Scripts') 'W11D-FirstLogon.ps1')) -and $v.Log -notmatch 'S3cret' -and (Test-Path -LiteralPath (Join-Path $vt 'sources/boot.wim')) -and -not (Test-Path -LiteralPath (Join-Path $v.Work 'boot.work.wim'))) 'pipeline: generated autounattend.xml + first-logon script in the tree, password not in the log, boot.wim replaced by the serviced copy'
+$ps = $pRes['preset']; $psc = @($ps.Calls)
+Assert (-not $ps.Err -and @($psc | Where-Object { $_ -match '/Mount-Image .*install\.work\.wim' }).Count -eq 2 -and @($psc | Where-Object { $_ -match '/Export-Image .*/Compress:recovery' }).Count -eq 2 -and @($psc | Where-Object { $_ -match '/StartComponentCleanup' -and $_ -notmatch 'ResetBase' }).Count -eq 2 -and @($psc | Where-Object { $_ -match '^tweaks .*TelemetryMinimum' -and $_ -notmatch 'LabConfigBypass' }).Count -eq 2) "pipeline -Preset aggressive: Home+Pro, ESD, component clean-up, aggressive tweaks without LabConfig ($($ps.Err))"
+
 Remove-Item -LiteralPath $tp -Recurse -Force -ErrorAction SilentlyContinue
 
 Write-Host "Failures: $script:fail"
