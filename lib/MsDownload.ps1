@@ -798,7 +798,7 @@ function Invoke-MsIsoDownload {
     $expected = Find-MsPublishedHash -Hashes $Entry.Hashes -Language $Sku.Language -LocalizedLanguage $Sku.LocalizedLanguage -Arch $Entry.Arch
     if ($expected) {
         if ($expected -eq $hash) { Write-W11Log -Level OK -En "SHA256 matches Microsoft's published hash: $hash" -Vi 'SHA256 khớp với Microsoft' }
-        else { throw "SHA256 MISMATCH! got $hash, Microsoft published $expected. Delete the file and retry / SHA256 KHÔNG KHỚP, hãy xoá file và tải lại" }
+        else { throw "SHA256 MISMATCH! got $hash, Microsoft published $expected. Delete the file and retry / SHA256 KHÔNG KHỚP (nhận được $hash, Microsoft công bố $expected), hãy xoá file và tải lại" }
     } else {
         Write-W11Log -Level WARN -En "No published hash found for this language; SHA256 = $hash (compare manually on the Microsoft page)" -Vi 'Không tìm thấy hash công bố cho ngôn ngữ này, hãy so thủ công'
     }

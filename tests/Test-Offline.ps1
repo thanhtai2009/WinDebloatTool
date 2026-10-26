@@ -904,6 +904,7 @@ function Invoke-W11Process { param([string]$FilePath, [string]$Arguments, [switc
     if ($FilePath -like '*robocopy*') {
         # faulty copy on purpose: also brings the original install.wim and a temp file into the tree
         $dst = Join-Path $script:pWork 'iso'
+        if ($Arguments -match '^"[^"]*" "([^"]+)"') { $dst = $Matches[1] }   # the tree the engine really uses
         Copy-Item -LiteralPath $script:pSrcRoot -Destination $dst -Recurse   # robocopy creates the target folder
         [IO.File]::WriteAllBytes((Join-Path $dst 'sources/junk.tmp'), (New-Object byte[] 7))
     }
@@ -912,12 +913,13 @@ function Invoke-W11Process { param([string]$FilePath, [string]$Arguments, [switc
 }
 function Invoke-W11Dism { param([string]$Arguments, [switch]$Quiet, $ProgressBase, $ProgressSpan, $ProgressText, [switch]$NoThrow)
     [void]$script:pCalls.Add("dism $Arguments")
+    if ($Arguments -match '/Get-MountedImageInfo') { $ml = New-Object Collections.ArrayList; foreach ($x in @($script:pMounted)) { [void]$ml.Add("Mount Dir : $x"); [void]$ml.Add('Image File : x.wim') }; return (New-W11Obj @{ ExitCode = 0; Lines = $ml }) }
     if ($Arguments -match '/DestinationImageFile:"([^"]+)"') { $fs = [IO.File]::Open($Matches[1], 'OpenOrCreate'); $fs.SetLength($fs.Length + $script:pExportLen); $fs.Close() }
     if ($Arguments -match '/Unmount-Image .*/Commit') { $fs = [IO.File]::Open((Join-Path $script:pWork 'install.work.wim'), 'Open'); $fs.SetLength($fs.Length + 100); $fs.Close() }
     if ($Arguments -match '/SWMFile:"([^"]+)"') { $b = $Matches[1]; [IO.File]::WriteAllBytes($b, (New-Object byte[] 3)); [IO.File]::WriteAllBytes(($b -replace 'install\.swm$', 'install2.swm'), (New-Object byte[] 3)) }
     return (New-W11Obj @{ ExitCode = 0; Lines = (New-Object Collections.ArrayList) })
 }
-$script:pSrcRoot = $srcRoot
+$script:pSrcRoot = $srcRoot; $script:pMounted = @()
 $saveWindir = $env:windir; if (-not $env:windir) { $env:windir = '/windows' }   # robocopy/attrib paths (mocked)
 $runs = @(
     @{ Name = 'max'; Compression = 'Max'; Split = 0; Export = 1000; IsoLen = 600MB },
@@ -934,6 +936,92 @@ foreach ($r in $runs) {
     $pRes[$r.Name] = New-W11Obj @{ Err = $e12; Log = ($script:pLog -join "`n"); Calls = @($script:pCalls); Work = $script:pWork
         Sources = @(Get-ChildItem -LiteralPath (Join-Path $script:pWork 'iso/sources') -Force | ForEach-Object { $_.Name } | Sort-Object) }
 }
+
+# 13) v0.3.8: work folder left by an earlier run / older version (real report: "Work dir is not empty and was not
+#     created by this tool: D:\WinDebloat_work"), foreign folders, mounted leftovers, cleanup in finally, one-language UI
+Assert ((Get-W11LocalText 'Checking prerequisites / Kiểm tra điều kiện' 'vi') -eq 'Kiểm tra điều kiện' -and (Get-W11LocalText 'Checking prerequisites / Kiểm tra điều kiện' 'en') -eq 'Checking prerequisites') 'Get-W11LocalText: status line in one language (vi / en)'
+$lt = Get-W11LocalText "THẤT BẠI:`nWork dir bad: D:\W / Thư mục tạm D:\W chứa file khác`n`nXem file nhật ký." 'vi'
+Assert ($lt -eq "THẤT BẠI:`nThư mục tạm D:\W chứa file khác`n`nXem file nhật ký.") "Get-W11LocalText: failure dialog in Vietnamese only ($lt)"
+Assert ((Get-W11LocalText '[2/3] Removing apps / Gỡ app' 'zh-CN') -eq '[2/3] Removing apps' -and (Get-W11LocalText 'Windows 10 / 11' 'vi') -eq 'Windows 10 / 11' -and (Get-W11LocalText 'Tạo ISO Windows 10 / 11 gọn nhẹ' 'vi') -eq 'Tạo ISO Windows 10 / 11 gọn nhẹ' -and (Get-W11LocalText 'ISO: D:\a.iso' 'vi') -eq 'ISO: D:\a.iso') 'Get-W11LocalText: other languages get English, normal text untouched'
+$engSrc = [IO.File]::ReadAllText((Join-Path $root 'lib/Core.ps1')) + [IO.File]::ReadAllText((Join-Path $root 'lib/MsDownload.ps1'))
+$vnRx = '[àáảãạăắằẳẵặâấầẩẫậđèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵ]'
+$unsplit = @()
+foreach ($mt in [regex]::Matches($engSrc, '(?m)(?:throw|Set-W11Progress|OperationCanceledException)[^''"\r\n]*([''"])([^''"\r\n]* / [^''"\r\n]*)\1')) {
+    $txt = $mt.Groups[2].Value
+    if ($txt -match $vnRx -and (Get-W11LocalText $txt 'vi') -eq $txt) { $unsplit += $txt }
+}
+Assert ($unsplit.Count -eq 0) "every bilingual engine error/status text splits into one language ($($unsplit -join ' || '))"
+$guiSrc2 = [IO.File]::ReadAllText((Join-Path $root 'lib/Gui.ps1'))
+Assert ($guiSrc2 -match 'MessageBox\]::Show\(\$script:ui\.form, \(Get-W11LocalText \$Text \$script:UiLang\)' -and $guiSrc2 -match 'lblStatus\.Text = Get-W11LocalText \(\[string\]\$script:Sync\.Status\)' -and $guiSrc2 -match "msg\.failed' \(Get-W11LocalText \`$script:Sync\.Error") 'GUI: dialogs, failure message and status line use the current UI language only'
+Assert ($guiSrc2 -match 'Get-W11WorkDirState \$workDir\) -eq ''Foreign''' -and $guiSrc2 -match "msg\.workDirForeign" -and $guiSrc2 -match "WorkDirConflict = 'Fail'") 'GUI: foreign work folder -> asks to use a new folder or cancel'
+
+# folder states
+$wr = Join-Path $pr 'states'
+function New-T13Dir { param([string]$Name, [string[]]$Files, [string[]]$Dirs) $d = Join-Path $wr $Name; $null = [IO.Directory]::CreateDirectory($d); foreach ($x in $Dirs) { $null = [IO.Directory]::CreateDirectory((Join-Path $d $x)) }; foreach ($x in $Files) { $fp = Join-Path $d $x; $null = [IO.Directory]::CreateDirectory((Split-Path -Parent $fp)); [IO.File]::WriteAllBytes($fp, (New-Object byte[] 4)) }; return $d }
+$dOld = New-T13Dir 'old' @('install.work.wim', 'iso/sources/boot.wim', 'iso/setup.exe', 'mount/Windows/System32/x.dll', 'WinDebloat_20261025.log') @('scratch', 'mount/Users')
+$dOld2 = New-T13Dir 'old2' @('iso/boot/etfsboot.com') @('mount')
+$dMark = New-T13Dir 'marked' @('.w11debloat-work', 'whatever.bin') @()
+$dFor = New-T13Dir 'foreign' @('photo.jpg', 'install.work.wim') @('iso')
+$dFor2 = New-T13Dir 'foreign2' @('iso/MyMovies/a.mkv') @()
+$dFor3 = New-T13Dir 'foreign3' @('mount/Documents/cv.docx') @()
+$dEmpty = New-T13Dir 'empty' @() @()
+Assert ((Get-W11WorkDirState $dOld) -eq 'Ours' -and (Get-W11WorkDirState $dOld2) -eq 'Ours' -and (Get-W11WorkDirState $dMark) -eq 'Ours') 'work dir state: leftover without marker (old version: iso, mount with an image, scratch, install.work.wim, log) -> ours'
+Assert ((Get-W11WorkDirState $dFor) -eq 'Foreign' -and (Get-W11WorkDirState $dFor2) -eq 'Foreign' -and (Get-W11WorkDirState $dFor3) -eq 'Foreign') 'work dir state: any foreign file (also inside iso\ or mount\) -> foreign'
+Assert ((Get-W11WorkDirState $dEmpty) -eq 'Empty' -and (Get-W11WorkDirState (Join-Path $wr 'none')) -eq 'Missing') 'work dir state: empty / missing'
+$null = New-T13Dir 'foreign_2' @('x.txt') @()
+Assert ((Get-W11UniqueWorkDir $dFor) -eq ($dFor + '_3') -and (Get-W11UniqueWorkDir $dFor2) -eq ($dFor2 + '_2')) 'unique work dir: next free name (_2, _3 when _2 is taken by foreign files)'
+
+function Invoke-T13Run { param([string]$Work, [string]$Name, [hashtable]$Extra = @{})
+    $script:pWork = $Work; $script:pOut = Join-Path $pr ('out/' + $Name + '.iso'); $script:pExportLen = 1000; $script:pIsoLen = 2000
+    $script:pLog = New-Object Collections.ArrayList; $script:pCalls = New-Object Collections.ArrayList; $script:hiveUnloads = 0
+    $a = @{ IsoPath = $srcIso; OutputIso = $script:pOut; WorkDir = $Work; EditionMode = 'All'; Autounattend = $false; LogPath = (Join-Path $pr "$Name.log") }
+    foreach ($k in $Extra.Keys) { $a[$k] = $Extra[$k] }
+    $er = $null; try { $null = Invoke-Win11Debloat @a } catch { $er = $_.Exception.Message }
+    return (New-W11Obj @{ Err = $er; Log = ($script:pLog -join "`n"); Calls = @($script:pCalls) })
+}
+function Dismount-W11Hives { $script:hiveUnloads++ }
+$oldMount = Join-Path $dOld 'mount'
+$script:pMounted = @($oldMount)
+$r13 = Invoke-T13Run $dOld 'leftover'
+$script:pMounted = @()
+$iU = -1; $iC = -1; $iM = -1
+for ($q = 0; $q -lt $r13.Calls.Count; $q++) {
+    $cl = $r13.Calls[$q]
+    if ($iU -lt 0 -and $cl -eq ('dism /Unmount-Image /MountDir:"' + $oldMount + '" /Discard')) { $iU = $q }
+    if ($iC -lt 0 -and $cl -eq 'dism /Cleanup-Mountpoints') { $iC = $q }
+    if ($iM -lt 0 -and $cl -like 'dism /Mount-Image*') { $iM = $q }
+}
+Assert (-not $r13.Err -and $r13.Log -match 'Work dir state: Ours' -and $r13.Log -match 'Leftover work folder of an earlier run \(no marker') "leftover of an older version (no marker) accepted and cleaned ($($r13.Err))"
+Assert ($iU -ge 0 -and $iC -gt $iU -and $iM -gt $iC -and $script:hiveUnloads -ge 2 -and $r13.Log -match 'Image still mounted at ') "mounted leftover: hives unloaded, dism /Unmount-Image /Discard then /Cleanup-Mountpoints, before the new mount (unmount $iU, cleanup $iC, mount $iM, hive unloads $script:hiveUnloads)"
+Assert (-not (Test-Path -LiteralPath $dOld) -and (Test-Path -LiteralPath $script:pOut)) 'normal finish: ISO built, work folder deleted'
+$r13b = Invoke-T13Run $dOld2 'leftover2'
+Assert (-not $r13b.Err -and -not (Test-Path -LiteralPath $dOld2)) "leftover with an empty mount folder: cleaned, no error ($($r13b.Err))"
+$dOld3 = New-T13Dir 'old3' @('mount/Windows/explorer.exe') @()
+$r13c = Invoke-T13Run $dOld3 'leftover3'
+Assert (-not $r13c.Err -and $r13c.Calls -contains ('dism /Unmount-Image /MountDir:"' + (Join-Path $dOld3 'mount') + '" /Discard')) 'non-empty mount folder not listed by DISM -> unmount /Discard anyway'
+# foreign folder: console picks the next free name, the foreign files stay
+$r13d = Invoke-T13Run $dFor 'foreign'
+Assert (-not $r13d.Err -and (Test-Path -LiteralPath (Join-Path $dFor 'photo.jpg')) -and (Test-Path -LiteralPath (Join-Path $dFor 'install.work.wim')) -and $r13d.Log -match [regex]::Escape("$dFor -> ${dFor}_3") -and -not (Test-Path -LiteralPath ($dFor + '_3'))) "foreign work folder: not deleted, console uses ${dFor}_3 and cleans that one ($($r13d.Err))"
+$r13e = Invoke-T13Run $dFor2 'foreignfail' @{ WorkDirConflict = 'Fail' }
+Assert ($r13e.Err -match 'chứa file không do công cụ tạo ra' -and (Test-Path -LiteralPath (Join-Path $dFor2 'iso/MyMovies/a.mkv')) -and @($r13e.Calls | Where-Object { $_ -like 'dism *' }).Count -eq 0) "foreign work folder with -WorkDirConflict Fail (GUI after No): stops, nothing touched ($($r13e.Err))"
+# failure and cancel: unmount (discard) + work folder deleted in finally
+$saveApps = ${function:Remove-W11AppsDism}
+function Remove-W11AppsDism { param($MountDir, $Patterns, $Protected, $OutOfRange, $KeptListPath, [switch]$DryRun) throw 'BOOM-apps' }
+$wF = Join-Path $pr 'work_fail'
+$r13f = Invoke-T13Run $wF 'fail'
+Set-Item function:Remove-W11AppsDism $saveApps
+Assert ($r13f.Err -eq 'BOOM-apps' -and $r13f.Calls -contains ('dism /Unmount-Image /MountDir:"' + (Join-Path $wF 'mount') + '" /Discard') -and -not (Test-Path -LiteralPath $wF)) "failure: mounted image discarded and work folder deleted in finally ($($r13f.Err))"
+$saveTw = ${function:Invoke-W11Tweaks}
+function Invoke-W11Tweaks { param([object[]]$TweakDefs, [switch]$DryRun) $script:W11D.Sync.Cancel = $true }
+$wC = Join-Path $pr 'work_cancel'
+$r13g = Invoke-T13Run $wC 'cancel' @{ Sync = @{ Cancel = $false; Percent = 0; Status = ''; LogQueue = (New-Object Collections.Queue) } }
+Set-Item function:Invoke-W11Tweaks $saveTw; $script:W11D.Sync = $null
+Assert ($r13g.Err -match 'Cancelled by user' -and $r13g.Calls -contains ('dism /Unmount-Image /MountDir:"' + (Join-Path $wC 'mount') + '" /Discard') -and -not (Test-Path -LiteralPath $wC)) "cancel: mounted image discarded and work folder deleted in finally ($($r13g.Err))"
+$wK = Join-Path $pr 'work_keep'
+$r13h = Invoke-T13Run $wK 'keep' @{ KeepWorkDir = $true }
+Assert (-not $r13h.Err -and (Test-Path -LiteralPath (Join-Path $wK '.w11debloat-work'))) '-KeepWorkDir keeps the folder (with its marker)'
+$src13 = [IO.File]::ReadAllText((Join-Path $root 'lib/Core.ps1'))
+Assert ($src13 -match "if \(\`$c\.Name -ne '\.w11debloat-work'\)" -and $src13 -notmatch 'Work dir is not empty and was not created by this tool') 'marker removed last; old "not created by this tool" rejection is gone'
 foreach ($fn in $saved.Keys) { Set-Item "function:$fn" $saved[$fn] }
 $env:windir = $saveWindir
 $m = $pRes['max']; $tree12 = Join-Path $m.Work 'iso'

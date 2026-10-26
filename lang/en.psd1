@@ -91,6 +91,7 @@
     'w.yes' = 'yes'
     'w.no' = 'no'
     'msg.failed' = 'FAILED:\n{0}\n\nSee the log file next to the output ISO.'
+    'msg.workDirForeign' = 'The work folder {0} contains files that were not created by this tool, so it will not be deleted.\n\nUse a new work folder {1} instead?\n\nYes: use {1}\nNo: cancel'
     'msg.dryDone' = 'The dry run finished - see the log.'
     'msg.done' = 'Done!\n{0}\nSHA256: {1}\n\nWrite it to a USB drive with Rufus or Ventoy.'
     'msg.jobRunning' = 'A task is still running. Press Cancel and wait until it stops.'

@@ -13,7 +13,7 @@ if ($MyInvocation.MyCommand.Path) {
     $script:W11Root = Split-Path -Parent $script:W11LibDir
 }
 $script:W11D = @{
-    Version      = '0.3.7'
+    Version      = '0.3.8'
     LogPath      = $null
     Sync         = $null
     HiveSoftware = 'HKLM\W11D_SOFTWARE'
@@ -520,7 +520,7 @@ function Install-W11Oscdimg {
     <# Installs ONLY "Deployment Tools" of the official Windows ADK (contains oscdimg.exe + DISM).
        Windows 10/11 hosts only (the current ADK does not install on 7/8.x). #>
     param([ValidateSet('AdkSetup', 'Winget')][string]$Method = 'AdkSetup')
-    if ((Get-W11OsBuild) -lt 10240) { throw 'The current Windows ADK only installs on Windows 10/11. Copy oscdimg.exe into tools\ manually / ADK mới chỉ cài được trên Win10/11' }
+    if ((Get-W11OsBuild) -lt 10240) { throw 'The current Windows ADK only installs on Windows 10/11. Copy oscdimg.exe into tools\ manually / ADK mới chỉ cài được trên Win10/11, hãy tự chép oscdimg.exe vào thư mục tools\' }
     $feature = '/quiet /norestart /ceip off /features OptionId.DeploymentTools'
     if ($Method -eq 'Winget') {
         $wg = Get-Command winget.exe -ErrorAction SilentlyContinue
@@ -537,7 +537,7 @@ function Install-W11Oscdimg {
         $sig = Get-AuthenticodeSignature -FilePath $exe
         if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
             Remove-Item -LiteralPath $exe -Force -ErrorAction SilentlyContinue
-            throw "adksetup.exe signature check failed ($($sig.Status)) / Chữ ký số không hợp lệ"
+            throw "adksetup.exe signature check failed ($($sig.Status)) / Chữ ký số của adksetup.exe không hợp lệ ($($sig.Status))"
         }
         Write-W11Log -Level OK -En 'Signature OK (Microsoft Corporation). Installing Deployment Tools only (several minutes)...' -Vi 'Chữ ký hợp lệ. Đang cài Deployment Tools (vài phút)...'
         $p = Start-Process -FilePath $exe -ArgumentList $feature -Wait -PassThru
@@ -1077,6 +1077,149 @@ function Clear-W11TreeTemp {
 }
 #endregion
 
+#region ---------- work folder ownership / cleanup (v0.3.8) ----------
+$script:W11WorkFiles = @('.w11debloat-work', 'install.work.wim', 'install.new.wim', 'install.new.esd', 'install.wim', 'install.esd')
+$script:W11IsoRootNames = @('boot', 'efi', 'sources', 'support', 'setup.exe', 'autorun.inf', 'bootmgr', 'bootmgr.efi', 'autounattend.xml', '[boot]')
+$script:W11ImageRootNames = @('windows', 'program files', 'program files (x86)', 'programdata', 'users', 'perflogs', 'recovery', '$recycle.bin', '$windows.~bt', '$windows.~ws', 'system volume information', 'documents and settings', 'config.msi', 'msocache', 'inetpub', 'program files (arm)')
+
+function Get-W11LocalText {
+    <# Engine texts are bilingual 'English / Tiếng Việt' (the log keeps both). The GUI shows one language:
+       Vietnamese part for 'vi', English part for every other UI language. Works line by line; a line is split at
+       the first ' / ' with no Vietnamese letter before it and a Vietnamese letter after it. #>
+    param([string]$Text, [string]$Lang = 'vi')
+    if (-not $Text) { return $Text }
+    $vn = '[àáảãạăắằẳẵặâấầẩẫậđèéẻẽẹêếềểễệìíỉĩịòóỏõọôốồổỗộơớờởỡợùúủũụưứừửữựỳýỷỹỵÀÁẢÃẠĂẮẰẲẴẶÂẤẦẨẪẬĐÈÉẺẼẸÊẾỀỂỄỆÌÍỈĨỊÒÓỎÕỌÔỐỒỔỖỘƠỚỜỞỠỢÙÚỦŨỤƯỨỪỬỮỰỲÝỶỸỴ]'
+    $out = @()
+    foreach ($line in ($Text -split "`n")) {
+        $res = $line; $from = 0
+        while ($true) {
+            $i = $line.IndexOf(' / ', $from)
+            if ($i -lt 0) { break }
+            $left = $line.Substring(0, $i); $right = $line.Substring($i + 3)
+            if ($left -notmatch $vn -and $right -match $vn) {
+                if ($Lang -eq 'vi') { $res = $right } else { $res = $left }
+                break
+            }
+            $from = $i + 3
+        }
+        $out += $res
+    }
+    return ($out -join "`n")
+}
+
+function Test-W11KnownWorkItem {
+    # one top-level entry of a work folder: does it look like something this tool (any version) creates?
+    param([Parameter(Mandatory = $true)]$Item)
+    $n = $Item.Name.ToLower()
+    if ($Item.PSIsContainer) {
+        if ($n -eq 'scratch') { return $true }
+        $names = $null
+        if ($n -eq 'iso') { $names = $script:W11IsoRootNames }
+        elseif ($n -eq 'mount') { $names = $script:W11ImageRootNames }
+        else { return $false }
+        foreach ($c in @(Get-ChildItem -LiteralPath $Item.FullName -Force -ErrorAction SilentlyContinue)) {
+            if ($names -notcontains $c.Name.ToLower()) { return $false }
+        }
+        return $true
+    }
+    if ($script:W11WorkFiles -contains $n) { return $true }
+    return ($n -like '*.log' -or $n -like '*.tmp' -or $n -like 'kept_index*.txt' -or $n -like 'install*.swm')
+}
+
+function Get-W11WorkDirState {
+    # Missing | Empty | Ours (marker, or only things this tool creates: leftovers of older versions) | Foreign
+    param([Parameter(Mandatory = $true)][string]$WorkDir)
+    if (-not (Test-Path -LiteralPath $WorkDir)) { return 'Missing' }
+    if (Test-Path -LiteralPath $WorkDir -PathType Leaf) { return 'Foreign' }
+    $items = @(Get-ChildItem -LiteralPath $WorkDir -Force -ErrorAction SilentlyContinue)
+    if ($items.Count -eq 0) { return 'Empty' }
+    if (Test-Path -LiteralPath (Join-W11Path $WorkDir '.w11debloat-work')) { return 'Ours' }
+    foreach ($i in $items) { if (-not (Test-W11KnownWorkItem $i)) { return 'Foreign' } }
+    return 'Ours'
+}
+
+function Get-W11UniqueWorkDir {
+    # D:\WinDebloat_work -> D:\WinDebloat_work_2, _3, ... (first one that is missing, empty or ours)
+    param([Parameter(Mandatory = $true)][string]$WorkDir)
+    $b = $WorkDir.TrimEnd([char[]]@('\', '/'))
+    for ($n = 2; $n -lt 100; $n++) {
+        $c = '{0}_{1}' -f $b, $n
+        if ((Get-W11WorkDirState $c) -ne 'Foreign') { return $c }
+    }
+    throw "No free work folder name next to $WorkDir / Không tìm được tên thư mục tạm trống cạnh $WorkDir"
+}
+
+function Get-W11MountedImages {
+    # mount folders DISM knows about (also ones left by an earlier run or another version)
+    $res = Invoke-W11Dism '/Get-MountedImageInfo' -Quiet -NoThrow
+    $m = @()
+    foreach ($l in @($res.Lines)) { if ([string]$l -match '^\s*Mount Dir\s*:\s*(.+?)\s*$') { $m += $Matches[1] } }
+    return $m
+}
+
+function Remove-W11WorkTree {
+    # deletes the work folder; the ownership marker goes LAST, so a half-deleted folder is still recognised
+    param([Parameter(Mandatory = $true)][string]$WorkDir, [int]$Retries = 4, [int]$DelaySec = 2)
+    $marker = Join-W11Path $WorkDir '.w11debloat-work'
+    for ($a = 1; $a -le $Retries; $a++) {
+        if (-not (Test-Path -LiteralPath $WorkDir)) { return $true }
+        try {
+            foreach ($c in @(Get-ChildItem -LiteralPath $WorkDir -Force)) {
+                if ($c.Name -ne '.w11debloat-work') { Remove-Item -LiteralPath $c.FullName -Recurse -Force -ErrorAction Stop }
+            }
+            if (Test-Path -LiteralPath $marker) { Remove-Item -LiteralPath $marker -Force -ErrorAction Stop }
+            Remove-Item -LiteralPath $WorkDir -Recurse -Force -ErrorAction Stop
+            Write-W11Log -En "  Work folder deleted: $WorkDir" -Vi '  Đã xoá thư mục tạm'
+            return $true
+        } catch {
+            Write-W11Log -Level WARN -En "  Delete attempt $a/$Retries failed: $($_.Exception.Message)" -Vi "  Xoá lần $a/$Retries chưa được"
+            $sys = Join-Path ([string]$env:windir) 'System32'
+            Write-W11Log -En '  Clearing read-only/system/hidden attributes...' -Vi '  Bỏ thuộc tính chỉ đọc/hệ thống/ẩn...'
+            $null = Invoke-W11Process -FilePath (Join-Path $sys 'attrib.exe') -Arguments ('-R -S -H {0} /S /D' -f (ConvertTo-W11Arg (Join-W11Path $WorkDir '*'))) -Quiet
+            if ($a -ge 2) {
+                Write-W11Log -En '  Taking ownership (takeown) and granting Administrators full control (icacls)...' -Vi '  Lấy quyền sở hữu (takeown) và cấp toàn quyền cho Administrators (icacls)...'
+                $null = Invoke-W11Process -FilePath (Join-Path $sys 'takeown.exe') -Arguments ('/F {0} /R /A /D Y' -f (ConvertTo-W11Arg $WorkDir)) -Quiet
+                $null = Invoke-W11Process -FilePath (Join-Path $sys 'icacls.exe') -Arguments ('{0} /grant *S-1-5-32-544:(OI)(CI)F /T /C /Q' -f (ConvertTo-W11Arg $WorkDir)) -Quiet
+            }
+            if ($DelaySec -gt 0) { Start-Sleep -Seconds $DelaySec }
+        }
+    }
+    return (-not (Test-Path -LiteralPath $WorkDir))
+}
+
+function Clear-W11WorkDir {
+    <# Cleans a work folder of this tool (current run or a leftover of any version):
+       1. unload our offline hives  2. discard every image DISM has mounted below the folder (+ a non-empty mount
+       folder DISM does not list), then /Cleanup-Mountpoints  3. delete with retries (attributes, ownership). #>
+    param([Parameter(Mandatory = $true)][string]$WorkDir, [string]$MountDir, [switch]$Quiet)
+    if (-not $MountDir) { $MountDir = Join-W11Path $WorkDir 'mount' }
+    if (-not $Quiet) { Write-W11Log -Level STEP -En "Cleaning work folder $WorkDir..." -Vi "Đang dọn thư mục tạm $WorkDir..." }
+    Write-W11Log -En '  Unloading offline registry hives (if loaded)...' -Vi '  Gỡ các hive registry offline (nếu còn)...'
+    Dismount-W11Hives
+    $dismOk = $true
+    if (-not $script:W11D.Dism) { try { $null = Select-W11Dism } catch { $dismOk = $false; Write-W11Log -Level WARN -En "  No DISM, cannot check mounted images: $($_.Exception.Message)" -Vi '  Không có DISM, không kiểm tra được image đang mount' } }
+    if ($dismOk) {
+        $dirs = @()
+        foreach ($m in @(Get-W11MountedImages)) { if (Test-W11PathInside $m $WorkDir) { $dirs += $m } }
+        if ((Test-Path -LiteralPath $MountDir -PathType Container) -and @(Get-ChildItem -LiteralPath $MountDir -Force -ErrorAction SilentlyContinue).Count -gt 0) {
+            $known = $false; foreach ($d in $dirs) { if ((Test-W11PathInside $d $MountDir) -and (Test-W11PathInside $MountDir $d)) { $known = $true } }
+            if (-not $known) { $dirs += $MountDir }
+        }
+        foreach ($d in $dirs) {
+            Write-W11Log -Level WARN -En "  Image still mounted at $d - discarding (dism /Unmount-Image /Discard)..." -Vi "  Image còn mount ở $d - đang huỷ mount..."
+            $r = Invoke-W11Dism ('/Unmount-Image /MountDir:{0} /Discard' -f (ConvertTo-W11Arg $d)) -Quiet -NoThrow
+            Write-W11Log -En "  unmount exit code $($r.ExitCode)"
+        }
+        Write-W11Log -En '  dism /Cleanup-Mountpoints...' -Vi '  Dọn điểm mount hỏng...'
+        $r = Invoke-W11Dism '/Cleanup-Mountpoints' -Quiet -NoThrow
+        Write-W11Log -En "  cleanup-mountpoints exit code $($r.ExitCode)"
+    }
+    if (-not (Remove-W11WorkTree -WorkDir $WorkDir)) {
+        throw "Could not delete the work folder $WorkDir (files in use? close Explorer windows / antivirus scan, or restart Windows and try again) / Không xoá được thư mục tạm $WorkDir (file đang được dùng? hãy đóng cửa sổ Explorer, chờ diệt virus quét xong hoặc khởi động lại máy rồi thử lại)"
+    }
+}
+#endregion
+
 #region ---------- main ----------
 function Invoke-Win11Debloat {
     [CmdletBinding()]
@@ -1100,6 +1243,7 @@ function Invoke-Win11Debloat {
         [string]$ConfigPath,
         [string]$LogPath,
         [bool]$KeepWorkDir = $false,
+        [ValidateSet('NewFolder', 'Fail')][string]$WorkDirConflict = 'NewFolder',   # work folder with foreign files: use <dir>_2 or stop
         [hashtable]$Sync
     )
     $ErrorActionPreference = 'Stop'
@@ -1119,6 +1263,15 @@ function Invoke-Win11Debloat {
     $p = Resolve-W11FullPath $WorkDir
     if (-not $p -or (Test-W11IsPathRoot $p)) { throw "Invalid work folder (a drive root is not allowed, it gets deleted afterwards) / Thư mục tạm không hợp lệ (không dùng gốc ổ đĩa): '$WorkDir'" }
     $WorkDir = $p.TrimEnd('\')
+    # a folder with files this tool did not create is never deleted: use the next free name (console) or stop (GUI asked already)
+    $wdNote = $null
+    $wdState = Get-W11WorkDirState $WorkDir
+    if ($wdState -eq 'Foreign') {
+        if ($WorkDirConflict -eq 'Fail') { throw "The work folder $WorkDir contains files that were not created by this tool; nothing was deleted. Choose another work folder / Thư mục tạm $WorkDir chứa file không do công cụ tạo ra, không xoá gì cả. Hãy chọn thư mục tạm khác" }
+        $alt = Get-W11UniqueWorkDir $WorkDir
+        $wdNote = "$WorkDir -> $alt"
+        $WorkDir = $alt; $wdState = Get-W11WorkDirState $WorkDir
+    }
     New-W11Directory $outDir
     if (-not $LogPath) { $LogPath = Join-W11Path $outDir ('WinDebloat_{0}.log' -f (Get-Date -Format 'yyyyMMdd_HHmmss')) }
     $script:W11D.LogPath = $LogPath
@@ -1149,7 +1302,7 @@ function Invoke-Win11Debloat {
     $mountDir = $lay.Mount; $tree = $lay.Tree; $workWim = $lay.WorkWim; $marker = $lay.Marker
     $scratch = $lay.Scratch; $newImage = $lay.NewImage
     $srcIsoLen = Get-W11FileLength $IsoPath
-    $iso = $null; $imageMounted = $false; $success = $false
+    $iso = $null; $imageMounted = $false; $success = $false; $workDirOwned = $false
     $result = New-W11Obj @{ OutputIso = $OutputIso; Sha256 = $null; LogPath = $LogPath; DryRun = $DryRun; TargetOs = $null; Build = 0; Release = $null }
 
     Write-W11Log -Level STEP -En "===== WinDebloat Tool $($script:W11D.Version) (Windows 10/11) =====" -Vi '===== Công cụ debloat Windows 10/11 ====='
@@ -1157,6 +1310,8 @@ function Invoke-Win11Debloat {
     Write-W11Log -En "Output ISO: $OutputIso" -Vi 'ISO đầu ra'
     Write-W11Log -En "Work dir  : $WorkDir" -Vi 'Thư mục tạm'
     Write-W11Log -En "Log file  : $LogPath" -Vi 'File log'
+    if ($wdNote) { Write-W11Log -Level WARN -En "Work folder has files of something else (not deleted), using a new one: $wdNote" -Vi "Thư mục tạm chứa file khác (không xoá), dùng thư mục mới: $wdNote" }
+    Write-W11Log -En "Work dir state: $wdState" -Vi 'Trạng thái thư mục tạm'
     Write-W11Log -En ("Layout    : tree=$tree mount=$mountDir scratch=$scratch image=$newImage")
     Write-W11Log -En ("Compression: {0} (install.{1})" -f $Compression, $lay.Ext) -Vi ('Kiểu nén: ' + $Compression)
     if ($DryRun) { Write-W11Log -Level DRY -En 'DRY RUN: nothing will be modified.' -Vi 'CHẠY THỬ: không thay đổi gì.' }
@@ -1170,22 +1325,19 @@ function Invoke-Win11Debloat {
 
         $free = Get-W11FreeGB -Path $WorkDir
         Write-W11Log -En "Free space on work drive: $free GB (need >= $MinFreeGB GB)" -Vi "Dung lượng trống: $free GB (cần >= $MinFreeGB GB)"
-        if ($free -lt $MinFreeGB -and -not $DryRun) { throw "Not enough free space / Không đủ dung lượng trống ($free GB < $MinFreeGB GB)" }
+        if ($free -lt $MinFreeGB -and -not $DryRun) { throw "Not enough free space ($free GB < $MinFreeGB GB) / Không đủ dung lượng trống ($free GB < $MinFreeGB GB)" }
         $outRoot = Get-W11PathRoot $OutputIso
         if ($outRoot -and -not $outRoot.StartsWith('\\') -and $outRoot -ne (Get-W11PathRoot $WorkDir)) {
             $ofree = Get-W11FreeGB -Path $outDir
             Write-W11Log -En "Free space on output drive: $ofree GB" -Vi "Dung lượng trống ổ đầu ra: $ofree GB"
-            if ($ofree -lt 8 -and -not $DryRun) { throw "Not enough free space for the output ISO / Không đủ chỗ cho ISO đầu ra ($ofree GB < 8 GB)" }
+            if ($ofree -lt 8 -and -not $DryRun) { throw "Not enough free space for the output ISO ($ofree GB < 8 GB) / Không đủ chỗ cho ISO đầu ra ($ofree GB < 8 GB)" }
         }
 
         $oscdimg = Find-W11Oscdimg -Hint $OscdimgPath
         if ($oscdimg) { Write-W11Log -En "oscdimg: $oscdimg" }
         elseif ($DryRun) { Write-W11Log -Level WARN -En 'oscdimg.exe not found (needed for a real run).' -Vi 'Chưa có oscdimg.exe (cần khi chạy thật).' }
-        else { throw 'oscdimg.exe not found - install the Windows ADK Deployment Tools (https://learn.microsoft.com/windows-hardware/get-started/adk-install) or copy oscdimg.exe into tools\ / Chưa có oscdimg.exe' }
+        else { throw 'oscdimg.exe not found - install the Windows ADK Deployment Tools (https://learn.microsoft.com/windows-hardware/get-started/adk-install) or copy oscdimg.exe into tools\ / Chưa có oscdimg.exe: hãy cài Windows ADK Deployment Tools (https://learn.microsoft.com/windows-hardware/get-started/adk-install) hoặc chép oscdimg.exe vào thư mục tools\' }
 
-        if ((Test-Path -LiteralPath $WorkDir) -and -not (Test-Path -LiteralPath $marker)) {
-            if (@(Get-ChildItem -LiteralPath $WorkDir -Force).Count -gt 0) { throw "Work dir is not empty and was not created by this tool: $WorkDir / Thư mục tạm đang chứa dữ liệu khác" }
-        }
         if ($DryRun -and -not (Get-Command Mount-DiskImage -ErrorAction SilentlyContinue)) {
             Write-W11Log -Level DRY -En 'Windows 7: dry run cannot look inside the ISO without extracting it (7-Zip). Plan only.' -Vi 'Win7: chạy thử không xem được bên trong ISO, chỉ in kế hoạch.'
             Write-W11Log -En ('Apps to remove: ' + ($RemoveApps -join ', '))
@@ -1194,18 +1346,16 @@ function Invoke-Win11Debloat {
         }
 
         # ---- prepare work dir ----
-        if (Test-Path -LiteralPath $WorkDir) {
-            if (-not $DryRun) {
-                Write-W11Log -En 'Cleaning previous work dir...' -Vi 'Dọn thư mục tạm cũ...'
-                try { $null = Select-W11Dism; Clear-W11StaleMount -MountDir $mountDir } catch { $null = $_ }
-                Dismount-W11Hives
-                Remove-Item -LiteralPath $WorkDir -Recurse -Force
-            }
+        if ((Get-W11WorkDirState $WorkDir) -eq 'Ours') {
+            $how = 'marker'; if (-not (Test-Path -LiteralPath $marker)) { $how = 'no marker, only files this tool creates (earlier run / older version)' }
+            Write-W11Log -Level WARN -En "Leftover work folder of an earlier run ($how): cleaning it" -Vi 'Thư mục tạm còn sót từ lần chạy trước: đang dọn'
+            Clear-W11WorkDir -WorkDir $WorkDir -MountDir $mountDir -Quiet
         }
         New-W11Directory $WorkDir
+        Set-Content -LiteralPath $marker -Value 'w11debloat'   # written first, deleted last
+        $workDirOwned = $true
         New-W11Directory $mountDir
         New-W11Directory $scratch
-        Set-Content -LiteralPath $marker -Value 'w11debloat'
 
         # ---- open ISO ----
         Set-W11Progress 3 'Opening ISO / Đang mở ISO'
@@ -1449,9 +1599,12 @@ function Invoke-Win11Debloat {
             if ($r.ExitCode -ne 0) { Write-W11Log -Level WARN -En 'Unmount failed - run: dism /Cleanup-Mountpoints' -Vi 'Không unmount được, hãy chạy dism /Cleanup-Mountpoints' }
         }
         Close-W11Iso -Iso $iso -IsoPath $IsoPath
-        if ((Test-Path -LiteralPath $marker) -and ($DryRun -or ($success -and -not $KeepWorkDir))) {
-            Remove-Item -LiteralPath $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
+        # finished, failed or cancelled: the work folder is always cleaned (unless -KeepWorkDir)
+        if ($workDirOwned -and -not $KeepWorkDir) {
+            if (-not $success) { Write-W11Log -Level WARN -En 'Run did not finish: cleaning up the work folder (mounted image discarded, nothing kept)' -Vi 'Chưa chạy xong: đang dọn thư mục tạm (huỷ image đang mount, không giữ lại gì)' }
+            try { Clear-W11WorkDir -WorkDir $WorkDir -MountDir $mountDir -Quiet }
+            catch { Write-W11Log -Level WARN -En "Work folder not fully deleted, delete it by hand: $($_.Exception.Message)" -Vi "Chưa xoá hết thư mục tạm, hãy xoá bằng tay: $WorkDir" }
+        } elseif ($workDirOwned) { Write-W11Log -En "Work folder kept (-KeepWorkDir): $WorkDir" -Vi 'Giữ lại thư mục tạm' }
     }
 }
 #endregion

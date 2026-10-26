@@ -91,6 +91,7 @@
     'w.yes' = 'có'
     'w.no' = 'không'
     'msg.failed' = 'THẤT BẠI:\n{0}\n\nXem file nhật ký cạnh ISO đầu ra.'
+    'msg.workDirForeign' = 'Thư mục tạm {0} đang chứa file không do công cụ này tạo ra, nên sẽ không bị xoá.\n\nDùng thư mục tạm mới {1}?\n\nCó: dùng {1}\nKhông: huỷ'
     'msg.dryDone' = 'Chạy thử xong - xem nhật ký.'
     'msg.done' = 'Xong!\n{0}\nSHA256: {1}\n\nGhi ra USB bằng Rufus hoặc Ventoy.'
     'msg.jobRunning' = 'Vẫn còn tác vụ đang chạy. Hãy bấm Huỷ và chờ dừng hẳn.'

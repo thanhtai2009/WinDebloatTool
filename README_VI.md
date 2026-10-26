@@ -164,6 +164,9 @@ Muốn sửa danh sách: mở `config\DebloatConfig.psd1` bằng Notepad (`Apps`
   và `ov-df.microsoft.com` mà Microsoft dùng để chống tải tự động. Từ bản 0.2.1 danh sách vẫn hiện bình
   thường. Nếu đến lúc tải Microsoft báo từ chối (*Sentinel* / 715-123130) thì đổi DNS sang 1.1.1.1 hoặc
   8.8.8.8 (hoặc bỏ chặn hai tên miền trên), tắt VPN, hoặc bấm **Mở trang Microsoft** để tải bằng trình duyệt.
+- **"Thư mục tạm chứa file khác":** từ bản 0.3.8, thư mục tạm còn sót lại từ lần chạy trước (kể cả của bản cũ)
+  được tự nhận ra và dọn (huỷ image còn mount, gỡ hive registry, xoá thư mục). Nếu thư mục có file khác không
+  do công cụ tạo ra thì công cụ không xoá mà hỏi có dùng thư mục mới (ví dụ `D:\WinDebloat_work_2`) không.
 - **ISO đầu ra to hơn ISO gốc:** mỗi phiên bản (Home, Pro, Education...) sau khi sửa sẽ lưu riêng phần file đã
   thay đổi, nên chọn **Tất cả** (khoảng 10 phiên bản) làm ISO to lên nhiều. Hãy chọn **Home + Pro** hoặc chỉ các
   phiên bản cần dùng, và/hoặc bật **Nén kiểu ESD** (ISO nhỏ nhất, chậm hơn). Trong log, các dòng `SIZE ...` cho

@@ -11,7 +11,7 @@ Microsoft tools (DISM, reg.exe, oscdimg from the Windows ADK). The only third-pa
 > Formerly *Win11 Debloat Tool*. Since 0.2.0 the main script is `WinDebloatTool.ps1`;
 > `Win11DebloatTool.ps1` remains as a wrapper and `run.bat` accepts the same parameters as before.
 
-> **Status: early.** 0.3.7 adds ESD compression, size logging and an output-size check (report: ISO 10 GB larger than the source); 0.3.6 adds an app icon and button icons; 0.3.5 fixed START failing for an output ISO on a drive root (e.g. `D:\x.iso`); 0.3.4 made the window fully resizable; 0.3.3 added the bottom watermark; 0.3.2 fixed the first real-Windows report (a crash on an empty path field).
+> **Status: early.** 0.3.8 fixes "Work dir is not empty and was not created by this tool" (leftover work folder of an earlier run) and shows dialogs in one language; 0.3.7 adds ESD compression, size logging and an output-size check (report: ISO 10 GB larger than the source); 0.3.6 adds an app icon and button icons; 0.3.5 fixed START failing for an output ISO on a drive root (e.g. `D:\x.iso`); 0.3.4 made the window fully resizable; 0.3.3 added the bottom watermark; 0.3.2 fixed the first real-Windows report (a crash on an empty path field).
 > The code was written and statically checked on Linux
 > (PowerShell 7 parser, PSScriptAnalyzer, a custom PowerShell 2.0 compatibility scan, offline unit
 > tests with mocked dism/reg). The same removals and tweaks were applied to a real
@@ -228,7 +228,14 @@ DISM versions, oscdimg, ISO access method and free space, with what to do in Eng
    after each export, ISO tree, output ISO) and a WARN with the largest files if the ISO grew by more than 500 MB.
 6. Add autounattend.xml, `oscdimg -m -o -u2 -udfver102 -bootdata:2#p0,e,b<etfsboot.com>#pEF,e,b<efisys.bin>`.
 7. SHA256 of the result.
-`try/finally` always unloads the hives, discards a mounted image on errors, and unmounts the ISO.
+`try/finally` always unloads the hives, discards a mounted image on errors, unmounts the ISO and deletes the
+work folder (finished, failed or cancelled; `-KeepWorkDir` keeps it).
+
+Work folder (default `<output folder>\WinDebloat_work`): a leftover of an earlier run or an older version (marker
+file, or only `iso\`, `mount\`, `scratch\`, `install.*.wim`, logs) is cleaned first: hives unloaded, images mounted
+below it discarded (`dism /Unmount-Image /Discard`, `/Cleanup-Mountpoints`), then deleted with retries (attributes,
+takeown/icacls). A folder with other files is never deleted: the GUI asks to use `WinDebloat_work_2` (or cancel),
+the console uses the next free name and logs it.
 
 ## Development
 ```

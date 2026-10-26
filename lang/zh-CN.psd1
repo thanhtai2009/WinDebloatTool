@@ -91,6 +91,7 @@
     'w.yes' = '是'
     'w.no' = '否'
     'msg.failed' = '失败:\n{0}\n\n请查看输出 ISO 旁边的日志文件。'
+    'msg.workDirForeign' = '临时文件夹 {0} 中有不是本工具创建的文件，因此不会删除。\n\n改用新的临时文件夹 {1} 吗？\n\n是：使用 {1}\n否：取消'
     'msg.dryDone' = '试运行完成 - 请查看日志。'
     'msg.done' = '完成!\n{0}\nSHA256: {1}\n\n请用 Rufus 或 Ventoy 写入 U 盘。'
     'msg.jobRunning' = '仍有任务在运行。请点击取消并等待其停止。'

@@ -1,5 +1,30 @@
 ﻿# Changelog
 
+## 0.3.8 - 2026-10-26
+**Fix: START stopped with "Work dir is not empty and was not created by this tool: D:\WinDebloat_work"** (real
+Windows 11 report, folder left by an earlier run of 0.3.5/0.3.6).
+
+- Cause: the old cleanup deleted the work folder with one `Remove-Item -Recurse`. The ownership marker
+  `.w11debloat-work` sorts first and was deleted, then files in use (e.g. a still-mounted image) stopped the
+  delete, so the next run found a folder without marker and refused it.
+- A work folder is now "ours" with the marker, or when it holds only what this tool creates (`iso\` with ISO
+  files, `mount\` with a Windows image, `scratch\`, `install.work.wim` / `install.new.*`, logs). Such a leftover
+  is cleaned first, every step logged: unload our offline hives (`HKLM\W11D_SOFTWARE`, `HKLM\W11D_DEFAULT`),
+  `dism /Unmount-Image /MountDir:<dir> /Discard` for every image DISM lists below the folder (and for a
+  non-empty mount folder it does not list), `dism /Cleanup-Mountpoints`, then delete with retries (clear
+  attributes, then takeown + icacls for Administrators). The marker is written first and deleted last.
+- A folder with other files is never deleted. GUI: a dialog (4 languages) offers a new folder such as
+  `D:\WinDebloat_work_2`, or cancel. Console: the next free name is used and logged (`-WorkDirConflict Fail`
+  stops instead).
+- The work folder is cleaned in `finally` after a finished, failed or cancelled run (mounted image discarded
+  first); `-KeepWorkDir` keeps it.
+- GUI shows one language: engine messages are bilingual `English / Tiếng Việt` (the log keeps both); dialogs,
+  the failure message and the status line now show the Vietnamese part for `vi` and the English part for the
+  other languages. Several engine messages now carry their details (numbers, paths) in both parts.
+- Tests: leftover of an older version accepted and cleaned, mounted leftover unmounted before the new mount,
+  foreign folder kept (console picks `_2`/`_3`, `Fail` stops before any DISM call), cleanup after failure and
+  cancel, `-KeepWorkDir`, one-language texts for every bilingual engine message.
+
 ## 0.3.7 - 2026-10-26
 **Output ISO much larger than the source (report: +10 GB with "All" editions).**
 

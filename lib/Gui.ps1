@@ -359,7 +359,7 @@ function Invoke-W11Tick {
             $p = [int]$script:Sync.Percent
             if ($p -lt 0) { $p = 0 }; if ($p -gt 100) { $p = 100 }
             $script:ui.pb.Value = $p
-            if ($script:Sync.Status) { $script:ui.lblStatus.Text = [string]$script:Sync.Status }
+            if ($script:Sync.Status) { $script:ui.lblStatus.Text = Get-W11LocalText ([string]$script:Sync.Status) $script:UiLang }
         }
         if ($script:Job -and $script:Job.Handle.IsCompleted) {
             $j = $script:Job
@@ -527,6 +527,7 @@ function Show-W11Error {
         try { Write-W11Log -Level ERROR -En "[$Context] $msg" } catch { $null = $_ }
         if ($script:W11D.LogPath) { try { Add-Content -LiteralPath $script:W11D.LogPath -Value ('    ' + $detail) -Encoding UTF8 } catch { $null = $_ } }
     }
+    $msg = Get-W11LocalText $msg $script:UiLang   # the log above keeps both languages
     try {
         if ($script:ui -and $script:ui.lblStatus) { $script:ui.lblStatus.Text = T 'status.error' $msg }
         if ($script:ui -and $script:ui.btnCancel -and -not $script:Job) { Set-W11Busy $false }
@@ -534,7 +535,7 @@ function Show-W11Error {
     $logTxt = ''
     if ($script:W11D.LogPath) { $logTxt = "`n`n" + (T 'msg.logFile' $script:W11D.LogPath) }
     try {
-        [void][Windows.Forms.MessageBox]::Show($script:ui.form, (T 'msg.error' $Context $msg) + $logTxt, 'WinDebloat Tool', 'OK', 'Error')
+        [void][Windows.Forms.MessageBox]::Show($script:ui.form, (Get-W11LocalText ((T 'msg.error' $Context $msg) + $logTxt) $script:UiLang), 'WinDebloat Tool', 'OK', 'Error')
     } catch { $null = $_ }
 }
 
@@ -548,7 +549,8 @@ function Invoke-W11Handler {
 
 function Show-W11Msg {
     param([string]$Text, [string]$Icon = 'Information', [string]$Buttons = 'OK')
-    return [Windows.Forms.MessageBox]::Show($script:ui.form, $Text, 'WinDebloat Tool', $Buttons, $Icon)
+    # engine texts are bilingual 'English / Tiếng Việt': a dialog shows only the current UI language
+    return [Windows.Forms.MessageBox]::Show($script:ui.form, (Get-W11LocalText $Text $script:UiLang), 'WinDebloat Tool', $Buttons, $Icon)
 }
 
 function Get-W11ReleaseItemText($e) {
@@ -912,7 +914,7 @@ function Invoke-W11OscInstall {
     $script:AfterOsc = [bool]$ThenStart
     $script:ui.lblStatus.Text = T 'status.oscInstalling'
     [void](Start-W11Job -Name 'Install ADK' -Script '$null = Install-W11Oscdimg -Method $JobArgs.Method' -JobArgs @{ Method = $m } -OnDone {
-            if ($script:Sync.Error) { $script:ui.lblStatus.Text = T 'status.error' $script:Sync.Error; Show-W11Msg (T 'msg.oscFailed' $script:Sync.Error $script:AdkUrl) 'Error' | Out-Null; return }
+            if ($script:Sync.Error) { $er = Get-W11LocalText $script:Sync.Error $script:UiLang; $script:ui.lblStatus.Text = T 'status.error' $er; Show-W11Msg (T 'msg.oscFailed' $er $script:AdkUrl) 'Error' | Out-Null; return }
             $script:ui.lblStatus.Text = T 'status.ready'
             $p = Find-W11Oscdimg
             if ($p -and $script:AfterOsc) { Write-W11Log -Level OK -En "oscdimg ready: $p" -Vi 'Đã có oscdimg'; & $script:StartRun; return }
@@ -1294,6 +1296,14 @@ function Show-W11Gui {
         if ($useDefaults) { $targetOs = 'Auto'; $osNote = T 'os.autoNote' }
         $dry = $ui.chkDry.Checked
         if (-not $dry -and -not (Find-W11Oscdimg)) { Invoke-W11OscInstall -ThenStart; return }
+        # work folder: a leftover of this tool is cleaned by the engine; a folder with other files is never deleted
+        $workDir = Get-W11DefaultWorkDir (Get-W11ParentDir $out)
+        if ((Get-W11WorkDirState $workDir) -eq 'Foreign') {
+            $alt = Get-W11UniqueWorkDir $workDir
+            if ([string](Show-W11Msg (T 'msg.workDirForeign' $workDir $alt) 'Warning' 'YesNo') -ne 'Yes') { return }
+            Write-W11Log -Level WARN -En "Work folder $workDir has other files (not deleted), using $alt" -Vi "Thư mục tạm $workDir chứa file khác (không xoá), dùng $alt"
+            $workDir = $alt
+        }
         $yn = @{ $true = (T 'w.yes'); $false = (T 'w.no') }
         $summary = T 'msg.summary' $iso $out $osNote ("$mode $($idx -join ',')".Trim()) $apps.Count $tw.Count $yn[[bool]$ui.chkUnattend.Checked] $yn[[bool]$ui.chkCleanup.Checked] $yn[[bool]$dry] $yn[[bool]$ui.chkEsd.Checked]
         if ([string](Show-W11Msg $summary 'Question' 'YesNo') -ne 'Yes') { return }
@@ -1302,12 +1312,13 @@ function Show-W11Gui {
             IsoPath = $iso; OutputIso = $out; EditionMode = $mode; Indexes = $idx; TargetOs = $targetOs
             Autounattend = $ui.chkUnattend.Checked; ComponentCleanup = $ui.chkCleanup.Checked; DryRun = $dry
             Compression = $(if ($ui.chkEsd.Checked) { 'Recovery' } else { 'Max' })
+            WorkDir = $workDir; WorkDirConflict = 'Fail'
         }
         if (-not $useDefaults) { $jobArgs.RemoveApps = $apps; $jobArgs.Tweaks = $tw }
         [void](Start-W11Job -Name 'Build ISO' -Script '$sync.Result = Invoke-Win11Debloat @JobArgs -Sync $sync' -JobArgs $jobArgs -OnDone {
             $r = $script:Sync.Result
             if ($script:Sync.Error) {
-                Show-W11Msg (T 'msg.failed' $script:Sync.Error) 'Error' | Out-Null
+                Show-W11Msg (T 'msg.failed' (Get-W11LocalText $script:Sync.Error $script:UiLang)) 'Error' | Out-Null
             } elseif ($r -and $r.DryRun) {
                 Show-W11Msg (T 'msg.dryDone') | Out-Null
             } elseif ($r) {
