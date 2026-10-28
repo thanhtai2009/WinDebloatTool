@@ -37,7 +37,7 @@ $script:MsDl = @{
     # Every release Microsoft's download API serves (edition ids from pbatard/Fido history).
     # Verified 2026-10-25: these returned languages AND a download link (Sentinel rejects were intermittent
     # and passed on retry). Offered = $false marks a release "local ISO only": 2360 (22H2 original) gets a
-    # link but its ISO answers HTTP 400 at the CDN (teammate probe, 2 sessions, 2026-10-25).
+    # link but its ISO answers HTTP 400 at the CDN (checked 2026-10-25).
     Catalog = @(
         @{ Os = 'Win11'; Name = '26H2';    Build = '26300.9457';  Date = '2026-09'; Ids = @{ x64 = '3813'; arm64 = '3816' }; Offered = $true }
         @{ Os = 'Win11'; Name = '25H2 v2'; Build = '26200.8037';  Date = '2026-03'; Ids = @{ x64 = '3321'; arm64 = '3324' }; Offered = $true }
@@ -123,8 +123,8 @@ function Get-MsCount {
 }
 
 function Invoke-MsDlRequest {
-    # HttpWebRequest instead of WebClient: WebClient has no timeout (default 100 s per request, so a
-    # blocked host made "Load list" look dead for minutes). Errors name the host so the log is useful.
+    # HttpWebRequest instead of WebClient: WebClient has no configurable timeout (100 s per request), so a
+    # blocked host would stall the release list for minutes. Errors include the host name for the log.
     param([Parameter(Mandatory = $true)][string]$Uri, [string]$Referer, [int]$TimeoutMs = 0)
     if ($TimeoutMs -le 0) { $TimeoutMs = $script:MsDl.TimeoutMs }
     $req = [Net.HttpWebRequest][Net.WebRequest]::Create($Uri)

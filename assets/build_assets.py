@@ -24,7 +24,7 @@ import cairosvg
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# ---------------------------------------------------------------- palette (indigo tonal family + one accent)
+# --- palette (indigo tonal family + one accent) ---
 INDIGO = {'950': '#15173F', '900': '#1E2257', '800': '#262B72', '700': '#333A99', '600': '#4C55C7', '500': '#6670DB',
           '400': '#8C93F0', '300': '#AEB3F7', '200': '#CDD0FF', '100': '#E6E7FF', '50': '#F5F5FF'}
 ACCENT = ('#FFC8A8', '#FF9F7A')   # warm apricot, only on the broom head of option A
@@ -54,7 +54,7 @@ def rrect(x, y, w, h, r, fill, extra=''):
     return '<rect x="%.2f" y="%.2f" width="%.2f" height="%.2f" rx="%.2f" fill="%s"%s/>' % (x, y, w, h, r, fill, extra)
 
 
-# ---------------------------------------------------------------- app icons
+# --- app icons ---
 def app_icon(option, small):
     V = 32.0 if small else 256.0
     k = V / 256.0
@@ -127,7 +127,7 @@ def app_icon(option, small):
     return '\n'.join(out)
 
 
-# ---------------------------------------------------------------- button icons (24 grid, stroke weight per size)
+# --- button icons (24 grid, stroke weight per size) ---
 SW_PX = {16: 1.5, 20: 1.75, 24: 2.0, 32: 2.5}
 
 

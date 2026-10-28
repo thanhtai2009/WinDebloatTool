@@ -1275,7 +1275,7 @@ function Get-W11TweakHives {
 }
 
 function Get-W11HiveName([string]$Hive) {
-    # DEFAULTUSER was the 1.0 name of the default user's NTUSER.DAT
+    # DEFAULTUSER: legacy name of the default user's NTUSER.DAT (older configs)
     if ($Hive -eq 'DEFAULTUSER') { return 'NTUSER' }
     return $Hive.ToUpperInvariant()
 }
@@ -1321,7 +1321,7 @@ function Dismount-W11Hives {
 }
 
 function ConvertTo-W11RegData([string]$Data) {
-    # reg.exe /d argument: plain numbers / words as-is (1.0 behaviour), quoted when empty or containing spaces
+    # reg.exe /d argument: plain numbers / words as-is, quoted when empty or containing spaces
     if ($Data -match '^[A-Za-z0-9_.:-]+$') { return $Data }
     return (ConvertTo-W11Arg $Data)
 }
@@ -1370,7 +1370,7 @@ function Invoke-W11Tweaks {
 }
 
 function Write-W11AbsentPatterns {
-    # Apps on the list that this image simply does not contain: nothing to do, just say so
+    # Listed apps that this image does not contain: nothing to remove, only logged
     param([string[]]$Patterns, [string[]]$Names)
     $absent = @()
     foreach ($pt in @($Patterns)) {
@@ -1384,7 +1384,7 @@ function Write-W11AbsentPatterns {
 }
 
 function Write-W11OutOfRange {
-    # Default apps hidden by MinBuild/MaxBuild that ARE in the image: kept, but tell the user (config may need widening)
+    # Default apps excluded by MinBuild/MaxBuild but present in the image: kept and logged (the build range may need widening)
     param([string[]]$OutOfRange, [string[]]$Patterns, [string[]]$Names)
     foreach ($pt in @($OutOfRange)) {
         if (-not $pt -or (Test-W11Like $pt @($Patterns))) { continue }
@@ -1761,7 +1761,7 @@ function Update-W11BootWim {
      LocalAccount (bool), UserName, Password (plain text, may be empty), BypassNro (default $true, Windows 11),
      BypassChecks (TPM / Secure Boot / RAM / CPU / storage, Windows 11), SkipPrivacy, FirstLogonCleanup
      (+ FirstLogonApps = app patterns removed again at first logon), Locale (e.g. vi-VN), Keyboard (e.g. 0409:00000409
-     or en-US). Without options the result matches the 1.0 template. #>
+     or en-US). Without options the result matches the default template. #>
 $script:W11ReservedUsers = @('administrator', 'admin', 'guest', 'defaultaccount', 'wdagutilityaccount', 'system', 'user', 'users', 'none',
     'everyone', 'localsystem', 'networkservice', 'localservice', 'administrators', 'defaultuser0', 'defaultuser100000')
 $script:W11FirstLogonScript = 'W11D-FirstLogon.ps1'

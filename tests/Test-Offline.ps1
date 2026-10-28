@@ -50,7 +50,7 @@ Assert (-not ($script:dismCalls | Where-Object { $_ -match 'WindowsStore' })) 'S
 # --- tweaks (mock reg) ---
 $script:regCalls = @()
 function Invoke-W11Reg { param([string]$Arguments) $script:regCalls += $Arguments; if ($Arguments -like 'query*') { return 0 }; return 0 }
-Invoke-W11Tweaks -TweakDefs @($p11.Tweaks | Where-Object { $_.Default })   # the 1.0 defaults: same registry writes as before
+Invoke-W11Tweaks -TweakDefs @($p11.Tweaks | Where-Object { $_.Default })   # default tweaks: expected registry writes
 $adds = @($script:regCalls | Where-Object { $_ -like 'add *' })
 $dels = @($script:regCalls | Where-Object { $_ -like 'delete *' })
 Assert ($adds.Count -eq 28) "28 registry values written (got $($adds.Count))"
@@ -233,7 +233,7 @@ function Invoke-MsDlRequest {
     throw "unexpected URL $Uri"
 }
 
-# 1) exactly the user's failure: vlscppe.microsoft.com cannot be resolved
+# 1) vlscppe.microsoft.com cannot be resolved
 $script:Net = @{ 'vlscppe.microsoft.com' = 'dns'; links = 'links_win10.json' }
 $script:logLines.Clear()
 $cg = Get-MsCatalogForGui
@@ -564,7 +564,7 @@ $logTxt = [IO.File]::ReadAllText($lp)
 Assert ($js.Error -eq 'boom from job' -and $logTxt -match '\[ERROR\] boom from job' -and $logTxt -match 'RuntimeException') 'runspace: job exception -> $sync.Error + details in log'
 Remove-Item $lp
 
-# 8) empty paths (real-Windows crash), i18n files, settings, fonts, mirror fallback
+# 8) empty paths, i18n files, settings, fonts, mirror fallback
 $script:W11Root = $root
 # Windows PowerShell 2.0-5.1 refuse '' for -LiteralPath; PowerShell 7 only does so for Get-Item
 $crash = $null
@@ -616,7 +616,7 @@ $undef = @($used | Where-Object { $enKeys -notcontains $_ })
 Assert ($used.Count -gt 60 -and $undef.Count -eq 0) "every key used in Gui.ps1 ($($used.Count)) exists in the language files (undefined: $($undef -join ','))"
 $wmLit = "'Designed by TaiNT13@PNC STG'"
 $langAll = (@($codes | ForEach-Object { [IO.File]::ReadAllText((Join-Path $langDir "$_.psd1")) }) -join "`n")
-$langAll = $langAll -replace "(?m)^\s*'tip\.author' = .*$", ''   # the author tooltip names him; the watermark itself is never translated
+$langAll = $langAll -replace "(?m)^\s*'tip\.author' = .*$", ''   # tip.author is excluded; the watermark itself is never translated
 Assert ($guiSrc.Contains('$script:W11Watermark = ' + $wmLit) -and $guiSrc -match "lblWatermark\.Dock = 'Bottom'" -and $guiSrc -match 'lblWatermark\.Text = \$script:W11Watermark' -and -not $langAll.Contains('TaiNT13')) 'watermark: exact text, docked bottom, same in every language (not in lang files)'
 $cfgT = Get-W11Config
 $tAll = @(@($cfgT.Tweaks) + @($cfgT.Win10Tweaks))
@@ -796,7 +796,7 @@ $q = @($js.LogQueue.ToArray()) -join "`n"
 Assert ($q -match '\] Hello$' -and $q -notmatch 'Xin chao' -and [IO.File]::ReadAllText($lp2) -match 'Hello \| Xin chao') 'log: GUI shows English for zh/km/en, log file keeps English | Vietnamese'
 Remove-Item $lp2
 
-# 10) user paths (real-Windows bug: output 'D:\x.iso' -> New-Item -Force 'D:\' -> "The path is not of a legal form")
+# 10) user paths (output on a drive root: New-Item -Force 'D:\' fails with "The path is not of a legal form")
 $zw = [string][char]0x200B; $nb = [string][char]0x00A0; $lq = [string][char]0x201C; $rq = [string][char]0x201D
 $pcases = @(
     @(' "D:\Windows11_Client_x64_en-us_26300_9457_debloated.iso" ', '', 'D:\Windows11_Client_x64_en-us_26300_9457_debloated.iso'),
@@ -835,7 +835,7 @@ $nde = $null; try { New-W11Directory 'Q:\' } catch { $nde = $_.Exception.Message
 Assert ($nde -match 'Không thấy ổ đĩa') "New-W11Directory: missing drive root -> clear message ($nde)"
 $coreSrc = [IO.File]::ReadAllText((Join-Path $root 'lib/Core.ps1')) + [IO.File]::ReadAllText((Join-Path $root 'lib/Gui.ps1')) + [IO.File]::ReadAllText((Join-Path $root 'lib/MsDownload.ps1'))
 Assert (@([regex]::Matches($coreSrc, '(?m)^[^#\r\n]*New-Item -ItemType Directory')).Count -eq 0) 'no New-Item -ItemType Directory left in the tool (drive-root bug class)'
-# the exact report: Invoke-Win11Debloat with source and output on the root of D: gets past path preparation
+# Invoke-Win11Debloat with source and output on the root of D: gets past path preparation
 $origAdmin = ${function:Test-W11Admin}; $origNewDir = ${function:New-W11Directory}; $origLog = ${function:Write-W11Log}
 $script:madeDirs = @(); $script:runLog = @()
 function Write-W11Log { param([string]$Level = 'INFO', [string]$En, [string]$Vi) $script:runLog += $En }
@@ -880,7 +880,7 @@ $script:LayoutScale = 1.0; $z1 = Get-W11IconSize; $script:LayoutScale = 1.5; $z2
 Assert ($z1 -eq 16 -and $z4 -eq 20 -and $z2 -eq 24 -and $z3 -eq 32) "icon size by DPI: 100% 16, 125% 20, 150% 24, 200% 32 ($z1 $z4 $z2 $z3)"
 Assert ($guiSrc -match "TextImageRelation = 'ImageBeforeText'" -and $guiSrc -match 'Set-W11FormIcon \$f' -and $guiSrc -match 'Set-W11FormIcon \$d') 'icons: image before text on buttons; icon on the main window and the mirror dialog'
 
-# 12) ISO much bigger than the source (user report: +10 GB) -> layout, export command lines, size log, sanity warning
+# 12) ISO much bigger than the source -> layout, export command lines, size log, sanity warning
 Assert ((Test-W11PathInside 'D:\W\iso\sources' 'D:\W\iso') -and (Test-W11PathInside 'd:\w\ISO' 'D:\W\iso\') -and -not (Test-W11PathInside 'D:\W\iso2' 'D:\W\iso') -and -not (Test-W11PathInside 'D:\W\mount' 'D:\W\iso') -and (Test-W11PathInside '/t/w/iso/a' '/t/w/iso')) 'Test-W11PathInside: same/child yes, sibling or prefix-only no'
 $ly = Get-W11WorkLayout -WorkDir 'D:\WinDebloat_work'
 Assert ($ly.Tree -eq 'D:\WinDebloat_work\iso' -and $ly.Mount -eq 'D:\WinDebloat_work\mount' -and $ly.Scratch -eq 'D:\WinDebloat_work\scratch' -and $ly.WorkWim -eq 'D:\WinDebloat_work\install.work.wim' -and $ly.NewImage -eq 'D:\WinDebloat_work\install.new.wim') 'work layout: tree, mount, scratch, work WIM and new image are siblings under the work dir'
@@ -962,7 +962,7 @@ foreach ($r in $runs) {
         Sources = @(Get-ChildItem -LiteralPath (Join-Path $script:pWork 'iso/sources') -Force | ForEach-Object { $_.Name } | Sort-Object) }
 }
 
-# 1.1: updates (install.wim, WinRE, boot.wim), setup tweak in boot.wim, generated answer file, preset
+# updates (install.wim, WinRE, boot.wim), setup tweak in boot.wim, generated answer file, preset
 $updDir = Join-Path $pr 'updates'
 foreach ($f in @('ssu/windows11.0-kb5000100-x64.msu', 'windows11.0-kb5043080-x64.msu', 'windows11.0-kb5044284-x64.msu', 'windows11.0-kb5044033-x64-ndp481.msu', 'safeos/windows11.0-kb5044615-x64.cab', 'readme.txt')) {
     $fp = Join-Path $updDir $f; $null = [IO.Directory]::CreateDirectory((Split-Path -Parent $fp)); [IO.File]::WriteAllBytes($fp, (New-Object byte[] 10))
@@ -988,8 +988,7 @@ try { $null = Invoke-Win11Debloat -IsoPath $srcIso -OutputIso $script:pOut -Work
 $pRes['preset'] = New-W11Obj @{ Err = $e15; Log = ($script:pLog -join "`n"); Calls = @($script:pCalls); Work = $script:pWork }
 Set-Item function:Invoke-W11Dism $saveDismP
 
-# 13) work folder left by an earlier run (report: "Work dir is not empty and was not
-#     created by this tool: D:\WinDebloat_work"), foreign folders, mounted leftovers, cleanup in finally, one-language UI
+# 13) work folder left by an earlier run, foreign folders, mounted leftovers, cleanup in finally, one-language UI
 Assert ((Get-W11LocalText 'Checking prerequisites / Kiểm tra điều kiện' 'vi') -eq 'Kiểm tra điều kiện' -and (Get-W11LocalText 'Checking prerequisites / Kiểm tra điều kiện' 'en') -eq 'Checking prerequisites') 'Get-W11LocalText: status line in one language (vi / en)'
 $lt = Get-W11LocalText "THẤT BẠI:`nWork dir bad: D:\W / Thư mục tạm D:\W chứa file khác`n`nXem file nhật ký." 'vi'
 Assert ($lt -eq "THẤT BẠI:`nThư mục tạm D:\W chứa file khác`n`nXem file nhật ký.") "Get-W11LocalText: failure dialog in Vietnamese only ($lt)"
@@ -1097,7 +1096,7 @@ Assert (-not $rv.Err -and $expR.Count -eq 3 -and ($rv.Sources -join ',') -eq 'bo
 $sp = $pRes['split']
 Assert (-not $sp.Err -and ($sp.Sources -join ',') -eq 'boot.wim,install.swm,install2.swm' -and @($sp.Calls | Where-Object { $_ -like 'dism /Split-Image*/FileSize:3800*' }).Count -eq 1 -and -not (Test-Path -LiteralPath (Join-Path $sp.Work 'install.new.wim'))) "pipeline (split): >4 GB install.wim -> install.swm + install2.swm in the tree ($($sp.Err); $($sp.Sources -join ','))"
 Assert ($sp.Log -match '\[WARN\] The new image is .* larger than the source one') 'pipeline: new image much bigger than the source image -> WARN with the advice (fewer editions / ESD)'
-# 14) 1.1: JSON data, presets, answer file, offline updates
+# 14) JSON data, presets, answer file, offline updates
 $p14 = Join-Path $tp 'v11'; $null = [IO.Directory]::CreateDirectory($p14)
 function Get-T14Canon($v) { return (ConvertTo-W11Json $v) }
 # JSON reader: built-in parser (PowerShell 2.0 without System.Web.Extensions) = ConvertFrom-Json
@@ -1124,7 +1123,7 @@ $serOk = $true; $serNote = 'not available here'
 if ('System.Web.Script.Serialization.JavaScriptSerializer' -as [type]) { $serNote = 'compared'; foreach ($jf in $jsonFiles) { $txt = [IO.File]::ReadAllText((Join-Path $root $jf)); if ((Get-T14Canon (ConvertFrom-W11Json $txt -Engine Serializer)) -ne (Get-T14Canon (ConvertFrom-W11Json $txt -Engine Parser))) { $serOk = $false } } }
 Assert $serOk "JSON: JavaScriptSerializer engine gives the same data ($serNote)"
 
-# data files: valid, and 1.0 lists unchanged
+# data files: valid, and the v1 default lists unchanged
 $ad14 = Read-W11JsonFile (Join-Path $root 'data/apps.json'); $td14 = Read-W11JsonFile (Join-Path $root 'data/tweaks.json')
 $pa14 = @(Test-W11AppData $ad14); $pt14 = @(Test-W11TweakData $td14)
 Assert ($pa14.Count -eq 0 -and $pt14.Count -eq 0) "data/apps.json and data/tweaks.json pass validation ($($pa14 + $pt14 -join '; '))"
@@ -1297,7 +1296,7 @@ $authOk = @()
 foreach ($l in @('vi', 'en', 'zh-CN', 'km')) { $lt14 = Import-W11Lang $l; if (-not ($lt14['tip.author'] -match 'TaiNT13@PNC STG \(thanhtai2009\)' -and $lt14['tip.author'] -match 'Rufus' -and $lt14['tip.author'] -notmatch '@\w+\.(vn|com)')) { $authOk += $l } }
 $gsrc15 = [IO.File]::ReadAllText((Join-Path $root 'lib/Gui.ps1'))
 Assert ($authOk.Count -eq 0 -and $gsrc15 -match "SetToolTip\(\`$ui\.lblWatermark, \(T 'tip\.author'\)\)" -and $gsrc15 -match "W11Watermark = 'Designed by TaiNT13@PNC STG'") "watermark unchanged, author tooltip in 4 languages without e-mail addresses ($($authOk -join ','))"
-# 16) 1.1: Simple mode - edition choice, ISO language, oscdimg / ADK, settings, plan, simulated run, layout
+# 16) Simple mode - edition choice, ISO language, oscdimg / ADK, settings, plan, simulated run, layout
 $codes16 = @('vi', 'en', 'zh-CN', 'km')
 function New-TImg($i, $n, $e) { New-W11Obj @{ Index = $i; Name = $n; EditionId = $e } }
 $en16 = @((New-TImg 1 'Windows 11 Home' 'Core'), (New-TImg 2 'Windows 11 Home N' 'CoreN'), (New-TImg 3 'Windows 11 Home Single Language' 'CoreSingleLanguage'), (New-TImg 4 'Windows 11 Education' 'Education'),

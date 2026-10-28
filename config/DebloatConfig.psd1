@@ -1,15 +1,15 @@
-﻿# Win11 Debloat Tool - configuration / cấu hình
-# Edit this file to change what is removed. / Sửa file này để đổi danh sách gỡ bỏ.
-#  Profiles: Apps/Tweaks = Windows 11 profile, Win10Apps/Win10Tweaks = Windows 10 profile.
-#  Optional MinBuild / MaxBuild per entry: shown and applied only for images in that build range
-#  (e.g. 19045 = Windows 10 22H2, 22621 = Windows 11 22H2, 26100 = 24H2). Apps that an image does not
-#  contain are skipped anyway and listed in the log.
-#            The profile is picked from the image build (>= 22000 = Win11) or chosen in the GUI.
-#  Apps    : Id is matched against the provisioned package DisplayName (wildcards * allowed).
-#            Default = $true -> pre-checked in the GUI and used by the CLI.
+﻿# WinDebloat Tool - configuration
+# Edit this file to change what is removed from the image.
+#  Profiles : Apps/Tweaks = Windows 11, Win10Apps/Win10Tweaks = Windows 10. The profile is picked from
+#             the image build (>= 22000 = Windows 11) or chosen in the GUI.
+#  MinBuild / MaxBuild (optional, per entry): the entry is shown and applied only for images in that build
+#             range (e.g. 19045 = Windows 10 22H2, 22621 = Windows 11 22H2, 26100 = 24H2). Apps that an
+#             image does not contain are skipped and listed in the log.
+#  Apps     : Id is matched against the provisioned package DisplayName (wildcards * allowed).
+#             Default = $true -> pre-checked in the GUI and used by the CLI.
 #  Protected: never removed, even if listed above (Store, Defender UI, runtimes...).
-#  Tweaks  : registry values written to the OFFLINE image. Hive SOFTWARE = HKLM\SOFTWARE,
-#            DEFAULTUSER = C:\Users\Default\NTUSER.DAT (applies to every new user).
+#  Tweaks   : registry values written to the OFFLINE image. Hive SOFTWARE = HKLM\SOFTWARE,
+#             DEFAULTUSER = C:\Users\Default\NTUSER.DAT (applies to every new user).
 @{
     Apps = @(
         # ---- default removals ----
@@ -54,7 +54,7 @@
         @{ Id = 'microsoft.windowscommunicationsapps';    Name = 'Mail & Calendar (older builds)';  Default = $false; MaxBuild = 22631 }
     )
 
-    # Never removed / Không bao giờ gỡ
+    # Never removed
     Protected = @(
         'Microsoft.WindowsStore', 'Microsoft.StorePurchaseApp', 'Microsoft.DesktopAppInstaller',
         'Microsoft.SecHealthUI', 'Microsoft.MicrosoftEdge*', 'Microsoft.WebView2*', 'Microsoft.VCLibs*',
@@ -147,7 +147,7 @@
         }
     )
 
-    # ======================= Windows 10 profile =======================
+    # ---- Windows 10 profile ----
     Win10Apps = @(
         # ---- default removals ----
         @{ Id = 'Microsoft.3DBuilder';                    Name = '3D Builder (older builds)';       Default = $true; MaxBuild = 16299 }

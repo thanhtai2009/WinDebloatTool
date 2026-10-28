@@ -120,8 +120,9 @@ function Set-W11ControlIcons {
 function Set-W11Layout {
     # Places every control from the current client size (PS 2.0 / .NET 2.0: no TableLayoutPanel tricks needed):
     # sections 1 and 4, the preset row, path boxes, progress bar and log stretch horizontally; sections 2 and 3
-    # share the width (58/42) and, with the log, grow vertically; section 3 is a tab control (its long pages scroll); widths of labels / buttons / check boxes come from the text in
-    # the current language and font, so nothing is clipped. Sizes scale with the DPI the process sees.
+    # share the width (58/42) and, with the log, grow vertically; section 3 is a tab control (long pages scroll).
+    # Widths of labels / buttons / check boxes come from the text in the current language and font, so nothing
+    # is clipped. Sizes scale with the DPI the process sees.
     $ui = $script:ui
     if (-not $ui -or -not $ui.form -or -not $ui.tbLog) { return }
     $f = $ui.form

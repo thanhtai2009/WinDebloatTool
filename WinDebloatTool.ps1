@@ -63,14 +63,14 @@ param(
     [switch]$UpdateWinRE,
     [switch]$ResetBase,
     [string]$LocalUser,             # answer file: create this local administrator account
-    [string]$LocalPassword,         # plain text; without it the password is asked (empty = no password)
+    [string]$LocalPassword,         # plain text; prompted when omitted (empty = no password)
     [switch]$NoBypassNro,
     [switch]$BypassChecks,          # Windows 11: skip TPM / Secure Boot / RAM checks in setup
     [switch]$SkipPrivacy,
     [switch]$FirstLogonCleanup,
     [string]$Locale,                # e.g. vi-VN
     [string]$Keyboard,              # e.g. 0409:00000409 or en-US
-    [string]$AutounattendPath,      # your own answer file instead of the generated one
+    [string]$AutounattendPath,      # custom answer file (replaces the generated one)
     [ValidateSet('Simple', 'Advanced')][string]$Mode,     # GUI: open this mode (skips the chooser)
     [switch]$Simple,                # Simple mode in the console: newest official ISO -> Home + Pro -> safe preset -> ISO
     [string]$OutputFolder,          # Simple mode: where the ISO is downloaded and the new ISO is saved
@@ -101,7 +101,7 @@ if (-not $NoGui -and -not $IsoPath -and -not $Simple) {
     return
 }
 
-# ------------------------- Simple mode, console -------------------------
+# ---- Simple mode (console) ----
 if ($Simple) {
     $os = 'Win11'; if ($TargetOs -eq 'Win10') { $os = 'Win10' }
     $dir = $OutputFolder
@@ -136,7 +136,7 @@ if ($Simple) {
     }
 }
 
-# ------------------------- console mode -------------------------
+# ---- Console mode ----
 $null = Get-W11Capabilities -WorkPath $env:TEMP -MinFreeGB $MinFreeGB
 if (-not $IsoPath) {
     Add-Type -AssemblyName System.Windows.Forms
