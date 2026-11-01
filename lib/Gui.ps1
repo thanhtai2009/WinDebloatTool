@@ -310,7 +310,9 @@ function Set-W11Layout {
         $y += $hRow + (& $px 4)
         foreach ($c in @($ui.chkUpdBoot, $ui.chkUpdWinre, $ui.chkResetBase)) { $h = & $chkH $c $sw; $c.SetBounds($pi, $y, $sw, $h); $y += $h }
         $y += & $px 4
-        $h = & $lblH $ui.lblUpdNote $sw; $ui.lblUpdNote.SetBounds($pi, $y, $sw, $h)
+        $h = & $lblH $ui.lblUpdNote $sw; $ui.lblUpdNote.SetBounds($pi, $y, $sw, $h); $y += $h + (& $px 8)
+        $h = & $chkH $ui.chkRulesUpdate $sw; $ui.chkRulesUpdate.SetBounds($pi, $y, $sw, $h); $y += $h + (& $px 2)
+        $h = & $lblH $ui.lblRulesInfo $sw; $ui.lblRulesInfo.SetBounds($pi, $y, $sw, $h)
 
         # ---------- preset ----------
         $g5 = $ui.grpPreset
@@ -437,8 +439,86 @@ function Start-W11Job {
     return $true
 }
 
+function Get-W11RulesAutoUpdate {
+    # setting RulesAutoUpdate: '0' = off; missing or anything else = on
+    param([hashtable]$Settings)
+    return (-not ($Settings -and [string]$Settings.RulesAutoUpdate -eq '0'))
+}
+
+function Start-W11RulesUpdate {
+    <# Rules check at launch in its own runspace: it does not take the task slot and never blocks the UI.
+       Returns $false when the setting is off or a check is already running. #>
+    param([hashtable]$Settings, [string]$BaseUrl, [int]$TimeoutMs = 0, [switch]$AllowTestUrl)
+    if (-not (Get-W11RulesAutoUpdate $Settings)) { Write-W11Log -En 'Rules auto-update is off' -Vi 'Đã tắt tự cập nhật bộ quy tắc'; return $false }
+    if ($script:RulesJob) { return $false }
+    if ($TimeoutMs -le 0) { $TimeoutMs = $script:W11D.RulesTimeoutMs }
+    $a = @{ Root = $script:W11Root; Store = $script:W11D.RulesStore; BaseUrl = $BaseUrl; TimeoutMs = $TimeoutMs; AllowTestUrl = [bool]$AllowTestUrl; Started = [DateTime]::UtcNow }
+    try {
+        $core = [IO.File]::ReadAllText((Join-Path (Join-Path $script:W11Root 'lib') 'Core.ps1'))
+        $rs = [runspacefactory]::CreateRunspace()
+        $rs.Open()
+        $rs.SessionStateProxy.SetVariable('W11RulesArgs', $a)
+        $ps = [powershell]::Create()
+        $ps.Runspace = $rs
+        # the time limit counts from the launch, including the time to load Core in the runspace
+        [void]$ps.AddScript($core + "`r`n" + @'
+$script:W11Root = $W11RulesArgs.Root
+$script:W11D.RulesStore = $W11RulesArgs.Store
+$left = $W11RulesArgs.TimeoutMs - [int]([DateTime]::UtcNow - $W11RulesArgs.Started).TotalMilliseconds
+if ($left -lt 1) { $left = 1 }
+Update-W11Rules -BaseUrl $W11RulesArgs.BaseUrl -TimeoutMs $left -AllowTestUrl:$W11RulesArgs.AllowTestUrl
+'@)
+        $script:RulesJob = @{ PS = $ps; RS = $rs; Handle = $ps.BeginInvoke(); Clock = [Diagnostics.Stopwatch]::StartNew(); TimeoutMs = $TimeoutMs }
+    } catch {
+        Write-W11Log -En "Rules check not started: $($_.Exception.Message)" -Vi 'Không chạy được kiểm tra bộ quy tắc, dùng bộ quy tắc hiện tại'
+        return $false
+    }
+    return $true
+}
+
+function Invoke-W11RulesTick {
+    # timer: picks up the finished check; a check still running 1 s after the limit is stopped and ignored
+    $j = $script:RulesJob
+    if (-not $j) { return }
+    $r = $null
+    if (-not $j.Handle.IsCompleted) {
+        if ($j.Clock.ElapsedMilliseconds -lt $j.TimeoutMs + 1000) { return }
+        $script:RulesJob = $null
+        try { [void]$j.PS.BeginStop($null, $null) } catch { $null = $_ }
+        $r = New-W11Obj @{ Status = 'Timeout'; Version = ''; Dir = ''; Error = 'no answer within the time limit'; ElapsedMs = [int]$j.Clock.ElapsedMilliseconds }
+    } else {
+        $script:RulesJob = $null
+        try { $out = @($j.PS.EndInvoke($j.Handle)); if ($out.Count) { $r = $out[$out.Count - 1] } } catch { $null = $_ }
+        try { $j.PS.Dispose(); $j.RS.Close() } catch { $null = $_ }
+        if (-not $r -or -not $r.Status) { $r = New-W11Obj @{ Status = 'Failed'; Version = ''; Dir = ''; Error = 'rules check ended without a result'; ElapsedMs = [int]$j.Clock.ElapsedMilliseconds } }
+    }
+    $script:RulesResult = $r
+    Write-W11RulesResult $r
+    if ([string]$r.Status -eq 'Updated') { $script:RulesReload = $true }
+}
+
+function Update-W11RulesReload {
+    # new rules reach the lists and the next run only while no task runs (a running build keeps its rules)
+    if (-not $script:RulesReload -or ($script:Job -and -not $script:Job.Background)) { return }
+    $script:RulesReload = $false
+    try { $script:Cfg = Get-W11Config } catch { Write-W11Log -Level WARN -En "Rules reload failed: $($_.Exception.Message)" -Vi 'Không nạp lại được bộ quy tắc'; return }
+    if ($script:ui -and $script:ui.clbApps) { Set-W11ProfileLists -Force -KeepChecks }
+    Update-W11RulesInfo
+    if ($script:ui -and $script:ui.lblRulesInfo) { Invoke-W11Layout }
+}
+
+function Update-W11RulesInfo {
+    $ui = $script:ui
+    if (-not $ui -or -not $ui.lblRulesInfo -or -not $script:Cfg) { return }
+    $v = [string]$script:Cfg.RulesVersion; if (-not $v) { $v = '-' }
+    $src = T 'rules.bundled'; if ([string]$script:Cfg.RulesSource -eq 'downloaded') { $src = T 'rules.downloaded' }
+    $ui.lblRulesInfo.Text = T 'lbl.rulesInfo' $v $src
+}
+
 function Invoke-W11Tick {
     try {
+        Invoke-W11RulesTick
+        Update-W11RulesReload
         $q = $script:Sync.LogQueue
         $sb = New-Object Text.StringBuilder
         while ($q.Count -gt 0) { [void]$sb.Append([string]$q.Dequeue()); [void]$sb.Append("`r`n") }
@@ -1185,6 +1265,8 @@ function Set-W11UiTexts {
     Set-W11ComboItems $ui.cbRegion (T 'item.askSetup') $script:W11Regions
     Set-W11ComboItems $ui.cbKeyboard (T 'item.kbRegion') $script:W11Keyboards
     if ($script:UpdateScan) { $ui.lblUpdInfo.Text = Format-W11UpdateInfo $script:UpdateScan }
+    if ($ui.tip -and $ui.chkRulesUpdate) { $ui.tip.SetToolTip($ui.chkRulesUpdate, (T 'tip.rulesUpdate')) }
+    Update-W11RulesInfo
     Update-W11PresetList
     Update-W11DetectedLabel
     $script:KeepLangIndex = $true
@@ -1266,6 +1348,8 @@ function Initialize-W11GuiSession {
     Set-W11Language ([string]$script:Settings.Language)
     $script:InstalledFonts = Get-W11InstalledFonts
     $script:Cfg = Get-W11Config
+    $script:RulesJob = $null; $script:RulesReload = $false; $script:RulesResult = $null
+    [void](Start-W11RulesUpdate -Settings $script:Settings)
     $script:GuiSession = $true
 }
 
@@ -1530,16 +1614,16 @@ function Start-W11SimpleJob {
     $script:ui.btnOpen.Visible = $false; $script:ui.lblResult.Text = ''; $script:SimpleIso = $null
     $script:ui.pb.Value = 0
     $opts = Get-MsAria2Options -Config $script:Cfg
-    $code = '$sync.Result = Invoke-W11SimpleBuild -Plan $JobArgs.Plan -Sync $sync -DownloadOptions $JobArgs.Options'
+    $code = '$sync.Result = Invoke-W11SimpleBuild -Plan $JobArgs.Plan -Sync $sync -DownloadOptions $JobArgs.Options -RulesDir $JobArgs.RulesDir'
     if ($Mirror) {
         $script:Sync.Step = 'verify'
         $code = @'
 $v = Test-MsMirrorFile -Path $JobArgs.Path -Mirror $JobArgs.Mirror
 $sync.MirrorCheck = $v
-if ($v.Ok) { $sync.Result = Invoke-W11SimpleBuild -Plan $JobArgs.Plan -IsoPath $v.Path -Sync $sync }
+if ($v.Ok) { $sync.Result = Invoke-W11SimpleBuild -Plan $JobArgs.Plan -IsoPath $v.Path -Sync $sync -RulesDir $JobArgs.RulesDir }
 '@
     }
-    [void](Start-W11Job -Name 'Simple mode' -Script $code -JobArgs @{ Plan = $Plan; Options = $opts; Mirror = $Mirror; Path = $MirrorPath } -OnDone { Complete-W11SimpleRun })
+    [void](Start-W11Job -Name 'Simple mode' -Script $code -JobArgs @{ Plan = $Plan; Options = $opts; Mirror = $Mirror; Path = $MirrorPath; RulesDir = [string]$script:Cfg.RulesDir } -OnDone { Complete-W11SimpleRun })
 }
 
 function Complete-W11SimpleRun {
@@ -1924,7 +2008,11 @@ function Show-W11AdvancedGui {
     $ui.chkResetBase = New-W11Ctl CheckBox '@chk.resetBase' 6 136 340 22
     $ui.lblUpdNote = New-W11Ctl Label '@lbl.updNote' 6 162 340 90
     $ui.lblUpdNote.ForeColor = [Drawing.Color]::DimGray
-    $ui.tpUpdates.Controls.AddRange(@($ui.chkUpdates, $ui.lblUpdFolder, $ui.tbUpd, $ui.btnUpdBrowse, $ui.btnUpdScan, $ui.lblUpdInfo, $ui.chkUpdBoot, $ui.chkUpdWinre, $ui.chkResetBase, $ui.lblUpdNote))
+    $ui.chkRulesUpdate = New-W11Ctl CheckBox '@chk.rulesUpdate' 6 258 340 22
+    $ui.chkRulesUpdate.Checked = (Get-W11RulesAutoUpdate $script:Settings)
+    $ui.lblRulesInfo = New-W11Ctl Label '' 6 282 340 20
+    $ui.lblRulesInfo.ForeColor = [Drawing.Color]::DimGray
+    $ui.tpUpdates.Controls.AddRange(@($ui.chkUpdates, $ui.lblUpdFolder, $ui.tbUpd, $ui.btnUpdBrowse, $ui.btnUpdScan, $ui.lblUpdInfo, $ui.chkUpdBoot, $ui.chkUpdWinre, $ui.chkResetBase, $ui.lblUpdNote, $ui.chkRulesUpdate, $ui.lblRulesInfo))
     $g3.Controls.Add($ui.tabOpts)
 
     # ---------- preset ----------
@@ -2214,6 +2302,11 @@ function Show-W11AdvancedGui {
             if ([string](Show-W11Msg (T 'msg.resetBase') 'Warning' 'YesNo') -ne 'Yes') { $script:ui.chkResetBase.Checked = $false }
         }
     $ui.chkResetBase.Add_CheckedChanged({ Invoke-W11Handler 'chkResetBase.CheckedChanged' })
+    $script:H['chkRulesUpdate.CheckedChanged'] = {
+        if ($script:ui.chkRulesUpdate.Checked) { $script:Settings.RulesAutoUpdate = '1' } else { $script:Settings.RulesAutoUpdate = '0' }
+        $null = Save-W11Settings $script:Settings
+    }
+    $ui.chkRulesUpdate.Add_CheckedChanged({ Invoke-W11Handler 'chkRulesUpdate.CheckedChanged' })
     $script:H['btnUpdBrowse.Click'] = {
             $d = New-Object Windows.Forms.FolderBrowserDialog
             $d.Description = T 'dlg.updFolder'
@@ -2316,6 +2409,7 @@ $sync.Result = $r
             WorkDir = $workDir; WorkDirConflict = 'Fail'
             UnattendOptions = $uo; UpdatesPath = $updDir; UpdateBootWim = [bool]($updDir -and $ui.chkUpdBoot.Checked)
             UpdateWinRE = [bool]($updDir -and $ui.chkUpdWinre.Checked); ResetBase = [bool]($updDir -and $ui.chkResetBase.Checked)
+            RulesDir = [string]$script:Cfg.RulesDir
         }
         if (-not $useDefaults) { $jobArgs.RemoveApps = $apps; $jobArgs.Tweaks = $tw }
         elseif ($script:ActivePreset -and $script:ActivePresetPath) { $jobArgs.Preset = $script:ActivePresetPath }   # apps / tweaks resolved for the real image

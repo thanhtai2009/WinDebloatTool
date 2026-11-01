@@ -36,7 +36,8 @@ param(
     [ValidateSet('Simple', 'Advanced')][string]$Mode,     # GUI: open this mode (skips the chooser)
     [switch]$Simple,                # Simple mode in the console: newest official ISO -> Home + Pro -> safe preset -> ISO
     [string]$OutputFolder,          # Simple mode: where the ISO is downloaded and the new ISO is saved
-    [string]$IsoLanguage = 'auto'   # Simple mode: Microsoft language name (English International, English, ...) or auto
+    [string]$IsoLanguage = 'auto',  # Simple mode: Microsoft language name (English International, English, ...) or auto
+    [switch]$UpdateRules            # check GitHub for newer debloat rules now (SHA256 verified) and exit
 )
 $target = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'WinDebloatTool.ps1'
 if ($WhatIfPreference) { $PSBoundParameters['DryRun'] = [switch]$true; [void]$PSBoundParameters.Remove('WhatIf') }

@@ -304,6 +304,21 @@ aggressive / unsafe; `default`; `os`; `minBuild` / `maxBuild` nếu cần). Tinh
 cảnh báo vào nhật ký; `tests\Test-Parse.ps1` kiểm tra hai file này. `config/DebloatConfig.psd1` chỉ được
 dùng khi thiếu file JSON.
 
+### Tự cập nhật bộ quy tắc
+Mỗi lần mở giao diện, công cụ chạy ngầm để kiểm tra danh sách mới trên GitHub (tối đa 10 giây; cửa sổ dùng
+được ngay). Công cụ đọc `data/rules-manifest.json` trên nhánh `main` của
+`https://raw.githubusercontent.com/thanhtai2009/WinDebloatTool/` (chỉ HTTPS, không theo chuyển hướng) và chỉ
+tải `apps.json` / `tweaks.json` khi `version` trong manifest mới hơn bộ quy tắc đang dùng. Bản tải về chỉ
+được dùng khi SHA256 khớp với manifest, đúng định dạng và qua thêm các giới hạn an toàn (không ghi Registry
+vào các vị trí tự khởi chạy, debugger, dịch vụ, Winlogon, COM class...; ứng dụng được bảo vệ trong bản tích
+hợp sẵn vẫn luôn được bảo vệ). Bộ quy tắc được lưu trong `rules\` cạnh công cụ (hoặc
+`%LOCALAPPDATA%\WinDebloatTool\rules`), chuyển đổi trong một bước và giữ bản trước đó làm dự phòng. Quy tắc
+mới áp dụng từ lần tạo ISO tiếp theo, không bao giờ đổi giữa chừng. Không có mạng, quá thời gian hoặc gặp
+lỗi thì vẫn dùng bộ quy tắc hiện tại, chỉ ghi vào nhật ký. Tắt tính năng ở thẻ *Cập nhật* (*Tự kiểm tra bộ
+quy tắc debloat mới khi khởi động*) hoặc đặt `RulesAutoUpdate = '0'` trong `settings.psd1`; `-UpdateRules`
+kiểm tra ngay từ dòng lệnh. Người duy trì: sau khi sửa danh sách, chạy
+`tools\New-RulesManifest.ps1 -Version <yyyy.m.d.n>` rồi commit cả ba file cùng lúc.
+
 ## Phiên bản Windows được hỗ trợ
 **Image có thể làm gọn**
 

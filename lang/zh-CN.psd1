@@ -224,4 +224,9 @@
     'isoLang.fr' = '法语（French）'
     'isoLang.de' = '德语（German）'
     'isoLang.es' = '西班牙语（Spanish）'
+    'chk.rulesUpdate' = '启动时检查精简规则更新'
+    'lbl.rulesInfo' = '精简规则：版本 {0}（{1}）'
+    'rules.bundled' = '内置'
+    'rules.downloaded' = '已下载，SHA256 已校验'
+    'tip.rulesUpdate' = '启动时在后台从 GitHub (thanhtai2009/WinDebloatTool) 检查新的应用和调整列表，最多 10 秒。只有 SHA256 与清单一致且格式有效时才使用下载的规则，并从下一次运行开始生效。没有网络时继续使用当前规则。'
 }

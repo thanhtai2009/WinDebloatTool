@@ -32,6 +32,9 @@
 .EXAMPLE
     .\WinDebloatTool.ps1 -Check
 .EXAMPLE
+    .\WinDebloatTool.ps1 -UpdateRules
+    (checks GitHub for newer app / tweak lists now; the GUI does this in the background at every start unless turned off)
+.EXAMPLE
     .\WinDebloatTool.ps1 -Mode Simple
     (opens the GUI directly in Simple mode; -Mode Advanced = the full window)
 .EXAMPLE
@@ -74,7 +77,8 @@ param(
     [ValidateSet('Simple', 'Advanced')][string]$Mode,     # GUI: open this mode (skips the chooser)
     [switch]$Simple,                # Simple mode in the console: newest official ISO -> Home + Pro -> safe preset -> ISO
     [string]$OutputFolder,          # Simple mode: where the ISO is downloaded and the new ISO is saved
-    [string]$IsoLanguage = 'auto'   # Simple mode: Microsoft language name (English International, English, ...) or auto
+    [string]$IsoLanguage = 'auto',  # Simple mode: Microsoft language name (English International, English, ...) or auto
+    [switch]$UpdateRules            # check GitHub for newer debloat rules now (SHA256 verified) and exit
 )
 
 $ErrorActionPreference = 'Stop'
@@ -88,6 +92,13 @@ if ($Check) {
     $wp = $env:TEMP
     if ($OutputIso) { $o = Resolve-W11FullPath $OutputIso; if ($o) { $d = Get-W11ParentDir $o; if ($d -and -not $d.StartsWith('\\')) { $wp = $d } } }
     $null = Get-W11Capabilities -WorkPath $wp -MinFreeGB $MinFreeGB
+    return
+}
+
+if ($UpdateRules) {
+    Write-W11RulesResult (Update-W11Rules)
+    $ar = Get-W11ActiveRules
+    Write-Host ("Rules / Bộ quy tắc: {0} ({1}) {2}" -f $ar.Version, $ar.Source, $ar.Dir)
     return
 }
 

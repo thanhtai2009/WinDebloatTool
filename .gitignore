@@ -19,4 +19,6 @@ logs/
 !tools/aria2/
 !tools/aria2/**
 settings.psd1
+# downloaded debloat rules (rules auto-update)
+/rules/
 downloads/

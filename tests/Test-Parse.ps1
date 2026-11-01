@@ -17,7 +17,9 @@ foreach ($jf in @(Get-ChildItem -LiteralPath (Join-Path $root 'data') -Recurse -
     try {
         $d = ConvertFrom-W11Json ([IO.File]::ReadAllText($jf.FullName)) -Engine Parser
         $bad = @()
-        if ($jf.Name -eq 'apps.json') { $bad = @(Test-W11AppData $d) } elseif ($jf.Name -eq 'tweaks.json') { $bad = @(Test-W11TweakData $d) } else { $bad = @(Test-W11Preset $d) }
+        if ($jf.Name -eq 'apps.json') { $bad = @(Test-W11AppData $d) } elseif ($jf.Name -eq 'tweaks.json') { $bad = @(Test-W11TweakData $d) }
+        elseif ($jf.Name -eq 'rules-manifest.json') { $bad = @(Test-W11RulesManifest $d); if (-not $bad.Count -and -not (Test-W11RulesDir $jf.DirectoryName)) { $bad = @('SHA256 of apps.json / tweaks.json does not match (run tools\New-RulesManifest.ps1)') } }
+        else { $bad = @(Test-W11Preset $d) }
         if ($bad.Count) { $msg = $bad -join '; ' }
     } catch { $msg = $_.Exception.Message }
     if ($msg) { $fail++; Write-Host "FAIL $($jf.Name): $msg" -ForegroundColor Red } else { Write-Host "OK   data: $($jf.Name)" -ForegroundColor Green }

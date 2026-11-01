@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## Unreleased
 
+### Added
+- **Rules auto-update**: at GUI start the app and tweak lists are checked in the background against
+  `data/rules-manifest.json` on GitHub (`main`, HTTPS, 10 s limit). Files are accepted only with a matching
+  SHA256, a valid format and the download policy (no autostart / execution registry locations), installed
+  atomically with the previous set kept as backup, and used from the next build. Offline, timeout or errors
+  keep the current rules. Option on the *Updates* tab (default on), `-UpdateRules` in the console,
+  `tools/New-RulesManifest.ps1` for maintainers, `tests/Test-RulesUpdate.ps1`.
+
 ### Changed
 - New icon set in a restrained Material 3 Expressive style. App icon: one indigo tonal family on a soft
   squircle, three light panes and a minimal broom sweeping the fourth (warm accent), with a simplified variant

@@ -301,6 +301,20 @@ aggressive / unsafe; `default`; `os`; optional `minBuild` / `maxBuild`). Tweaks 
 with a warning in the log; `tests\Test-Parse.ps1` validates the files. `config/DebloatConfig.psd1` is only
 used when the JSON files are missing.
 
+### Rules auto-update
+At every GUI start the tool checks GitHub for newer lists in the background (at most 10 seconds; the window
+is usable at once). It reads `data/rules-manifest.json` from the `main` branch of
+`https://raw.githubusercontent.com/thanhtai2009/WinDebloatTool/` (HTTPS only, no redirects) and downloads
+`apps.json` / `tweaks.json` only when the manifest `version` is newer than the rules in use. A download is
+used only if its SHA256 matches the manifest, the format is valid and it passes extra limits (no autostart,
+debugger, service, Winlogon, COM class or similar registry writes; bundled protected apps stay protected).
+It is stored in `rules\` next to the tool (or `%LOCALAPPDATA%\WinDebloatTool\rules`), switched in one step,
+and the previous set is kept as a backup. New rules apply from the next build, never during one. Without
+internet, on a timeout or any error the current rules stay in use; only the log mentions it. Turn it off on
+the *Updates* tab (*Check for updated debloat rules at startup*) or with `RulesAutoUpdate = '0'` in
+`settings.psd1`; `-UpdateRules` checks once from the console. Maintainers: after editing the lists run
+`tools\New-RulesManifest.ps1 -Version <yyyy.m.d.n>` and commit the three files together.
+
 ## Supported Windows versions
 **Images (what you can debloat)**
 

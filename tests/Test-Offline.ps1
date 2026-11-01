@@ -673,7 +673,7 @@ $gSrcKeys = @{
     chkLocalAcc = 'chk.localAcc'; lblUser = 'lbl.user'; tbUser = ''; lblPass = 'lbl.pass'; tbPass = ''; lblPassWarn = 'lbl.passWarn'; chkBypassNro = 'chk.bypassNro'
     chkBypassChecks = 'chk.bypassChecks'; chkSkipPrivacy = 'chk.skipPrivacy'; chkFirstLogon = 'chk.firstLogon'; lblRegion = 'lbl.region'; cbRegion = 'item.askSetup'
     lblKeyboard = 'lbl.keyboard'; cbKeyboard = 'item.kbRegion'; chkUpdates = 'chk.updates'; lblUpdFolder = 'lbl.updFolder'; tbUpd = ''; btnUpdBrowse = 'btn.browse'
-    btnUpdScan = 'btn.updScan'; lblUpdInfo = 'lbl.updNotScanned'; chkUpdBoot = 'chk.updBoot'; chkUpdWinre = 'chk.updWinre'; chkResetBase = 'chk.resetBase'; lblUpdNote = 'lbl.updNote'
+    btnUpdScan = 'btn.updScan'; lblUpdInfo = 'lbl.updNotScanned'; chkUpdBoot = 'chk.updBoot'; chkUpdWinre = 'chk.updWinre'; chkResetBase = 'chk.resetBase'; lblUpdNote = 'lbl.updNote'; chkRulesUpdate = 'chk.rulesUpdate'; lblRulesInfo = 'lbl.rulesInfo'
     grpPreset = 'grp.preset'; cbPreset = ''; btnPresetApply = 'btn.presetApply'; btnPresetLoad = 'btn.presetLoad'; btnPresetSave = 'btn.presetSave'; lblPresetDesc = ''
     grpOutput = 'grp.output'; tbOut = ''; btnOut = 'btn.saveAs'
     btnCheck = 'btn.check'; btnOsc = 'btn.osc'; btnStart = 'btn.start'; btnCancel = 'btn.cancel'; pb = ''; lblStatus = 'status.ready'; cbUiLang = ''; lnkSimple = 'lnk.simple'; lnkLog = 'lnk.log'; tbLog = ''; lblWatermark = ''
@@ -689,7 +689,7 @@ $inner = @{
 $pages = @{
     tpOptions = @('lblEditions', 'rbEdAll', 'rbEdHP', 'rbEdCustom', 'tbIdx', 'btnEd', 'lblTweaks', 'clbTweaks', 'chkCleanup', 'chkEsd', 'chkDry')
     tpUnattend = @('chkUnattend', 'chkLocalAcc', 'lblUser', 'tbUser', 'lblPass', 'tbPass', 'lblPassWarn', 'chkBypassNro', 'chkBypassChecks', 'chkSkipPrivacy', 'chkFirstLogon', 'lblRegion', 'cbRegion', 'lblKeyboard', 'cbKeyboard')
-    tpUpdates = @('chkUpdates', 'lblUpdFolder', 'tbUpd', 'btnUpdBrowse', 'btnUpdScan', 'lblUpdInfo', 'chkUpdBoot', 'chkUpdWinre', 'chkResetBase', 'lblUpdNote')
+    tpUpdates = @('chkUpdates', 'lblUpdFolder', 'tbUpd', 'btnUpdBrowse', 'btnUpdScan', 'lblUpdInfo', 'chkUpdBoot', 'chkUpdWinre', 'chkResetBase', 'lblUpdNote', 'chkRulesUpdate', 'lblRulesInfo')
 }
 $top = @('grpSource', 'grpApps', 'grpOptions', 'grpPreset', 'grpOutput', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'pb', 'lblStatus', 'cbUiLang', 'lnkSimple', 'picLog', 'lnkLog', 'tbLog')
 $oneLine = @('rbLocal', 'lblTargetOs', 'btnIso', 'rbDl', 'lnkMs', 'btnFetch', 'lblVersion', 'lblArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'btnAppDef', 'btnAppAll', 'btnAppNone', 'rbEdAll', 'rbEdCustom', 'btnEd', 'btnOut', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'lnkLog', 'lnkSimple',

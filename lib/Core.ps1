@@ -82,27 +82,51 @@ function Test-W11Admin {
 }
 
 function Get-W11Config {
-    <# Settings from config\DebloatConfig.psd1 (download / mirrors) + the app and tweak lists from data\apps.json and
-       data\tweaks.json. The lists keep the shape the engine always used: Apps / Tweaks (Windows 11),
-       Win10Apps / Win10Tweaks, Protected. Without the JSON files the lists of the .psd1 (if any) are used. #>
+    <# Settings from config\DebloatConfig.psd1 (download / mirrors) + the app and tweak lists from apps.json and
+       tweaks.json. The lists keep the shape the engine always used: Apps / Tweaks (Windows 11),
+       Win10Apps / Win10Tweaks, Protected. Without -DataDir the active rule set is used (a verified download
+       newer than data\, else data\); a download that fails validation falls back to the next set.
+       Without the JSON files the lists of the .psd1 (if any) are used. #>
     param([string]$Path, [string]$DataDir)
     if (-not $Path) { $Path = Join-Path $script:W11Root 'config\DebloatConfig.psd1' }
     if (-not (Test-Path -LiteralPath $Path)) { throw "Config not found: $Path" }
     # Import-LocalizedData parses .psd1 in restricted (data-only) language and exists since PS 2.0
     Import-LocalizedData -BaseDirectory (Split-Path -Parent $Path) -FileName ([IO.Path]::GetFileNameWithoutExtension($Path)) -BindingVariable w11cfg
-    if (-not $DataDir) { $DataDir = Join-Path $script:W11Root 'data' }
-    $w11cfg.DataSource = 'psd1'
-    $ap = Join-Path $DataDir 'apps.json'
-    $tp = Join-Path $DataDir 'tweaks.json'
-    if (Test-Path -LiteralPath $ap) {
-        $a = Import-W11AppData -Path $ap
-        $w11cfg.Apps = $a.Win11; $w11cfg.Win10Apps = $a.Win10; $w11cfg.Protected = $a.Protected
-        $w11cfg.DataSource = 'json'
+    $cands = @()
+    if ($DataDir) {
+        # a pinned download (GUI run) gets the same checks; if it is damaged the active rules are used
+        $src = 'custom'
+        foreach ($st in @(Get-W11RulesStores)) { if ($DataDir.StartsWith($st, [StringComparison]::OrdinalIgnoreCase)) { $src = 'downloaded' } }
+        $cands += @{ Dir = $DataDir; Version = (Test-W11RulesDir $DataDir -SkipHash); Source = $src }
     }
-    if (Test-Path -LiteralPath $tp) {
-        $t = Import-W11TweakData -Path $tp
-        $w11cfg.Tweaks = $t.Win11; $w11cfg.Win10Tweaks = $t.Win10
-        $w11cfg.DataSource = 'json'
+    if (-not $DataDir -or $cands[0].Source -eq 'downloaded') { $cands += @(Get-W11RulesCandidates) }
+    $w11cfg.DataSource = 'psd1'
+    foreach ($c in $cands) {
+        $ap = Join-Path $c.Dir 'apps.json'
+        $tp = Join-Path $c.Dir 'tweaks.json'
+        $ad = $null; $td = $null
+        if ($c.Source -eq 'downloaded') {
+            $bad = @()
+            try { $ad = Read-W11JsonFile $ap; $td = Read-W11JsonFile $tp; $bad = @(Test-W11RulesContent $ad $td) } catch { $bad = @($_.Exception.Message) }
+            if ($bad.Count) { Write-W11Log -Level WARN -En "Downloaded rules $($c.Version) skipped: $($bad[0])" -Vi 'Bộ quy tắc đã tải bị lỗi, dùng bộ quy tắc trước đó'; continue }
+        }
+        if ($ad -or (Test-Path -LiteralPath $ap)) {
+            $a = Import-W11AppData -Path $ap -Data $ad
+            $w11cfg.Apps = $a.Win11; $w11cfg.Win10Apps = $a.Win10; $w11cfg.Protected = $a.Protected
+            $w11cfg.DataSource = 'json'
+        }
+        if ($td -or (Test-Path -LiteralPath $tp)) {
+            $t = Import-W11TweakData -Path $tp -Data $td
+            $w11cfg.Tweaks = $t.Win11; $w11cfg.Win10Tweaks = $t.Win10
+            $w11cfg.DataSource = 'json'
+        }
+        if ($c.Source -eq 'downloaded') {
+            # a download can add protected apps, never drop the bundled ones
+            $bp = Join-Path (Join-Path $script:W11Root 'data') 'apps.json'
+            if (Test-Path -LiteralPath $bp) { try { $w11cfg.Protected = @(@($w11cfg.Protected) + @(Get-W11JsonVal (Read-W11JsonFile $bp) 'protected' @()) | ForEach-Object { [string]$_ } | Sort-Object -Unique) } catch { $null = $_ } }
+        }
+        $w11cfg.RulesDir = $c.Dir; $w11cfg.RulesVersion = [string]$c.Version; $w11cfg.RulesSource = $c.Source
+        break
     }
     foreach ($k in @('Apps', 'Win10Apps', 'Tweaks', 'Win10Tweaks', 'Protected')) { if (-not $w11cfg.ContainsKey($k)) { $w11cfg[$k] = @() } }
     return $w11cfg
@@ -456,8 +480,8 @@ function ConvertTo-W11RegOp {
 function Import-W11AppData {
     <# data\apps.json -> @{ Win11 = entries; Win10 = entries; Protected = patterns }. Entry: Id (= pattern), Name (English),
        Names (per language), Default, Level, Os, MinBuild, MaxBuild. Invalid entries are skipped and logged. #>
-    param([Parameter(Mandatory = $true)][string]$Path)
-    $d = Read-W11JsonFile $Path
+    param([Parameter(Mandatory = $true)][string]$Path, $Data)
+    $d = $Data; if ($null -eq $d) { $d = Read-W11JsonFile $Path }
     $bad = @(Test-W11AppData $d)
     foreach ($b in $bad) { Write-W11Log -Level WARN -En "  $b" -Vi 'mục này trong danh sách ứng dụng bị lỗi' }
     $out = @{ Win11 = @(); Win10 = @(); Protected = @(@(Get-W11JsonVal $d 'protected' @()) | ForEach-Object { [string]$_ }) }
@@ -476,8 +500,8 @@ function Import-W11AppData {
 function Import-W11TweakData {
     <# data\tweaks.json -> @{ Win11 = entries; Win10 = entries } in the engine form: Id, Name / NameVi (log text),
        Names, Descriptions, Category, Level, Default, BootWim, MinBuild, MaxBuild, Set / Delete / DeleteValue / BootSet. #>
-    param([Parameter(Mandatory = $true)][string]$Path)
-    $d = Read-W11JsonFile $Path
+    param([Parameter(Mandatory = $true)][string]$Path, $Data)
+    $d = $Data; if ($null -eq $d) { $d = Read-W11JsonFile $Path }
     $bad = @(Test-W11TweakData $d)
     foreach ($b in $bad) { Write-W11Log -Level WARN -En "  $b" -Vi 'mục này trong danh sách tinh chỉnh bị lỗi' }
     $badIdx = @{}
@@ -500,6 +524,357 @@ function Import-W11TweakData {
         foreach ($o in (Get-W11EntryOsList $e.Os)) { $out[$o] += $e }
     }
     return $out
+}
+#endregion
+
+#region ---------- debloat rules: bundled data\ or a verified download (rules auto-update) ----------
+<# Rules = data\apps.json + data\tweaks.json, listed in data\rules-manifest.json:
+   { "schema": 1, "version": "2026.11.1.1", "minToolVersion": "1.1.0", "files": [ { "name": "apps.json", "sha256": "<hex>" }, ... ] }
+   sha256 covers the file without UTF-8 BOM and with LF line endings (same value for CRLF and LF checkouts).
+   Downloaded sets live in <store>\r-<version>-<hash>; current.txt names the active one, previous.txt the backup.
+   Rules are JSON data only and are never executed. #>
+$script:W11D.RulesBaseUrl = 'https://raw.githubusercontent.com/thanhtai2009/WinDebloatTool/main/data/'
+$script:W11D.RulesTimeoutMs = 10000
+$script:W11D.RulesStore = $null      # override of the download store (tests)
+$script:W11RulesManifestName = 'rules-manifest.json'
+$script:W11RulesFiles = @('apps.json', 'tweaks.json')
+$script:W11RulesMaxBytes = 2097152
+# registry writes a downloaded rule set may not make: autostart, debugger, shell, service and DLL-load locations
+$script:W11RulesDenyKeys = @(
+    '\\CurrentVersion\\Run[^\\]*(\\|$)', '\\Policies\\Explorer\\Run(\\|$)', '\\Windows NT\\CurrentVersion\\Winlogon(\\|$)',
+    '\\Windows NT\\CurrentVersion\\Windows(\\|$)', '\\Image File Execution Options(\\|$)', '\\SilentProcessExit(\\|$)',
+    '(^|\\)(CurrentControlSet|ControlSet\d+)\\Services(\\|$)', '(^|\\)(CurrentControlSet|ControlSet\d+)\\Control\\Session Manager(\\|$)',
+    '(^|\\)Classes(\\|$)', '\\Active Setup\\', '\\Command Processor(\\|$)', '\\Group Policy\\Scripts', '\\ShellServiceObjects',
+    '\\ShellExecuteHooks', '\\Browser Helper Objects', '\\Explorer\\SharedTaskScheduler', '\\Terminal Server\\', '\\Print\\Monitors',
+    '\\Lsa(\\|$)', '\\NetworkProvider', '\\Winsock'
+)
+$script:W11RulesDenyValues = @('Debugger', 'StubPath', 'AutoRun', 'Shell', 'Userinit', 'AppInit_DLLs', 'BootExecute', 'ImagePath', 'ServiceDll', 'GlobalFlag', 'MonitorProcess')
+
+function ConvertTo-W11Version([string]$Text) {
+    # 'a.b[.c[.d]]' -> [version], else $null (Version.TryParse is .NET 4+)
+    if (-not $Text -or $Text -notmatch '^\d{1,9}(\.\d{1,9}){1,3}$') { return $null }
+    try { return (New-Object Version $Text) } catch { return $null }
+}
+
+function Get-W11RulesHash {
+    # SHA256 (hex, upper case) of rules bytes without BOM and with LF line endings
+    param([byte[]]$Bytes)
+    $start = 0
+    if ($Bytes.Length -ge 3 -and $Bytes[0] -eq 0xEF -and $Bytes[1] -eq 0xBB -and $Bytes[2] -eq 0xBF) { $start = 3 }
+    $latin = [Text.Encoding]::GetEncoding(28591)
+    $norm = $latin.GetBytes($latin.GetString($Bytes, $start, $Bytes.Length - $start).Replace("`r`n", "`n"))
+    $sha = New-Object Security.Cryptography.SHA256Managed
+    return ([BitConverter]::ToString($sha.ComputeHash($norm)) -replace '-', '')
+}
+
+function ConvertFrom-W11RulesBytes {
+    param([byte[]]$Bytes)
+    $t = [Text.Encoding]::UTF8.GetString($Bytes)
+    if ($t.Length -gt 0 -and $t[0] -eq [char]0xFEFF) { $t = $t.Substring(1) }
+    return , (ConvertFrom-W11Json $t)
+}
+
+function Test-W11RulesManifest {
+    <# Problems (texts) in a parsed rules manifest; empty = valid. #>
+    param($Data)
+    if (-not ($Data -is [Collections.IDictionary])) { return @('manifest: not a JSON object') }
+    $bad = @()
+    if ((Get-W11JsonVal $Data 'schema') -ne 1) { $bad += 'manifest: schema must be 1' }
+    if (-not (ConvertTo-W11Version ([string](Get-W11JsonVal $Data 'version' '')))) { $bad += 'manifest: version must look like 2026.11.1.1' }
+    $mt = [string](Get-W11JsonVal $Data 'minToolVersion' '')
+    if ($mt -and -not (ConvertTo-W11Version $mt)) { $bad += 'manifest: minToolVersion is not a version' }
+    $seen = @{}
+    foreach ($f in @(Get-W11JsonVal $Data 'files' @())) {
+        $n = [string](Get-W11JsonVal $f 'name' '')
+        if ($script:W11RulesFiles -notcontains $n) { $bad += "manifest: unexpected file '$n'"; continue }
+        if ($seen.ContainsKey($n)) { $bad += "manifest: $n listed twice" }
+        $seen[$n] = 1
+        if ([string](Get-W11JsonVal $f 'sha256' '') -notmatch '^[0-9A-Fa-f]{64}$') { $bad += "manifest: sha256 of $n is not 64 hex digits" }
+    }
+    foreach ($n in $script:W11RulesFiles) { if (-not $seen.ContainsKey($n)) { $bad += "manifest: $n missing" } }
+    return $bad
+}
+
+function Get-W11ManifestHash {
+    param($Manifest, [string]$Name)
+    foreach ($f in @(Get-W11JsonVal $Manifest 'files' @())) { if ([string](Get-W11JsonVal $f 'name' '') -eq $Name) { return ([string]$f['sha256']).ToUpperInvariant() } }
+    return ''
+}
+
+function Test-W11RulesText([string]$Text) {
+    # registry path / name / data of a downloaded rule: printable, no quotes, no empty or relative segments
+    if ($null -eq $Text) { return $true }
+    if ($Text -match '["\x00-\x1F]') { return $false }
+    if ($Text -match '(^|\\)\.\.?(\\|$)' -or $Text -match '\\\\') { return $false }
+    return $true
+}
+
+function Test-W11RulesPolicy {
+    <# Extra limits for downloaded rules (bundled rules are reviewed with the code): every registry write must stay
+       out of autostart / execution locations, texts must be plain, whole-key deletes need a specific key,
+       protected patterns must be safe. Returns problems (texts); empty = allowed. #>
+    param($AppData, $TweakData)
+    $bad = @()
+    foreach ($p in @(Get-W11JsonVal $AppData 'protected' @())) { if ([string]$p -notmatch '^[A-Za-z0-9.*_-]+$') { $bad += "apps.json: protected pattern '$p' not allowed" } }
+    foreach ($t in @(Get-W11JsonVal $TweakData 'tweaks' @())) {
+        $id = [string](Get-W11JsonVal $t 'id' '')
+        foreach ($kind in @('set', 'bootSet', 'deleteKey', 'deleteValue')) {
+            foreach ($op in @(Get-W11JsonVal $t $kind @())) {
+                $key = [string](Get-W11JsonVal $op 'key' '')
+                $name = [string](Get-W11JsonVal $op 'name' '')
+                $tag = "tweaks.json ($id) $kind $key"
+                if (-not (Test-W11RulesText $key) -or -not (Test-W11RulesText $name) -or -not (Test-W11RulesText ([string](Get-W11JsonVal $op 'value' '')))) { $bad += "${tag}: text not allowed"; continue }
+                if ($key.EndsWith('\')) { $bad += "${tag}: key ends with \"; continue }
+                $u = Get-W11JsonVal $op 'undo'
+                $writes = ($kind -eq 'set' -or $kind -eq 'bootSet' -or [string](Get-W11JsonVal $u 'action' '') -eq 'set')
+                if ($writes) {
+                    foreach ($rx in $script:W11RulesDenyKeys) { if (('\' + $key) -match $rx) { $bad += "${tag}: registry location not allowed for downloaded rules"; break } }
+                    if ($script:W11RulesDenyValues -contains $name) { $bad += "${tag}: value '$name' not allowed for downloaded rules" }
+                    if (-not (Test-W11RulesText ([string](Get-W11JsonVal $u 'value' '')))) { $bad += "${tag}: undo value not allowed" }
+                }
+                if ($kind -eq 'deleteKey' -and @($key.Split('\') | Where-Object { $_ }).Count -lt 3) { $bad += "${tag}: key too general to delete" }
+            }
+        }
+    }
+    return $bad
+}
+
+function Test-W11RulesContent {
+    <# Full check of a downloaded rule set (parsed apps.json / tweaks.json): schema 1, no format errors, policy. #>
+    param($AppData, $TweakData)
+    $bad = @()
+    if (-not ($AppData -is [Collections.IDictionary]) -or (Get-W11JsonVal $AppData 'schema') -ne 1) { $bad += 'apps.json: schema must be 1' }
+    if (-not ($TweakData -is [Collections.IDictionary]) -or (Get-W11JsonVal $TweakData 'schema') -ne 1) { $bad += 'tweaks.json: schema must be 1' }
+    if ($bad.Count) { return $bad }
+    $bad += @(Test-W11AppData $AppData)
+    $bad += @(Test-W11TweakData $TweakData)
+    if ($bad.Count -eq 0) { $bad += @(Test-W11RulesPolicy $AppData $TweakData) }
+    return $bad
+}
+
+function Get-W11RulesStores {
+    # folders that may hold downloaded rules: <tool>\rules, %LOCALAPPDATA%\WinDebloatTool\rules
+    if ($script:W11D.RulesStore) { return @($script:W11D.RulesStore) }
+    $s = @()
+    if ($script:W11Root) { $s += (Join-Path $script:W11Root 'rules') }
+    $base = $env:LOCALAPPDATA; if (-not $base) { $base = $env:APPDATA }
+    if ($base) { $s += (Join-Path (Join-Path $base 'WinDebloatTool') 'rules') }
+    return $s
+}
+
+function Get-W11RulesWriteStore {
+    # first store that is writable (the tool folder can be read-only, e.g. under Program Files)
+    foreach ($d in @(Get-W11RulesStores)) {
+        try {
+            New-W11Directory $d
+            $probe = Join-Path $d ('.w11w' + [guid]::NewGuid().ToString('N'))
+            [IO.File]::WriteAllText($probe, '')
+            [IO.File]::Delete($probe)
+            return $d
+        } catch { $null = $_ }
+    }
+    return $null
+}
+
+function Read-W11RulesManifestFile {
+    # parsed + valid manifest of a rules folder, else $null
+    param([string]$Dir)
+    $p = Join-Path $Dir $script:W11RulesManifestName
+    if (-not (Test-W11PathText $p -Leaf)) { return $null }
+    try { $m = ConvertFrom-W11RulesBytes ([IO.File]::ReadAllBytes($p)) } catch { return $null }
+    if (@(Test-W11RulesManifest $m).Count) { return $null }
+    return , $m
+}
+
+function Test-W11RulesDir {
+    <# Version of a rules folder whose files match its manifest (and that this tool version may use), else $null. #>
+    param([string]$Dir, [switch]$SkipHash)
+    $m = Read-W11RulesManifestFile $Dir
+    if (-not $m) { return $null }
+    $mt = ConvertTo-W11Version ([string](Get-W11JsonVal $m 'minToolVersion' ''))
+    if ($mt -and $mt -gt (ConvertTo-W11Version $script:W11D.Version)) { return $null }
+    if (-not $SkipHash) {
+        foreach ($n in $script:W11RulesFiles) {
+            $p = Join-Path $Dir $n
+            if (-not (Test-W11PathText $p -Leaf)) { return $null }
+            if ((Get-W11RulesHash ([IO.File]::ReadAllBytes($p))) -ne (Get-W11ManifestHash $m $n)) { return $null }
+        }
+    }
+    return (ConvertTo-W11Version ([string]$m['version']))
+}
+
+function Get-W11RulesPointer {
+    # folder named in <store>\current.txt / previous.txt (only r-<version>-<hash> names inside the store)
+    param([string]$Store, [string]$Name)
+    $p = Join-Path $Store $Name
+    if (-not (Test-W11PathText $p -Leaf)) { return $null }
+    try { $n = ([IO.File]::ReadAllText($p)).Trim() } catch { return $null }
+    if ($n -notmatch '^r-[0-9.]+-[0-9A-F]{8}$') { return $null }
+    return (Join-Path $Store $n)
+}
+
+function Get-W11RulesCandidates {
+    <# Usable rule sets, best first: downloaded (current, then previous backup) newer than the bundled set, then
+       the bundled data\ folder. Item: @{ Dir; Version; Source = 'downloaded' | 'bundled' }. #>
+    $bdir = Join-Path $script:W11Root 'data'
+    $bv = Test-W11RulesDir $bdir -SkipHash
+    if (-not $bv) { $bv = New-Object Version 0, 0 }
+    $list = @()
+    foreach ($s in @(Get-W11RulesStores)) {
+        foreach ($ptr in @('current.txt', 'previous.txt')) {
+            $d = Get-W11RulesPointer $s $ptr
+            if (-not $d -or @($list | Where-Object { $_.Dir -eq $d }).Count) { continue }
+            $v = Test-W11RulesDir $d
+            if ($v -and $v -gt $bv) { $list += @{ Dir = $d; Version = $v; Source = 'downloaded' } }
+        }
+    }
+    $list = @($list | Sort-Object -Property @{ Expression = { $_.Version } } -Descending)
+    $list += @{ Dir = $bdir; Version = $bv; Source = 'bundled' }
+    return $list
+}
+
+function Get-W11ActiveRules {
+    # the rule set Get-W11Config uses now: @{ Dir; Version; Source }
+    return (@(Get-W11RulesCandidates))[0]
+}
+
+function Get-W11RulesHttp {
+    <# GET over the rules URL into memory: no redirects, size cap, the remaining time of $Clock is the limit. #>
+    param([string]$Url, [Diagnostics.Stopwatch]$Clock, [int]$TimeoutMs, [int]$MaxBytes)
+    $left = $TimeoutMs - [int]$Clock.ElapsedMilliseconds
+    if ($left -le 0) { throw (New-Object TimeoutException 'rules check: time limit reached') }
+    $req = [Net.HttpWebRequest][Net.WebRequest]::Create($Url)
+    $req.Method = 'GET'; $req.Timeout = $left; $req.ReadWriteTimeout = $left; $req.AllowAutoRedirect = $false
+    $req.UserAgent = "WinDebloatTool/$($script:W11D.Version)"
+    $req.Headers.Add('Cache-Control', 'no-cache')
+    try { if ($req.Proxy) { $req.Proxy.Credentials = [Net.CredentialCache]::DefaultCredentials } } catch { $null = $_ }
+    $resp = $req.GetResponse()
+    try {
+        if ([int]$resp.StatusCode -ne 200) { throw "HTTP $([int]$resp.StatusCode)" }
+        if ($resp.ContentLength -gt $MaxBytes) { throw 'rules file too large' }
+        $s = $resp.GetResponseStream()
+        $ms = New-Object IO.MemoryStream
+        $buf = New-Object byte[] 32768
+        while (($n = $s.Read($buf, 0, $buf.Length)) -gt 0) {
+            $ms.Write($buf, 0, $n)
+            if ($ms.Length -gt $MaxBytes) { throw 'rules file too large' }
+            if ($Clock.ElapsedMilliseconds -ge $TimeoutMs) { throw (New-Object TimeoutException 'rules check: time limit reached') }
+        }
+        return , ($ms.ToArray())
+    } finally { $resp.Close() }
+}
+
+function Test-W11RulesUrl {
+    # only the project's GitHub raw folder over HTTPS; -AllowTestUrl also accepts http://127.0.0.1 (tests)
+    param([string]$Url, [switch]$AllowTestUrl)
+    if ($Url -match '^https://raw\.githubusercontent\.com/thanhtai2009/WinDebloatTool/[A-Za-z0-9._/-]+/$' -and $Url -notmatch '/\.\.?/') { return $true }
+    if ($AllowTestUrl -and $Url -match '^http://127\.0\.0\.1:\d+/[A-Za-z0-9._/-]*$') { return $true }
+    return $false
+}
+
+function Install-W11Rules {
+    <# Writes a verified rule set as a new folder, then switches current.txt to it in one step (File.Replace keeps
+       the old pointer as previous.txt). Folders other than current / previous are removed. Returns the folder. #>
+    param([string]$Store, [byte[]]$ManifestBytes, [hashtable]$Files, [string]$Version, [string]$Hash)
+    $name = 'r-{0}-{1}' -f $Version, $Hash.Substring(0, 8)
+    $final = Join-Path $Store $name
+    $tmp = Join-Path $Store ('tmp-' + [guid]::NewGuid().ToString('N'))
+    New-W11Directory $tmp
+    try {
+        foreach ($n in @($Files.Keys)) { [IO.File]::WriteAllBytes((Join-Path $tmp $n), [byte[]]$Files[$n]) }
+        [IO.File]::WriteAllBytes((Join-Path $tmp $script:W11RulesManifestName), $ManifestBytes)
+        if (-not (Test-W11RulesDir $tmp)) { throw 'rules: written files do not match the manifest' }
+        if (Test-Path -LiteralPath $final) { Remove-Item -LiteralPath $final -Recurse -Force }
+        [IO.Directory]::Move($tmp, $final)
+    } finally { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue } }
+    $cur = Join-Path $Store 'current.txt'; $prev = Join-Path $Store 'previous.txt'; $new = Join-Path $Store 'current.txt.new'
+    [IO.File]::WriteAllText($new, $name)
+    if (-not (Test-Path -LiteralPath $cur)) { [IO.File]::Move($new, $cur) }
+    elseif ((Get-W11RulesPointer $Store 'current.txt') -eq $final) { [IO.File]::Delete($new) }
+    else {
+        try { [IO.File]::Replace($new, $cur, $prev) }
+        catch {
+            # volumes without File.Replace support (FAT32, some network shares)
+            [IO.File]::Copy($cur, $prev, $true); [IO.File]::Delete($cur); [IO.File]::Move($new, $cur)
+        }
+    }
+    $keep = @($final, (Get-W11RulesPointer $Store 'previous.txt'))
+    foreach ($d in @(Get-ChildItem -LiteralPath $Store | Where-Object { $_.PSIsContainer -and $_.Name -match '^(r-|tmp-)' })) {
+        if ($keep -notcontains $d.FullName) { Remove-Item -LiteralPath $d.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    return $final
+}
+
+function Update-W11Rules {
+    <# Checks the rules URL for a newer verified rule set and installs it. Never throws; at most -TimeoutMs
+       (default 10 s) for the whole check. Returns @{ Status = Updated | UpToDate | Offline | Timeout | Rejected |
+       Failed; Version; Dir; Error; ElapsedMs }. Anything but Updated leaves the current rules untouched. #>
+    param([string]$BaseUrl, [int]$TimeoutMs = 0, [switch]$AllowTestUrl)
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $res = @{ Status = 'Failed'; Version = ''; Dir = ''; Error = ''; ElapsedMs = 0 }
+    if (-not $BaseUrl) { $BaseUrl = $script:W11D.RulesBaseUrl }
+    if ($TimeoutMs -le 0) { $TimeoutMs = $script:W11D.RulesTimeoutMs }
+    try {
+        if (-not (Test-W11RulesUrl $BaseUrl -AllowTestUrl:$AllowTestUrl)) { $res.Status = 'Rejected'; throw "rules URL not allowed: $BaseUrl" }
+        [void](Enable-W11Tls12)
+        $active = Get-W11ActiveRules
+        $mb = Get-W11RulesHttp -Url ($BaseUrl + $script:W11RulesManifestName) -Clock $clock -TimeoutMs $TimeoutMs -MaxBytes 65536
+        $m = $null
+        try { $m = ConvertFrom-W11RulesBytes $mb } catch { $res.Status = 'Rejected'; throw "manifest: $($_.Exception.Message)" }
+        $bad = @(Test-W11RulesManifest $m)
+        if ($bad.Count) { $res.Status = 'Rejected'; throw ($bad -join '; ') }
+        $ver = ConvertTo-W11Version ([string]$m['version'])
+        $res.Version = [string]$ver
+        $mt = ConvertTo-W11Version ([string](Get-W11JsonVal $m 'minToolVersion' ''))
+        $files = $null; $parsed = @{}; $names = @()
+        if ($ver -le $active.Version -or ($mt -and $mt -gt (ConvertTo-W11Version $script:W11D.Version))) { $res.Status = 'UpToDate'; $res.Dir = $active.Dir }
+        else { $files = @{}; $names = $script:W11RulesFiles }
+        foreach ($n in $names) {
+            $b = Get-W11RulesHttp -Url ($BaseUrl + $n) -Clock $clock -TimeoutMs $TimeoutMs -MaxBytes $script:W11RulesMaxBytes
+            if ((Get-W11RulesHash $b) -ne (Get-W11ManifestHash $m $n)) { $res.Status = 'Rejected'; throw "SHA256 of $n does not match the manifest" }
+            try { $parsed[$n] = ConvertFrom-W11RulesBytes $b } catch { $res.Status = 'Rejected'; throw "${n}: $($_.Exception.Message)" }
+            $files[$n] = $b
+        }
+        if ($null -ne $files) {
+            $bad = @(Test-W11RulesContent $parsed['apps.json'] $parsed['tweaks.json'])
+            if ($bad.Count) { $res.Status = 'Rejected'; throw ((@($bad | Select-Object -First 5)) -join '; ') }
+            if ($clock.ElapsedMilliseconds -ge $TimeoutMs) { throw (New-Object TimeoutException 'rules check: time limit reached') }
+            $store = Get-W11RulesWriteStore
+            if (-not $store) { throw 'no writable folder for downloaded rules' }
+            $res.Dir = Install-W11Rules -Store $store -ManifestBytes $mb -Files $files -Version ([string]$ver) -Hash (Get-W11RulesHash $mb)
+            $res.Status = 'Updated'
+        }
+    } catch {
+        $e = $_.Exception
+        while ($e.InnerException -and -not ($e -is [Net.WebException]) -and -not ($e -is [TimeoutException])) { $e = $e.InnerException }
+        if ($res.Status -ne 'Rejected') {
+            $res.Status = 'Failed'
+            if ($e -is [TimeoutException]) { $res.Status = 'Timeout' }
+            elseif ($e -is [Net.WebException]) {
+                $ws = [string]$e.Status
+                if ($ws -eq 'Timeout') { $res.Status = 'Timeout' }
+                elseif ($ws -match 'NameResolutionFailure|ConnectFailure|ProxyNameResolutionFailure|ConnectionClosed|SendFailure|ReceiveFailure|SecureChannelFailure|TrustFailure') { $res.Status = 'Offline' }
+            }
+            if ($res.Status -eq 'Failed' -and -not ($e -is [Net.WebException] -and [string]$e.Status -eq 'ProtocolError')) {
+                # .NET Core reports a refused / unreachable host as UnknownError with a SocketException inside
+                for ($x = $_.Exception; $x; $x = $x.InnerException) { if ($x.GetType().Name -match '^(SocketException|HttpRequestException)$') { $res.Status = 'Offline'; break } }
+            }
+        }
+        $res.Error = $e.Message
+    } finally { $res.ElapsedMs = [int]$clock.ElapsedMilliseconds }
+    return (New-W11Obj $res)
+}
+
+function Write-W11RulesResult {
+    # one log line for a rules check (no dialogs: a failed check is not an error for the user)
+    param($Result)
+    if (-not $Result) { return }
+    switch ([string]$Result.Status) {
+        'Updated' { Write-W11Log -Level OK -En "Debloat rules updated to version $($Result.Version) (SHA256 verified), used from the next run" -Vi "Đã cập nhật bộ quy tắc debloat lên phiên bản $($Result.Version) (đã xác minh SHA256), áp dụng từ lần chạy tiếp theo" }
+        'UpToDate' { Write-W11Log -En 'Debloat rules are up to date' -Vi 'Bộ quy tắc debloat đã là bản mới nhất' }
+        'Rejected' { Write-W11Log -Level WARN -En "Downloaded debloat rules rejected, current rules kept: $($Result.Error)" -Vi 'Bộ quy tắc tải về không hợp lệ, giữ nguyên quy tắc hiện tại' }
+        default { Write-W11Log -En "Rules check skipped ($($Result.Status): $($Result.Error)), current rules kept" -Vi 'Không kiểm tra được bộ quy tắc mới, giữ nguyên quy tắc hiện tại' }
+    }
 }
 #endregion
 
@@ -2266,7 +2641,7 @@ function Invoke-W11SimpleBuild {
        with Home + Pro and the Safe preset. A Microsoft download failure does not throw: the result has
        DownloadFailed = $true so the caller can offer the verified mirror and call again with -IsoPath.
        Returns @{ Stage; IsoPath; Build; DownloadFailed; Error; Entry; Sku; DryRun }. #>
-    param([Parameter(Mandatory = $true)]$Plan, [string]$IsoPath, [hashtable]$Sync, [switch]$DryRun, [double]$MinFreeGB = -1, [hashtable]$DownloadOptions = @{})
+    param([Parameter(Mandatory = $true)]$Plan, [string]$IsoPath, [hashtable]$Sync, [switch]$DryRun, [double]$MinFreeGB = -1, [hashtable]$DownloadOptions = @{}, [string]$RulesDir)
     if ($Sync) { $script:W11D.Sync = $Sync }
     if ($MinFreeGB -lt 0 -and $null -ne $Plan.BuildMinFreeGB) { $MinFreeGB = [double]$Plan.BuildMinFreeGB }
     $res = @{ Stage = 'check'; IsoPath = $IsoPath; Build = $null; DownloadFailed = $false; Error = $null; Entry = $null; Sku = $null; DryRun = [bool]$DryRun }
@@ -2319,6 +2694,7 @@ function Invoke-W11SimpleBuild {
         EditionMode = $Plan.EditionMode; TargetOs = $Plan.Os; Preset = $Plan.Preset; DryRun = [bool]$DryRun; WorkDirConflict = 'NewFolder' }
     if ($MinFreeGB -ge 0) { $a.MinFreeGB = [int]$MinFreeGB }
     if ($osc) { $a.OscdimgPath = $osc }
+    if ($RulesDir) { $a.RulesDir = $RulesDir }
     if ($Sync) { $a.Sync = $Sync }
     $res.Build = Invoke-Win11Debloat @a
     $res.Stage = 'done'; Set-W11SimpleStep 'done'
@@ -2611,6 +2987,7 @@ function Invoke-Win11Debloat {
         [bool]$UpdateWinRE = $false,    # also add SSU + Safe OS update to WinRE (Winre.wim inside each edition)
         [bool]$ResetBase = $false,      # /StartComponentCleanup /ResetBase after updating (smaller, updates can no longer be removed)
         [string]$Preset,                # preset name (safe, aggressive) or .json path; explicit parameters win
+        [string]$RulesDir,              # rule set chosen when the run was started (GUI); missing = active rules
         [hashtable]$Sync
     )
     $ErrorActionPreference = 'Stop'
@@ -2677,7 +3054,9 @@ function Invoke-Win11Debloat {
     if (-not $LogPath) { $LogPath = Join-W11Path $outDir ('WinDebloat_{0}.log' -f (Get-Date -Format 'yyyyMMdd_HHmmss')) }
     $script:W11D.LogPath = $LogPath
 
-    $cfg = Get-W11Config -Path $ConfigPath
+    if ($RulesDir -and -not ((Test-Path -LiteralPath (Join-Path $RulesDir 'apps.json')) -and (Test-Path -LiteralPath (Join-Path $RulesDir 'tweaks.json')))) { $RulesDir = $null }
+    $cfg = Get-W11Config -Path $ConfigPath -DataDir $RulesDir
+    if ($cfg.RulesVersion) { Write-W11Log -En "Debloat rules: version $($cfg.RulesVersion) ($($cfg.RulesSource))" -Vi "Bộ quy tắc debloat: phiên bản $($cfg.RulesVersion)" }
     $userApps = $RemoveApps; $userTweaks = $Tweaks
     # provisional profile (final one is chosen once the image build is known)
     $os = $TargetOs
