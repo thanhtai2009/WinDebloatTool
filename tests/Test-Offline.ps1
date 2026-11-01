@@ -1409,18 +1409,18 @@ $stepMiss = @()
 foreach ($l in $codes16) { $lt16 = Import-W11Lang $l; foreach ($sk in @('check', 'oscdimg', 'download', 'verify', 'build', 'done', 'cancelling', 'cancelled', 'failed')) { if (-not $lt16.ContainsKey("simple.step.$sk")) { $stepMiss += "$l/$sk" } } }
 Assert ($stepMiss.Count -eq 0) "Simple step texts in vi, en, zh-CN, km ($($stepMiss -join ','))"
 
-$sKeys = @{ lblTitle = 'simple.title'; lblIntro = 'simple.intro'; lblSOs = 'simple.os'; cbSOs = ''; btnSLatest = 'simple.latest'; lblSLatest = 'simple.latestFound'; lblSLang = 'simple.lang'; cbSLang = 'simple.langAuto'; lblSOut = 'simple.out'; tbSOut = ''; btnSOut = 'btn.browse'; lblSpace = 'simple.freeLow'
+$sKeys = @{ lblTitle = 'simple.title'; lblIntro = 'simple.intro'; lblSSrc = 'simple.source'; rbSDl = 'simple.srcDownload'; rbSLocal = 'simple.srcLocal'; btnSIso = 'btn.browse'; lblSIso = 'simple.isoNone'; lblSOs = 'simple.os'; cbSOs = ''; btnSLatest = 'simple.latest'; lblSLatest = 'simple.latestFound'; lblSLang = 'simple.lang'; cbSLang = 'simple.langAuto'; lblSOut = 'simple.out'; tbSOut = ''; btnSOut = 'btn.browse'; lblSpace = 'simple.freeLow'
     btnGo = 'simple.start'; btnCancel = 'btn.cancel'; pb = ''; lblStep = 'simple.step.oscdimg'; lblStatus = ''; lnkSLog = 'simple.showLog'; lblResult = 'simple.result'; btnOpen = 'simple.openFolder'; tbLog = ''; lnkAdvanced = 'simple.toAdvanced'; cbUiLang = ''; lblWatermark = '' }
-$sTop = @('lblTitle', 'lblIntro', 'lblSOs', 'cbSOs', 'btnSLatest', 'lblSLatest', 'lblSLang', 'cbSLang', 'lblSOut', 'tbSOut', 'btnSOut', 'lblSpace', 'btnGo', 'btnCancel', 'pb', 'lblStep', 'lblStatus', 'lnkSLog', 'lblResult', 'btnOpen', 'tbLog', 'lnkAdvanced', 'cbUiLang')
-$sOne = @('lblSOs', 'btnSLatest', 'lblSLang', 'lblSOut', 'btnSOut', 'btnGo', 'btnCancel', 'lnkSLog', 'btnOpen', 'lnkAdvanced')
+$sTop = @('lblTitle', 'lblIntro', 'lblSSrc', 'rbSDl', 'rbSLocal', 'btnSIso', 'lblSIso', 'lblSOs', 'cbSOs', 'btnSLatest', 'lblSLatest', 'lblSLang', 'cbSLang', 'lblSOut', 'tbSOut', 'btnSOut', 'lblSpace', 'btnGo', 'btnCancel', 'pb', 'lblStep', 'lblStatus', 'lnkSLog', 'lblResult', 'btnOpen', 'tbLog', 'lnkAdvanced', 'cbUiLang')
+$sOne = @('lblSSrc', 'rbSDl', 'rbSLocal', 'btnSIso', 'lblSOs', 'btnSLatest', 'lblSLang', 'lblSOut', 'btnSOut', 'btnGo', 'btnCancel', 'lnkSLog', 'btnOpen', 'lnkAdvanced')
 $saveUi = $script:ui; $sBad = @()
 foreach ($c in $codes16) {
     Set-W11Language $c
-    foreach ($sz in @(@(624, 561), @(684, 561), @(1264, 961))) {
+    foreach ($sz in @(@(624, 661), @(684, 661), @(1264, 961))) {
         $mf = New-Object W11MockForm; $mf.ClientSize.Width = $sz[0]; $mf.ClientSize.Height = $sz[1]
         $mu = @{ form = $mf }
         foreach ($k in $sKeys.Keys) { $o = New-Object W11MockCtl; $o.Name = $k; if ($sKeys[$k]) { $o.Text = T $sKeys[$k] '15' '25' }; $mu[$k] = $o }
-        foreach ($k in @('btnGo', 'btnSOut', 'btnCancel', 'btnOpen', 'btnSLatest')) { $mu[$k].Image = New-Object W11MockImg }
+        foreach ($k in @('btnGo', 'btnSOut', 'btnCancel', 'btnOpen', 'btnSLatest', 'btnSIso')) { $mu[$k].Image = New-Object W11MockImg }
         $mu.lblWatermark.Text = $script:W11Watermark; $mu.lblWatermark.Height = 19
         $mu.btnGo.Font.Height = 21; $mu.lblTitle.Font.Height = 23
         if ($c -eq 'km') { $mf.Font.Height = 22; foreach ($k in $sKeys.Keys) { $mu[$k].Font.Height = [Math]::Max(22, $mu[$k].Font.Height) } }
@@ -1430,6 +1430,7 @@ foreach ($c in $codes16) {
         $tag = "simple $c $($sz[0])x$($sz[1])"
         foreach ($k in $sOne) { $need = Get-W11TextWidth $mu[$k].Text $null; if ($mu[$k].Image) { $need += 22 }; if ($need -gt $mu[$k].Width) { $sBad += "$tag ${k}: text wider than control" } }
         foreach ($k in @('lblTitle', 'lblIntro')) { if ($mu[$k].Height -lt (Get-W11TextHeight $mu[$k].Text $null $mu[$k].Width)) { $sBad += "$tag ${k}: cut" } }
+        if ($mu.lblSIso.Width -lt 200) { $sBad += "$tag lblSIso: too narrow for the file info ($($mu.lblSIso.Width))" }
         if ($mu.lblSLatest.Width -lt 150) { $sBad += "$tag lblSLatest: too narrow for the newest release ($($mu.lblSLatest.Width))" }
         for ($i = 0; $i -lt $sTop.Count; $i++) {
             $a = $mu[$sTop[$i]]

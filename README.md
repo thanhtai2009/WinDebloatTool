@@ -110,7 +110,12 @@ time; the choice is stored in `settings.psd1` next to the tool, or in `%APPDATA%
 folder is read-only. *Switch to Advanced* (Simple window) and *Simple mode* (Advanced window) change the mode
 at any time.
 
-The Simple window has three choices and one **START** button:
+The Simple window has a few choices and one **START** button:
+- **ISO:** *Download the newest from Microsoft* (default) or *Use an ISO file on this PC*. *Browse...* picks a
+  `.iso` file; its name, size and the Windows version found in it are shown, and Windows is selected to match.
+  A file that is not a Windows 10 / 11 installation ISO (no `sources\install.wim` / `install.esd`) is refused.
+  With a local ISO nothing is downloaded and Microsoft is not contacted; *ISO language* and *Check newest* are
+  then disabled.
 - **Windows:** Windows 11 (default) or Windows 10. The architecture follows this PC (x64, arm64 for Windows 11
   on ARM, x86 for Windows 10 on 32-bit Windows). *Check newest* next to it asks Microsoft which release is the
   newest right now and shows it, for example *Newest: Windows 11 26H2 (Build 26300.9457)*. **START** downloads
@@ -128,7 +133,7 @@ The Simple window has three choices and one **START** button:
    `adksetup.exe /quiet /norestart /ceip off /features OptionId.DeploymentTools` (Deployment Tools only). On
    Windows 7 SP1 / 8.x the older official ADK for Windows 10, version 1607 is tried; if that fails, copy
    `oscdimg.exe` into the `tools` folder.
-2. downloads the newest official ISO from Microsoft (aria2 when available) and checks its SHA256 against
+2. (download only) downloads the newest official ISO from Microsoft (aria2 when available) and checks its SHA256 against
    Microsoft's table. If Microsoft refuses, you can use the mirror copy of the original file (SHA256 checked,
    see [Download sources](#download-sources)) or the Microsoft page.
 3. keeps only **Home** and **Pro** (by edition ID `Core` / `Professional`, so N, Single Language and other
@@ -137,7 +142,7 @@ The Simple window has three choices and one **START** button:
 
 A progress bar and the current step are shown; *Show log* opens the log, **Cancel** stops safely after the
 current step (the ADK installer and a running DISM command finish first). At the end *Open folder* shows the
-new ISO. Administrator rights (run.bat) and internet are needed; a build takes about 30–90 minutes.
+new ISO. Administrator rights (run.bat) are needed, and internet for the download; a build takes about 30–90 minutes.
 
 Console: `run.bat -Mode Simple` opens the Simple window directly (`-Mode Advanced` the full window), and
 `run.bat -Simple -OutputFolder D:\ISO [-TargetOs Win10] [-IsoLanguage "English International"] [-IsoPath D:\my.iso] [-DryRun]`

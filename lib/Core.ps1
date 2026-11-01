@@ -1114,6 +1114,38 @@ function Get-W11Sha256 {
     return ([BitConverter]::ToString($h) -replace '-', '')
 }
 
+$script:W11IsoMinBytes = 1GB   # Windows 10 / 11 install ISOs are 3 GB and more
+
+function Test-W11IsoFile {
+    <# Local source ISO check without mounting: the file exists, ends in .iso, carries an ISO 9660 or UDF
+       volume descriptor (sector 16-18) and is at least 1 GB. Reason: missing | notIso | tooSmall | unreadable. #>
+    param([string]$Path)
+    $r = @{ Ok = $false; Path = ''; Size = [int64]0; Label = ''; Reason = '' }
+    $full = Resolve-W11FullPath (ConvertTo-W11CleanPath $Path)
+    if (-not $full -or -not (Test-W11PathText $full -Leaf)) { $r.Reason = 'missing'; return (New-W11Obj $r) }
+    $r.Path = $full
+    if ([IO.Path]::GetExtension($full) -ne '.iso') { $r.Reason = 'notIso'; return (New-W11Obj $r) }
+    $ids = @()
+    try {
+        $r.Size = (New-Object IO.FileInfo $full).Length
+        $fs = [IO.File]::OpenRead($full)
+        try {
+            $buf = New-Object byte[] 2048
+            for ($sec = 16; $sec -le 18; $sec++) {
+                if ($fs.Length -lt ($sec + 1) * 2048) { break }
+                [void]$fs.Seek($sec * 2048, [IO.SeekOrigin]::Begin)
+                [void]$fs.Read($buf, 0, 2048)
+                $ids += [Text.Encoding]::ASCII.GetString($buf, 1, 5)
+            }
+        } finally { $fs.Close() }
+    } catch { $r.Reason = 'unreadable'; return (New-W11Obj $r) }
+    if (@($ids | Where-Object { @('CD001', 'BEA01', 'NSR02', 'NSR03') -contains $_ }).Count -eq 0) { $r.Reason = 'notIso'; return (New-W11Obj $r) }
+    if ($r.Size -lt $script:W11IsoMinBytes) { $r.Reason = 'tooSmall'; return (New-W11Obj $r) }
+    $r.Label = Get-W11IsoLabel -IsoPath $full
+    $r.Ok = $true
+    return (New-W11Obj $r)
+}
+
 function Get-W11IsoLabel {
     # Reads the ISO9660 primary volume descriptor (sector 16, bytes 40..71).
     param([Parameter(Mandatory = $true)][string]$IsoPath)
@@ -1525,28 +1557,32 @@ function Get-W11WimXmlInfo {
 
 function Get-W11IsoOsInfo {
     <# Detects Windows 10 vs 11 for an ISO. Win8+ hosts: mount + read install.wim/esd XML (fast).
-       Otherwise (Win7) falls back to the file name. Returns Os, Build, Source, Editions. #>
+       Otherwise (Win7) falls back to the file name. Returns Os, Build, Source, Editions and HasImage
+       ($true / $false once the ISO was opened: sources\install.wim or .esd present; $null = not checked). #>
     param([Parameter(Mandatory = $true)][string]$IsoPath)
     $guess = Get-W11OsFromName $IsoPath
+    $has = $null
     if (Get-Command Mount-DiskImage -ErrorAction SilentlyContinue) {
         $iso = $null
         try {
             $iso = Open-W11Iso -IsoPath $IsoPath
+            $has = $false
             foreach ($f in @('install.wim', 'install.esd')) {
                 $p = Join-Path $iso.Root "sources\$f"
                 if (Test-Path -LiteralPath $p) {
+                    $has = $true
                     $eds = @(Get-W11WimXmlInfo -Path $p)
                     $build = 0; foreach ($e in $eds) { if ($e.Build -gt $build) { $build = $e.Build } }
                     $os = Resolve-W11OsFromBuild $build
-                    if ($os) { return (New-W11Obj @{ Os = $os; Build = $build; Source = 'image'; Editions = $eds }) }
+                    if ($os) { return (New-W11Obj @{ Os = $os; Build = $build; Source = 'image'; Editions = $eds; HasImage = $true }) }
                 }
             }
         } catch {
             Write-W11Log -Level WARN -En "Could not read the image inside the ISO: $($_.Exception.Message)" -Vi 'Không đọc được image trong ISO'
         } finally { if ($iso) { Close-W11Iso -Iso $iso -IsoPath $IsoPath } }
     }
-    if ($guess) { return (New-W11Obj @{ Os = $guess; Build = 0; Source = 'filename'; Editions = @() }) }
-    return (New-W11Obj @{ Os = $null; Build = 0; Source = 'unknown'; Editions = @() })
+    if ($guess) { return (New-W11Obj @{ Os = $guess; Build = 0; Source = 'filename'; Editions = @(); HasImage = $has }) }
+    return (New-W11Obj @{ Os = $null; Build = 0; Source = 'unknown'; Editions = @(); HasImage = $has })
 }
 
 # Feature-update builds (major build -> release name). Windows 10 20H2..22H2 share the 19041 code base
@@ -2660,7 +2696,8 @@ function Invoke-W11SimpleBuild {
     else { $osc = Install-W11Oscdimg -Method AdkSetup }
     Assert-W11NotCancelled
     # ---- download ----
-    if (-not $IsoPath) {
+    if ($IsoPath) { Write-W11Log -En "Source ISO (no download): $IsoPath" -Vi "ISO nguồn có sẵn (không tải): $IsoPath" }
+    else {
         $res.Stage = 'download'; Set-W11SimpleStep 'download'
         try {
             $cat = @($Catalog | Where-Object { $_ })

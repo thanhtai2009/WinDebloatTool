@@ -110,7 +110,12 @@ không hỏi lại; lựa chọn được lưu trong `settings.psd1` cạnh côn
 thư mục công cụ không ghi được. Có thể đổi chế độ bất cứ lúc nào bằng liên kết *Chuyển sang Nâng cao* (cửa sổ
 Đơn giản) hoặc *Chế độ Đơn giản* (cửa sổ Nâng cao).
 
-Cửa sổ Đơn giản chỉ có ba lựa chọn và một nút **BẮT ĐẦU**:
+Cửa sổ Đơn giản chỉ có vài lựa chọn và một nút **BẮT ĐẦU**:
+- **Nguồn ISO:** *Tải bản mới nhất từ Microsoft* (mặc định) hoặc *Chọn file ISO có sẵn*. Nút *Chọn...* mở hộp
+  thoại chọn file `.iso`; tên file, dung lượng và phiên bản Windows đọc được trong ISO sẽ hiện ra, Windows được
+  chọn theo đúng file. File không phải ISO cài đặt Windows 10 / 11 (không có `sources\install.wim` /
+  `install.esd`) sẽ bị từ chối. Khi dùng file có sẵn, công cụ không tải gì và không kết nối Microsoft; *Ngôn ngữ
+  ISO* và *Kiểm tra bản mới nhất* sẽ bị tắt.
 - **Windows:** Windows 11 (mặc định) hoặc Windows 10. Kiến trúc theo máy đang dùng (x64; arm64 với Windows 11
   trên máy ARM; x86 với Windows 10 trên Windows 32-bit). Nút *Kiểm tra bản mới nhất* bên cạnh hỏi Microsoft
   bản phát hành mới nhất hiện tại và hiện ra, ví dụ *Mới nhất: Windows 11 26H2 (Build 26300.9457)*.
@@ -128,7 +133,7 @@ Bấm **BẮT ĐẦU**, công cụ sẽ:
    `adksetup.exe /quiet /norestart /ceip off /features OptionId.DeploymentTools` (chỉ cài Deployment Tools).
    Trên Windows 7 SP1 / 8.x, công cụ thử bản ADK chính thức cũ hơn (ADK cho Windows 10, bản 1607); nếu không
    được, hãy chép `oscdimg.exe` vào thư mục `tools`.
-2. tải ISO mới nhất từ Microsoft (dùng aria2 nếu có) và đối chiếu SHA256 với bảng mã Microsoft công bố. Nếu
+2. (chỉ khi chọn tải) tải ISO mới nhất từ Microsoft (dùng aria2 nếu có) và đối chiếu SHA256 với bảng mã Microsoft công bố. Nếu
    Microsoft từ chối, bạn có thể dùng bản sao file gốc trên mirror (có kiểm tra SHA256, xem
    [Nguồn tải ISO](#nguồn-tải-iso)) hoặc mở trang Microsoft.
 3. chỉ giữ **Home** và **Pro** (theo EditionID `Core` / `Professional`, nên bản N, Single Language và các
@@ -137,7 +142,7 @@ Bấm **BẮT ĐẦU**, công cụ sẽ:
 
 Trong lúc chạy có thanh tiến trình và tên bước hiện tại; *Xem log* hiện nhật ký, **Huỷ** dừng an toàn sau bước
 hiện tại (bộ cài ADK và lệnh DISM đang chạy sẽ chạy xong trước). Khi xong, bấm *Mở thư mục* để thấy ISO mới.
-Cần quyền quản trị (mở bằng run.bat) và Internet; mỗi lần tạo mất khoảng 30–90 phút.
+Cần quyền quản trị (mở bằng run.bat), và Internet khi tải ISO; mỗi lần tạo mất khoảng 30–90 phút.
 
 Dòng lệnh: `run.bat -Mode Simple` mở thẳng cửa sổ Đơn giản (`-Mode Advanced` mở giao diện đầy đủ), còn
 `run.bat -Simple -OutputFolder D:\ISO [-TargetOs Win10] [-IsoLanguage "English International"] [-IsoPath D:\my.iso] [-DryRun]`

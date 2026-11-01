@@ -169,7 +169,7 @@
     'mode.remember' = '记住我的选择（下次不再询问）'
     'lnk.simple' = '简单模式'
     'simple.title' = '一键生成精简版 Windows ISO'
-    'simple.intro' = '选择 Windows 版本、ISO 语言和保存位置，然后点击“开始”。工具会从 Microsoft 下载最新 ISO（校验 SHA256），只保留 Home + Pro，删除多余应用并应用“安全”模板的调整，缺少 oscdimg 时自动安装，然后生成新 ISO。需要管理员权限和网络，约需 30-90 分钟。'
+    'simple.intro' = '选择 Windows 版本、ISO 语言和保存位置，然后点击“开始”。工具会从 Microsoft 下载最新 ISO（校验 SHA256）或使用本机已有的 ISO 文件，只保留 Home + Pro，删除多余应用并应用“安全”模板的调整，缺少 oscdimg 时自动安装，然后生成新 ISO。需要管理员权限（下载时还需要网络），约需 30-90 分钟。'
     'simple.os' = 'Windows：'
     'simple.lang' = 'ISO 语言：'
     'simple.langAuto' = '自动（简体中文）'
@@ -239,4 +239,29 @@
     'simple.latestFound' = '最新：{0}'
     'tip.latest' = '在后台向 Microsoft 查询最新的 Windows 11 和 Windows 10 版本（最多 60 秒），添加到列表并自动选中，然后点击“下载”。无法连接 Microsoft 时保留当前列表。'
     'tip.simpleLatest' = '在后台向 Microsoft 查询最新版本（最多 60 秒）。点击“开始”将下载该版本。'
+    'simple.source' = 'ISO 来源：'
+    'simple.srcDownload' = '从 Microsoft 下载最新版本'
+    'simple.srcLocal' = '使用本机上的 ISO 文件'
+    'simple.isoNone' = '尚未选择 ISO 文件 - 请点击“浏览...”'
+    'simple.isoInfo' = '{0}  ({1}, {2})'
+    'simple.isoChecking' = '正在检查映像...'
+    'simple.isoUnknown' = '未识别 Windows 版本 - 请在下方选择'
+    'msg.simpleNoIso' = '请先选择 ISO 文件（浏览...），或改为“从 Microsoft 下载最新版本”。'
+    'msg.simpleIsoBad' = '此文件不能用作源 ISO：
+{0}
+
+{1}'
+    'iso.missing' = '文件不存在。'
+    'iso.notIso' = '这不是 ISO 映像（带 ISO 9660 / UDF 文件系统的 .iso 文件）。'
+    'iso.tooSmall' = '文件太小，不是 Windows 10 / 11 安装 ISO。'
+    'iso.unreadable' = '无法读取文件（可能正在使用或没有访问权限）。'
+    'iso.noImage' = 'ISO 中没有 sources\install.wim 或 install.esd，因此不是 Windows 10 / 11 安装 ISO。'
+    'msg.simpleConfirmLocal' = '简单模式将：
+- 使用 ISO 文件 {0}
+  {1}
+- 只保留 Home + Pro，按“安全”模板删除应用并应用调整
+- 缺少 oscdimg 时自动安装（Windows ADK Deployment Tools）
+- 新 ISO 保存到：{2}
+
+不会从 Microsoft 下载任何内容。可能需要 20-60 分钟。是否继续？'
 }

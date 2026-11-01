@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+- Simple mode: choose the ISO source - *Download the newest from Microsoft* or *Use an ISO file on this PC*
+  (*Browse...*, `*.iso`). The chosen file is checked (exists, ISO 9660 / UDF image, size, Windows image inside)
+  and its name, size and Windows version are shown; Windows is selected to match. **START** then builds from
+  that file without any download or online check. Texts in vi, en, zh-CN, km; tests/Test-SimpleLocalIso.ps1.
+
+### Changed
+- Simple window: minimum size raised for the new ISO source row.
+
 ## 1.2.0 — 2026-11-01
 
 ### Removed

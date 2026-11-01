@@ -169,7 +169,7 @@ Use at most 20 characters, none of " / \ [ ] : ; | = , + * ? < > @ %, and not a 
     'mode.remember' = 'Remember my choice (do not ask again)'
     'lnk.simple' = 'Simple mode'
     'simple.title' = 'Build a slim Windows ISO with one button'
-    'simple.intro' = 'Choose Windows, the ISO language and a folder, then press START. The tool downloads the newest ISO from Microsoft (SHA256 checked), keeps only Home + Pro, removes unneeded apps and applies the Safe preset tweaks, installs oscdimg if it is missing and builds the new ISO. Needs administrator rights and internet; takes about 30-90 minutes.'
+    'simple.intro' = 'Choose Windows, the ISO language and a folder, then press START. The tool downloads the newest ISO from Microsoft (SHA256 checked) or uses an ISO file you already have, keeps only Home + Pro, removes unneeded apps and applies the Safe preset tweaks, installs oscdimg if it is missing and builds the new ISO. Needs administrator rights (and internet for the download); takes about 30-90 minutes.'
     'simple.os' = 'Windows:'
     'simple.lang' = 'ISO language:'
     'simple.langAuto' = 'Automatic (English - United States)'
@@ -239,4 +239,29 @@ Try it now?'
     'simple.latestFound' = 'Newest: {0}'
     'tip.latest' = 'Asks Microsoft for the newest Windows 11 and Windows 10 release in the background (at most 60 seconds), adds it to the list and selects it. Then press Download. If Microsoft cannot be reached, the current list is kept.'
     'tip.simpleLatest' = 'Asks Microsoft which release is the newest, in the background (at most 60 seconds). START downloads that release.'
+    'simple.source' = 'ISO:'
+    'simple.srcDownload' = 'Download the newest from Microsoft'
+    'simple.srcLocal' = 'Use an ISO file on this PC'
+    'simple.isoNone' = 'No ISO file chosen yet - press Browse...'
+    'simple.isoInfo' = '{0}  ({1}, {2})'
+    'simple.isoChecking' = 'checking the image...'
+    'simple.isoUnknown' = 'Windows version not detected - choose it below'
+    'msg.simpleNoIso' = 'Choose the ISO file first (Browse...), or switch to "Download the newest from Microsoft".'
+    'msg.simpleIsoBad' = 'This file cannot be used as the source ISO:
+{0}
+
+{1}'
+    'iso.missing' = 'The file does not exist.'
+    'iso.notIso' = 'It is not an ISO image (a .iso file with an ISO 9660 / UDF file system).'
+    'iso.tooSmall' = 'The file is too small for a Windows 10 / 11 installation ISO.'
+    'iso.unreadable' = 'The file cannot be read (it may be in use, or access is denied).'
+    'iso.noImage' = 'The ISO has no sources\install.wim or install.esd, so it is not a Windows 10 / 11 installation ISO.'
+    'msg.simpleConfirmLocal' = 'Simple mode will:
+- Use the ISO file {0}
+  {1}
+- Keep only Home + Pro, remove apps and apply tweaks of the Safe preset
+- Install oscdimg (Windows ADK Deployment Tools) if it is missing
+- Save the new ISO in: {2}
+
+Nothing is downloaded from Microsoft. This can take 20-60 minutes. Continue?'
 }

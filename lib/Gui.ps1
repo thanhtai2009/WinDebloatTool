@@ -39,7 +39,7 @@ $script:W11ButtonIcons = @{
     btnCheck = 'shield-check'; btnOsc = 'wrench'; btnStart = 'broom'; btnCancel = 'stop'
     btnPresetApply = 'sliders'; btnPresetLoad = 'folder-open'; btnPresetSave = 'save'; btnUpdBrowse = 'folder-open'; btnUpdScan = 'package'
     picMs = 'globe'; picLog = 'folder'
-    btnGo = 'rocket'; btnSOut = 'folder-open'; btnOpen = 'folder'; btnSLatest = 'sparkle'   # Simple window
+    btnGo = 'rocket'; btnSOut = 'folder-open'; btnOpen = 'folder'; btnSLatest = 'sparkle'; btnSIso = 'folder-open'   # Simple window
 }
 
 function Get-W11DpiScale {
@@ -382,6 +382,7 @@ function Set-W11Busy {
     param([bool]$Busy)
     foreach ($c in $script:BusyControls) { $c.Enabled = -not $Busy }
     $script:ui.btnCancel.Enabled = $Busy
+    if (-not $Busy -and $script:AfterBusy) { & $script:AfterBusy }
     if ($Busy) { $script:ui.form.Cursor = [Windows.Forms.Cursors]::AppStarting } else { $script:ui.form.Cursor = [Windows.Forms.Cursors]::Default }
 }
 
@@ -1576,8 +1577,22 @@ function Set-W11SimpleLayout {
         $y = $M
         $h = Get-W11TextHeight $ui.lblTitle.Text $ui.lblTitle.Font $fullW; $ui.lblTitle.SetBounds($M, $y, $fullW, $h); $y += $h + (& $px 4)
         $h = Get-W11TextHeight $ui.lblIntro.Text $ui.lblIntro.Font $fullW; $ui.lblIntro.SetBounds($M, $y, $fullW, $h); $y += $h + (& $px 12)
-        $lw = [Math]::Max([Math]::Max((& $lblW $ui.lblSOs), (& $lblW $ui.lblSLang)), (& $lblW $ui.lblSOut)) + (& $px 6)
+        $lw = [Math]::Max([Math]::Max([Math]::Max((& $lblW $ui.lblSOs), (& $lblW $ui.lblSLang)), (& $lblW $ui.lblSOut)), (& $lblW $ui.lblSSrc)) + (& $px 6)
         $x = $M + $lw; $rest = $cw - $M - $x
+        # ISO source: download (default) or a local ISO with Browse... and its file / Windows info
+        $chkW = { param($c) (& $tw $c) + (& $px 24) }
+        $ui.lblSSrc.SetBounds($M, $y + (& $px 3), $lw, $rowH - (& $px 3))
+        $ui.rbSDl.SetBounds($x, $y, [Math]::Min((& $chkW $ui.rbSDl), $rest), $rowH); $y += $rowH + (& $px 4)
+        $ui.rbSLocal.SetBounds($x, $y, [Math]::Min((& $chkW $ui.rbSLocal), $rest), $rowH)
+        $wb = & $btnW $ui.btnSIso 100
+        $ui.btnSIso.SetBounds($ui.rbSLocal.Right + $gap, $y - (& $px 2), $wb, $bh)
+        $wi = $cw - $M - $ui.btnSIso.Right - $gap
+        if ($wi -ge (& $px 240)) {
+            $ui.lblSIso.SetBounds($ui.btnSIso.Right + $gap, $y + (& $px 3), $wi, $rowH - (& $px 3)); $y += [Math]::Max($rowH, $bh) + (& $px 8)
+        } else {
+            $y += [Math]::Max($rowH, $bh)
+            $ui.lblSIso.SetBounds($x + (& $px 18), $y, [Math]::Max((& $px 40), $rest - (& $px 18)), $rowH - (& $px 4)); $y += $rowH + (& $px 4)
+        }
         $ui.lblSOs.SetBounds($M, $y + (& $px 3), $lw, $rowH - (& $px 3))
         $ui.cbSOs.SetBounds($x, $y, [Math]::Min((& $px 160), $rest), $rowH)
         $wb = & $btnW $ui.btnSLatest 100
@@ -1672,10 +1687,82 @@ function Set-W11SimpleTexts {
     $ui.tip.SetToolTip($ui.cbUiLang, (T 'tip.uiLang'))
     $ui.tip.SetToolTip($ui.btnSLatest, (T 'tip.simpleLatest'))
     Update-W11SimpleLatestText
+    Update-W11SimpleSource
     if (-not $script:Job) { $ui.lblStep.Text = T 'simple.ready'; $ui.lblStatus.Text = '' }
     if ($script:SimpleIso) { $ui.lblResult.Text = T 'simple.result' $script:SimpleIso }
     $null = Update-W11SimpleSpace
     Invoke-W11SimpleLayout
+}
+
+function Get-W11SimpleIsoText {
+    # info next to Browse...: file name, size and the Windows found in it (pure; the tests check it)
+    param($Local)
+    if (-not $Local -or -not $Local.Path) { return (T 'simple.isoNone') }
+    $what = T 'simple.isoChecking'
+    if (-not $Local.Detecting) {
+        if ($Local.Os) { $what = Get-W11ReleaseLabel -Build $Local.Build -Os $Local.Os } else { $what = T 'simple.isoUnknown' }
+    }
+    return (T 'simple.isoInfo' (Get-W11PathLeaf $Local.Path) (Format-W11Size $Local.Size) $what)
+}
+
+function Update-W11SimpleSource {
+    # local ISO chosen: language and newest check do not apply, START uses the file
+    $ui = $script:ui
+    $local = [bool]$ui.rbSLocal.Checked
+    $busy = [bool]($script:Job -and -not $script:Job.Background)
+    $ui.cbSLang.Enabled = -not $local -and -not $busy
+    $ui.btnSLatest.Enabled = -not $local -and -not $busy
+    $ui.lblSLatest.Visible = -not $local
+    $ui.lblSIso.Text = Get-W11SimpleIsoText $script:SimpleLocal
+    $ui.tip.SetToolTip($ui.lblSIso, $(if ($script:SimpleLocal) { [string]$script:SimpleLocal.Path } else { '' }))
+}
+
+function Set-W11SimpleLocalIso {
+    <# Same checks as the Advanced window: the file must exist and be an ISO (Test-W11IsoFile); the Windows
+       version is read from the image in the background (Get-W11IsoOsInfo) and selects the Windows choice.
+       An ISO without sources\install.wim / .esd is refused. Returns $true when the file was accepted. #>
+    param([string]$Path)
+    $v = Test-W11IsoFile -Path $Path
+    if (-not $v.Ok) {
+        Show-W11Msg (T 'msg.simpleIsoBad' $Path (T ('iso.' + $v.Reason))) 'Warning' | Out-Null
+        Write-W11Log -Level WARN -En "Local ISO refused ($($v.Reason)): $Path" -Vi 'File ISO không dùng được'
+        return $false
+    }
+    $os = Get-W11OsFromName $v.Path
+    $script:SimpleLocal = @{ Path = $v.Path; Size = $v.Size; Os = $os; Build = 0; Source = 'filename'; Detecting = $false }
+    $script:ui.rbSLocal.Checked = $true
+    if ($os) { Select-W11SimpleOs $os }
+    Write-W11Log -En "Local ISO: $($v.Path) ($(Format-W11Size $v.Size), label '$($v.Label)')" -Vi 'Đã chọn file ISO có sẵn'
+    if (Get-Command Mount-DiskImage -ErrorAction SilentlyContinue) {
+        $script:SimpleLocal.Detecting = [bool](Start-W11Job -Background -Name 'OS detection' -Script '$sync.Result = Get-W11IsoOsInfo -IsoPath $JobArgs.Iso' -JobArgs @{ Iso = $v.Path } -OnDone { Complete-W11SimpleDetect })
+    }
+    Update-W11SimpleSource
+    return $true
+}
+
+function Complete-W11SimpleDetect {
+    param($Result = $script:Sync.Result)
+    $l = $script:SimpleLocal
+    if (-not $l) { return }
+    $l.Detecting = $false
+    if ($Result -and $Result.HasImage -eq $false) {
+        $p = $l.Path
+        $script:SimpleLocal = $null
+        Update-W11SimpleSource
+        Show-W11Msg (T 'msg.simpleIsoBad' $p (T 'iso.noImage')) 'Warning' | Out-Null
+        return
+    }
+    if ($Result -and $Result.Os) {
+        $l.Os = $Result.Os; $l.Build = [int]$Result.Build; $l.Source = $Result.Source
+        Select-W11SimpleOs $Result.Os
+        Write-W11Log -Level OK -En "Local ISO: $(Get-W11ReleaseLabel -Build $l.Build -Os $l.Os) (from $($l.Source))" -Vi 'Đã nhận diện Windows trong file ISO'
+    }
+    Update-W11SimpleSource
+}
+
+function Select-W11SimpleOs([string]$Os) {
+    $i = 0; if ($Os -eq 'Win10') { $i = 1 }
+    if ($script:ui.cbSOs.SelectedIndex -ne $i) { $script:ui.cbSOs.SelectedIndex = $i }
 }
 
 function Get-W11SimpleOs {
@@ -1710,7 +1797,7 @@ function Start-W11SimpleJob {
     # runs a Simple-mode plan (or only its build, with an ISO that passed the mirror SHA256 check)
     param($Plan, $Mirror, [string]$MirrorPath)
     $script:Sync.Step = 'check'; $script:Sync.MirrorCheck = $null
-    $script:SimpleHasDownload = (-not $Mirror)
+    $script:SimpleHasDownload = (-not $Mirror -and -not $Plan.IsoPath)
     $script:ui.btnOpen.Visible = $false; $script:ui.lblResult.Text = ''; $script:SimpleIso = $null
     $script:ui.pb.Value = 0
     $opts = Get-MsAria2Options -Config $script:Cfg
@@ -1775,13 +1862,14 @@ function Show-W11SimpleMirror {
 function Show-W11SimpleGui {
     $script:H = @{}
     $script:PendingJob = $null; $script:TickFailed = $false; $script:LayoutFailed = $false
-    $script:SimpleIso = $null; $script:SimplePlan = $null; $script:SimpleHasDownload = $true; $script:SimpleLatest = $null
+    $script:SimpleIso = $null; $script:SimplePlan = $null; $script:SimpleHasDownload = $true; $script:SimpleLatest = $null; $script:SimpleLocal = $null
+    $script:AfterBusy = { Update-W11SimpleSource }
     $ui = @{}
     $script:ui = $ui
     $sc = Get-W11DpiScale
     $f = New-Object Windows.Forms.Form
-    $f.ClientSize = New-Object Drawing.Size ([int](700 * $sc)), ([int](600 * $sc))
-    $f.MinimumSize = New-Object Drawing.Size ([int](640 * $sc)), ([int](600 * $sc))
+    $f.ClientSize = New-Object Drawing.Size ([int](700 * $sc)), ([int](720 * $sc))
+    $f.MinimumSize = New-Object Drawing.Size ([int](640 * $sc)), ([int](700 * $sc))
     $f.StartPosition = 'CenterScreen'
     $f.Font = New-Object Drawing.Font 'Segoe UI', 9
     Set-W11FormIcon $f
@@ -1790,6 +1878,14 @@ function Show-W11SimpleGui {
     $ui.lblTitle = New-W11Ctl Label '@simple.title' 0 0 10 10
     $ui.lblIntro = New-W11Ctl Label '@simple.intro' 0 0 10 10
     $ui.lblIntro.ForeColor = [Drawing.SystemColors]::GrayText
+    $ui.lblSSrc = New-W11Ctl Label '@simple.source' 0 0 10 10
+    $ui.rbSDl = New-W11Ctl RadioButton '@simple.srcDownload' 0 0 10 10
+    $ui.rbSDl.Checked = $true
+    $ui.rbSLocal = New-W11Ctl RadioButton '@simple.srcLocal' 0 0 10 10
+    $ui.btnSIso = New-W11Ctl Button '@btn.browse' 0 0 10 10
+    $ui.lblSIso = New-W11Ctl Label '' 0 0 10 10
+    $ui.lblSIso.AutoEllipsis = $true
+    $ui.lblSIso.ForeColor = [Drawing.SystemColors]::GrayText
     $ui.lblSOs = New-W11Ctl Label '@simple.os' 0 0 10 10
     $ui.cbSOs = New-W11Ctl ComboBox '' 0 0 10 10
     [void]$ui.cbSOs.Items.Add('Windows 11'); [void]$ui.cbSOs.Items.Add('Windows 10')
@@ -1831,10 +1927,10 @@ function Show-W11SimpleGui {
     $ui.cbUiLang.DropDownStyle = 'DropDownList'
     foreach ($lg in $script:W11Langs) { [void]$ui.cbUiLang.Items.Add($lg.Name) }
     $ui.lblWatermark = New-W11Watermark
-    $f.Controls.AddRange(@($ui.lblTitle, $ui.lblIntro, $ui.lblSOs, $ui.cbSOs, $ui.btnSLatest, $ui.lblSLatest, $ui.lblSLang, $ui.cbSLang, $ui.lblSOut, $ui.tbSOut, $ui.btnSOut, $ui.lblSpace, $ui.btnGo, $ui.btnCancel,
+    $f.Controls.AddRange(@($ui.lblTitle, $ui.lblIntro, $ui.lblSSrc, $ui.rbSDl, $ui.rbSLocal, $ui.btnSIso, $ui.lblSIso, $ui.lblSOs, $ui.cbSOs, $ui.btnSLatest, $ui.lblSLatest, $ui.lblSLang, $ui.cbSLang, $ui.lblSOut, $ui.tbSOut, $ui.btnSOut, $ui.lblSpace, $ui.btnGo, $ui.btnCancel,
             $ui.pb, $ui.lblStep, $ui.lblStatus, $ui.lnkSLog, $ui.lblResult, $ui.btnOpen, $ui.tbLog, $ui.lnkAdvanced, $ui.cbUiLang, $ui.lblWatermark))
     Set-W11ControlIcons
-    $script:BusyControls = @($ui.cbSOs, $ui.btnSLatest, $ui.cbSLang, $ui.tbSOut, $ui.btnSOut, $ui.btnGo, $ui.lnkAdvanced, $ui.cbUiLang)
+    $script:BusyControls = @($ui.rbSDl, $ui.rbSLocal, $ui.btnSIso, $ui.cbSOs, $ui.btnSLatest, $ui.cbSLang, $ui.tbSOut, $ui.btnSOut, $ui.btnGo, $ui.lnkAdvanced, $ui.cbUiLang)
 
     # remembered choices
     $st = $script:Settings
@@ -1862,6 +1958,21 @@ function Show-W11SimpleGui {
         $null = Save-W11Settings $script:Settings
     }
     $ui.cbUiLang.Add_SelectedIndexChanged({ Invoke-W11Handler 'cbUiLang.SelectedIndexChanged' })
+    $script:H['btnSIso.Click'] = {
+        $d = New-Object Windows.Forms.OpenFileDialog
+        $d.Filter = T 'dlg.isoFilter'
+        $d.Title = T 'dlg.isoTitle'
+        $cur = ''; if ($script:SimpleLocal) { $cur = [string]$script:SimpleLocal.Path }
+        if (Test-W11PathText $cur -Leaf) { $d.InitialDirectory = Split-Path -Parent $cur }
+        else { $o = Resolve-W11FullPath (ConvertTo-W11CleanPath $script:ui.tbSOut.Text); if ($o -and (Test-W11PathText $o -Container)) { $d.InitialDirectory = $o } }
+        if ($d.ShowDialog($script:ui.form) -eq 'OK') { [void](Set-W11SimpleLocalIso $d.FileName) }
+        Update-W11SimpleSource
+    }
+    $ui.btnSIso.Add_Click({ Invoke-W11Handler 'btnSIso.Click' })
+    $script:H['rbSLocal.Click'] = { if (-not $script:SimpleLocal) { & $script:H['btnSIso.Click'] } }
+    $ui.rbSLocal.Add_Click({ Invoke-W11Handler 'rbSLocal.Click' })
+    $script:H['rbSource.CheckedChanged'] = { Update-W11SimpleSource }
+    $ui.rbSDl.Add_CheckedChanged({ Invoke-W11Handler 'rbSource.CheckedChanged' })
     $script:H['cbSOs.SelectedIndexChanged'] = { Update-W11SimpleLatestText }
     $ui.cbSOs.Add_SelectedIndexChanged({ Invoke-W11Handler 'cbSOs.SelectedIndexChanged' })
     $script:H['btnSLatest.Click'] = {
@@ -1921,7 +2032,16 @@ function Show-W11SimpleGui {
         try { New-W11Directory $dir } catch { Show-W11Msg ((T 'msg.simpleFolderBad' $dir) + "`n" + (Get-W11LocalText $_.Exception.Message $script:UiLang)) 'Warning' | Out-Null; return }
         $u.tbSOut.Text = $dir
         $os = 'Win11'; if ($u.cbSOs.SelectedIndex -eq 1) { $os = 'Win10' }
-        $plan = Get-W11SimplePlan -Os $os -UiLang $script:UiLang -LangChoice (Get-W11SimpleLangChoice) -OutputFolder $dir -FreeGB $free
+        $iso = ''
+        if ($u.rbSLocal.Checked) {
+            # local ISO: checked again (it may have moved), never downloaded, no online check
+            if (-not $script:SimpleLocal) { Show-W11Msg (T 'msg.simpleNoIso') 'Warning' | Out-Null; return }
+            if ($script:SimpleLocal.Detecting) { $u.lblStatus.Text = T 'simple.isoChecking'; return }
+            $v = Test-W11IsoFile -Path $script:SimpleLocal.Path
+            if (-not $v.Ok) { Show-W11Msg (T 'msg.simpleIsoBad' $script:SimpleLocal.Path (T ('iso.' + $v.Reason))) 'Warning' | Out-Null; return }
+            $iso = $v.Path
+        }
+        $plan = Get-W11SimplePlan -Os $os -UiLang $script:UiLang -LangChoice (Get-W11SimpleLangChoice) -OutputFolder $dir -FreeGB $free -IsoPath $iso
         if ($plan.LowSpace) {
             if ([string](Show-W11Msg (T 'msg.simpleLowSpace' $free $plan.MinFreeGB) 'Warning' 'YesNo') -ne 'Yes') { return }
             $plan.BuildMinFreeGB = 0
@@ -1929,7 +2049,9 @@ function Show-W11SimpleGui {
         }
         $langTxt = $u.cbSLang.Text
         $osTxt = 'Windows 11'; if ($os -eq 'Win10') { $osTxt = 'Windows 10' }
-        if ([string](Show-W11Msg (T 'msg.simpleConfirm' $osTxt $plan.Arch $langTxt $dir) 'Question' 'YesNo') -ne 'Yes') { return }
+        $ask = T 'msg.simpleConfirm' $osTxt $plan.Arch $langTxt $dir
+        if ($iso) { $ask = T 'msg.simpleConfirmLocal' $iso (Get-W11SimpleIsoText $script:SimpleLocal) $dir }
+        if ([string](Show-W11Msg $ask 'Question' 'YesNo') -ne 'Yes') { return }
         $script:Settings.SimpleFolder = $dir; $script:Settings.SimpleOs = $os; $script:Settings.SimpleIsoLanguage = $plan.LangChoice
         $null = Save-W11Settings $script:Settings
         $script:SimplePlan = $plan
@@ -1977,7 +2099,7 @@ function Show-W11AdvancedGui {
     # the full window (every option); shared session state comes from Initialize-W11GuiSession
     Initialize-W11GuiSession
     $script:H = @{}
-    $script:PendingJob = $null; $script:TickFailed = $false; $script:LayoutFailed = $false
+    $script:PendingJob = $null; $script:TickFailed = $false; $script:LayoutFailed = $false; $script:AfterBusy = $null
     $script:Catalog = @(Get-MsReleaseCatalog)
     $script:ReleaseItems = @()
     $cfg = $script:Cfg

@@ -169,7 +169,7 @@ Tối đa 20 ký tự, không chứa các ký tự " / \ [ ] : ; | = , + * ? < >
     'mode.remember' = 'Nhớ lựa chọn (lần sau không hỏi lại)'
     'lnk.simple' = 'Chế độ Đơn giản'
     'simple.title' = 'Tạo ISO Windows gọn nhẹ chỉ với một nút bấm'
-    'simple.intro' = 'Chọn phiên bản Windows, ngôn ngữ ISO và nơi lưu rồi bấm BẮT ĐẦU. Công cụ sẽ tải ISO mới nhất từ Microsoft (kiểm tra SHA256), chỉ giữ Home + Pro, gỡ ứng dụng thừa và áp dụng tinh chỉnh theo mẫu An toàn, tự cài oscdimg nếu chưa có rồi tạo ISO mới. Cần quyền quản trị và Internet; mất khoảng 30-90 phút.'
+    'simple.intro' = 'Chọn phiên bản Windows, ngôn ngữ ISO và nơi lưu rồi bấm BẮT ĐẦU. Công cụ sẽ tải ISO mới nhất từ Microsoft (kiểm tra SHA256) hoặc dùng file ISO có sẵn trên máy, chỉ giữ Home + Pro, gỡ ứng dụng thừa và áp dụng tinh chỉnh theo mẫu An toàn, tự cài oscdimg nếu chưa có rồi tạo ISO mới. Cần quyền quản trị (và Internet khi tải ISO); mất khoảng 30-90 phút.'
     'simple.os' = 'Windows:'
     'simple.lang' = 'Ngôn ngữ ISO:'
     'simple.langAuto' = 'Tự động (tiếng Việt nếu Microsoft có, nếu không thì tiếng Anh quốc tế)'
@@ -239,4 +239,29 @@ Thử cài ngay?'
     'simple.latestFound' = 'Mới nhất: {0}'
     'tip.latest' = 'Chạy ngầm để hỏi Microsoft bản Windows 11 và Windows 10 mới nhất (tối đa 60 giây), thêm vào danh sách và chọn sẵn. Sau đó bấm Tải về. Nếu không kết nối được Microsoft thì vẫn giữ danh sách hiện tại.'
     'tip.simpleLatest' = 'Chạy ngầm để hỏi Microsoft bản nào mới nhất (tối đa 60 giây). Nút BẮT ĐẦU sẽ tải đúng bản đó.'
+    'simple.source' = 'Nguồn ISO:'
+    'simple.srcDownload' = 'Tải bản mới nhất từ Microsoft'
+    'simple.srcLocal' = 'Chọn file ISO có sẵn'
+    'simple.isoNone' = 'Chưa chọn file ISO - bấm Chọn...'
+    'simple.isoInfo' = '{0}  ({1}, {2})'
+    'simple.isoChecking' = 'đang kiểm tra image...'
+    'simple.isoUnknown' = 'chưa nhận diện được phiên bản Windows - hãy chọn ở bên dưới'
+    'msg.simpleNoIso' = 'Hãy chọn file ISO trước (bấm Chọn...), hoặc chuyển sang "Tải bản mới nhất từ Microsoft".'
+    'msg.simpleIsoBad' = 'Không dùng được file này làm ISO nguồn:
+{0}
+
+{1}'
+    'iso.missing' = 'File không tồn tại.'
+    'iso.notIso' = 'Đây không phải file ảnh ISO (file .iso có hệ thống tệp ISO 9660 / UDF).'
+    'iso.tooSmall' = 'File quá nhỏ, không phải ISO cài đặt Windows 10 / 11.'
+    'iso.unreadable' = 'Không đọc được file (có thể đang được dùng hoặc không có quyền truy cập).'
+    'iso.noImage' = 'ISO không có sources\install.wim hoặc install.esd, nên không phải ISO cài đặt Windows 10 / 11.'
+    'msg.simpleConfirmLocal' = 'Chế độ Đơn giản sẽ:
+- Dùng file ISO {0}
+  {1}
+- Chỉ giữ Home + Pro, gỡ ứng dụng và tinh chỉnh theo mẫu An toàn
+- Tự cài oscdimg (Windows ADK Deployment Tools) nếu chưa có
+- Lưu ISO mới vào: {2}
+
+Không tải gì từ Microsoft. Có thể mất 20-60 phút. Tiếp tục?'
 }
