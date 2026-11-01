@@ -43,7 +43,6 @@ aria2, used for fast ISO downloads.
 - [FAQ and troubleshooting](#faq-and-troubleshooting)
 - [Safety notes](#safety-notes)
 - [Credits](#credits)
-- [About the author](#about-the-author)
 - [License](#license)
 
 ## Features
@@ -303,8 +302,8 @@ used when the JSON files are missing.
 
 ### Rules auto-update
 At every GUI start the tool checks GitHub for newer lists in the background (at most 10 seconds; the window
-is usable at once). It reads `data/rules-manifest.json` from the `main` branch of
-`https://raw.githubusercontent.com/thanhtai2009/WinDebloatTool/` (HTTPS only, no redirects) and downloads
+is usable at once). It reads `data/rules-manifest.json` from the `main` branch of the project repository on
+`raw.githubusercontent.com` (HTTPS only, no redirects) and downloads
 `apps.json` / `tweaks.json` only when the manifest `version` is newer than the rules in use. A download is
 used only if its SHA256 matches the manifest, the format is valid and it passes extra limits (no autostart,
 debugger, service, Winlogon, COM class or similar registry writes; bundled protected apps stay protected).
@@ -493,13 +492,6 @@ In the GUI, click *Open the log folder* (`logs\` in the tool folder). Each build
   Rounded-like weight). No Material Symbols glyphs or Google logos were copied. The icon is not the Microsoft Windows logo.
 
 Windows, DISM and the Windows ADK are Microsoft products. Nothing from Microsoft is redistributed here.
-
-## About the author
-**TaiNT13@PNC STG ([thanhtai2009](https://github.com/thanhtai2009))** — Vietnamese translator of
-[Rufus](https://rufus.ie/vi/). He is credited for the Vietnamese translation in the footer of the Rufus
-homepage (<https://rufus.ie/vi/>) and in the Vietnamese translation of the Rufus app
-([`res/loc/rufus.loc`](https://github.com/pbatard/rufus/blob/master/res/loc/rufus.loc)).
-WinDebloat Tool is an independent project; it is not affiliated with or endorsed by Rufus or its author.
 
 ## License
 [MIT](LICENSE) Copyright (c) 2026 TaiNT13@PNC STG & WinDebloat Tool contributors. aria2 in `tools/aria2/` keeps its own license (GPL-2.0).

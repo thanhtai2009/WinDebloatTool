@@ -43,7 +43,6 @@ thứ ba duy nhất đi kèm là aria2, dùng để tải ISO nhanh hơn.
 - [Câu hỏi thường gặp và xử lý lỗi](#câu-hỏi-thường-gặp-và-xử-lý-lỗi)
 - [Lưu ý an toàn](#lưu-ý-an-toàn)
 - [Ghi công](#ghi-công)
-- [Về tác giả](#về-tác-giả)
 - [Giấy phép](#giấy-phép)
 
 ## Tính năng
@@ -306,8 +305,8 @@ dùng khi thiếu file JSON.
 
 ### Tự cập nhật bộ quy tắc
 Mỗi lần mở giao diện, công cụ chạy ngầm để kiểm tra danh sách mới trên GitHub (tối đa 10 giây; cửa sổ dùng
-được ngay). Công cụ đọc `data/rules-manifest.json` trên nhánh `main` của
-`https://raw.githubusercontent.com/thanhtai2009/WinDebloatTool/` (chỉ HTTPS, không theo chuyển hướng) và chỉ
+được ngay). Công cụ đọc `data/rules-manifest.json` trên nhánh `main` của kho mã dự án tại
+`raw.githubusercontent.com` (chỉ HTTPS, không theo chuyển hướng) và chỉ
 tải `apps.json` / `tweaks.json` khi `version` trong manifest mới hơn bộ quy tắc đang dùng. Bản tải về chỉ
 được dùng khi SHA256 khớp với manifest, đúng định dạng và qua thêm các giới hạn an toàn (không ghi Registry
 vào các vị trí tự khởi chạy, debugger, dịch vụ, Winlogon, COM class...; ứng dụng được bảo vệ trong bản tích
@@ -500,13 +499,6 @@ Trong giao diện, bấm *Mở thư mục nhật ký* (thư mục `logs\` trong 
 
 Windows, DISM và Windows ADK là sản phẩm của Microsoft. Dự án không phân phối lại bất kỳ thành phần nào
 của Microsoft.
-
-## Về tác giả
-**TaiNT13@PNC STG ([thanhtai2009](https://github.com/thanhtai2009))** — người dịch
-[Rufus](https://rufus.ie/vi/) sang tiếng Việt. Tên anh có trong phần ghi công bản dịch tiếng Việt ở cuối
-trang chủ Rufus (<https://rufus.ie/vi/>) và trong bản dịch tiếng Việt của ứng dụng Rufus
-([`res/loc/rufus.loc`](https://github.com/pbatard/rufus/blob/master/res/loc/rufus.loc)).
-WinDebloat Tool là dự án độc lập, không liên kết và không được Rufus hay tác giả của Rufus bảo trợ.
 
 ## Giấy phép
 [MIT](LICENSE) Copyright (c) 2026 TaiNT13@PNC STG & WinDebloat Tool contributors. aria2 trong `tools/aria2/` giữ giấy phép riêng

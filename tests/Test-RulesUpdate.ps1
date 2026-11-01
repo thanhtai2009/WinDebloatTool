@@ -46,10 +46,10 @@ function With-Tweak($op, [string]$kind = 'set') {
 }
 
 # --- pure helpers ---
-Assert (Test-W11RulesUrl $script:W11D.RulesBaseUrl) 'default rules URL: HTTPS raw.githubusercontent.com/thanhtai2009/WinDebloatTool'
-Assert (-not (Test-W11RulesUrl 'http://raw.githubusercontent.com/thanhtai2009/WinDebloatTool/main/data/')) 'plain HTTP GitHub URL refused'
-Assert (-not (Test-W11RulesUrl 'https://raw.githubusercontent.com/someone/WinDebloatTool/main/data/')) 'other GitHub owner refused'
-Assert (-not (Test-W11RulesUrl 'https://example.com/thanhtai2009/WinDebloatTool/main/data/')) 'other host refused'
+Assert (Test-W11RulesUrl $script:W11D.RulesBaseUrl) 'default rules URL: HTTPS raw.githubusercontent.com, project repository'
+Assert (-not (Test-W11RulesUrl ($script:W11D.RulesBaseUrl -replace '^https:', 'http:'))) 'plain HTTP GitHub URL refused'
+Assert (-not (Test-W11RulesUrl ($script:W11D.RulesBaseUrl -replace '\.com/[^/]+/', '.com/someone-else/'))) 'other GitHub owner refused'
+Assert (-not (Test-W11RulesUrl ($script:W11D.RulesBaseUrl -replace 'raw\.githubusercontent\.com', 'example.com'))) 'other host refused'
 Assert (-not (Test-W11RulesUrl 'http://127.0.0.1:8080/')) 'local test URL refused without -AllowTestUrl'
 $lf = [Text.Encoding]::UTF8.GetBytes("{`n  `"a`": 1`n}`n")
 $crlf = [Text.Encoding]::UTF8.GetBytes("{`r`n  `"a`": 1`r`n}`r`n")

@@ -228,5 +228,5 @@ Try it now?'
     'lbl.rulesInfo' = 'Debloat rules: version {0} ({1})'
     'rules.bundled' = 'built-in'
     'rules.downloaded' = 'downloaded, SHA256 verified'
-    'tip.rulesUpdate' = 'At startup the tool looks for newer app and tweak lists on GitHub (thanhtai2009/WinDebloatTool) in the background, for at most 10 seconds. Downloaded rules are used only when their SHA256 matches the manifest and the format is valid; they apply from the next run. Without internet the current rules are kept.'
+    'tip.rulesUpdate' = 'At startup the tool looks for newer app and tweak lists in the project''s GitHub repository in the background, for at most 10 seconds. Downloaded rules are used only when their SHA256 matches the manifest and the format is valid; they apply from the next run. Without internet the current rules are kept.'
 }

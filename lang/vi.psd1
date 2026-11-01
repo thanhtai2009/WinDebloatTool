@@ -228,5 +228,5 @@ Thử cài ngay?'
     'lbl.rulesInfo' = 'Bộ quy tắc debloat: phiên bản {0} ({1})'
     'rules.bundled' = 'tích hợp sẵn'
     'rules.downloaded' = 'đã tải về, đã xác minh SHA256'
-    'tip.rulesUpdate' = 'Khi khởi động, công cụ chạy ngầm để kiểm tra danh sách ứng dụng và tinh chỉnh mới trên GitHub (thanhtai2009/WinDebloatTool), tối đa 10 giây. Bộ quy tắc tải về chỉ được dùng khi SHA256 khớp với manifest và đúng định dạng, và có hiệu lực từ lần chạy tiếp theo. Không có Internet thì vẫn dùng bộ quy tắc hiện tại.'
+    'tip.rulesUpdate' = 'Khi khởi động, công cụ chạy ngầm để kiểm tra danh sách ứng dụng và tinh chỉnh mới trong kho GitHub của dự án, tối đa 10 giây. Bộ quy tắc tải về chỉ được dùng khi SHA256 khớp với manifest và đúng định dạng, và có hiệu lực từ lần chạy tiếp theo. Không có Internet thì vẫn dùng bộ quy tắc hiện tại.'
 }

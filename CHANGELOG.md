@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## Unreleased
 
+### Removed
+- README / README_VI: the author section.
+
 ### Added
 - **Rules auto-update**: at GUI start the app and tweak lists are checked in the background against
   `data/rules-manifest.json` on GitHub (`main`, HTTPS, 10 s limit). Files are accepted only with a matching

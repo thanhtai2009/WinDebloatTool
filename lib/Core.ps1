@@ -533,7 +533,8 @@ function Import-W11TweakData {
    sha256 covers the file without UTF-8 BOM and with LF line endings (same value for CRLF and LF checkouts).
    Downloaded sets live in <store>\r-<version>-<hash>; current.txt names the active one, previous.txt the backup.
    Rules are JSON data only and are never executed. #>
-$script:W11D.RulesBaseUrl = 'https://raw.githubusercontent.com/thanhtai2009/WinDebloatTool/main/data/'
+$script:W11D.RulesRepo = 'thanhtai2009/WinDebloatTool'   # GitHub owner/repository of this project
+$script:W11D.RulesBaseUrl = 'https://raw.githubusercontent.com/' + $script:W11D.RulesRepo + '/main/data/'
 $script:W11D.RulesTimeoutMs = 10000
 $script:W11D.RulesStore = $null      # override of the download store (tests)
 $script:W11RulesManifestName = 'rules-manifest.json'
@@ -767,7 +768,7 @@ function Get-W11RulesHttp {
 function Test-W11RulesUrl {
     # only the project's GitHub raw folder over HTTPS; -AllowTestUrl also accepts http://127.0.0.1 (tests)
     param([string]$Url, [switch]$AllowTestUrl)
-    if ($Url -match '^https://raw\.githubusercontent\.com/thanhtai2009/WinDebloatTool/[A-Za-z0-9._/-]+/$' -and $Url -notmatch '/\.\.?/') { return $true }
+    if ($Url -match ('^https://raw\.githubusercontent\.com/' + [regex]::Escape($script:W11D.RulesRepo) + '/[A-Za-z0-9._/-]+/$') -and $Url -notmatch '/\.\.?/') { return $true }
     if ($AllowTestUrl -and $Url -match '^http://127\.0\.0\.1:\d+/[A-Za-z0-9._/-]*$') { return $true }
     return $false
 }
