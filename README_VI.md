@@ -91,7 +91,7 @@ thứ ba duy nhất đi kèm là aria2, dùng để tải ISO nhanh hơn.
 | Mạng | Chỉ cần khi tải ISO; tạo ISO từ file có sẵn thì không cần mạng |
 
 ## Bắt đầu nhanh
-1. Tải `WinDebloatTool_v1.1.0.zip` và giải nén ra một thư mục.
+1. Tải `WinDebloatTool_v1.2.0.zip` và giải nén ra một thư mục.
 2. Bỏ chặn file một lần: chuột phải vào file zip → **Thuộc tính** (Properties) → đánh dấu **Bỏ chặn** (Unblock) *trước khi*
    giải nén. Hoặc sau khi giải nén, chạy trong PowerShell 3.0 trở lên:
    `Get-ChildItem -Recurse 'C:\duong\dan\WinDebloatTool' | Unblock-File`

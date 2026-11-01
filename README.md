@@ -91,7 +91,7 @@ aria2, used for fast ISO downloads.
 | Internet | Only for downloading an ISO; building from a local ISO works offline |
 
 ## Quick start
-1. Download `WinDebloatTool_v1.1.0.zip` and extract it to a folder.
+1. Download `WinDebloatTool_v1.2.0.zip` and extract it to a folder.
 2. Unblock the files once: right-click the zip → **Properties** → tick **Unblock** *before* extracting.
    Or, after extracting, run in PowerShell 3.0 or newer:
    `Get-ChildItem -Recurse 'C:\path\to\WinDebloatTool' | Unblock-File`
