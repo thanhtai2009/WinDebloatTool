@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - README / README_VI: the author section.
 
 ### Added
+- **Newest ISO button**: *Load newest ISO* (Advanced window) and *Check newest* (Simple window) ask Microsoft's
+  official download pages for the newest Windows 11 (x64, arm64) and Windows 10 release in the background
+  (version from the page, build and languages from Microsoft, 60 s limit). A release missing from the built-in
+  list is added, the newest is marked [newest] and selected so *Download* (aria2) can start; offline or on an
+  error the current list is kept. Simple mode START uses the newest release (checked live, built-in list as
+  fallback). Background tasks can now have a time limit. Texts in vi, en, zh-CN, km; tests/Test-LatestIso.ps1.
 - **Rules auto-update**: at GUI start the app and tweak lists are checked in the background against
   `data/rules-manifest.json` on GitHub (`main`, HTTPS, 10 s limit). Files are accepted only with a matching
   SHA256, a valid format and the download policy (no autostart / execution registry locations), installed

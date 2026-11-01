@@ -112,7 +112,10 @@ at any time.
 
 The Simple window has three choices and one **START** button:
 - **Windows:** Windows 11 (default) or Windows 10. The architecture follows this PC (x64, arm64 for Windows 11
-  on ARM, x86 for Windows 10 on 32-bit Windows).
+  on ARM, x86 for Windows 10 on 32-bit Windows). *Check newest* next to it asks Microsoft which release is the
+  newest right now and shows it, for example *Newest: Windows 11 26H2 (Build 26300.9457)*. **START** downloads
+  that release; without the button **START** asks Microsoft itself and uses the built-in list when Microsoft
+  cannot be reached.
 - **ISO language:** *Automatic* follows the interface language: Vietnamese → Vietnamese if Microsoft offers it
   (it currently does not), otherwise English International; English → English (United States); 简体中文 →
   Chinese Simplified; Khmer → English International. A short list lets you pick another language.
@@ -147,6 +150,10 @@ The full (**Advanced**) window:
 - **Local ISO file:** click *Browse...* and pick an ISO you already have.
 - **Download the official ISO from Microsoft:** choose the version and architecture, click *Load languages*,
   pick a language, then *Download*. The ISO is saved to the folder you choose, and its path is filled in.
+- **Load newest ISO:** asks Microsoft's official download pages for the newest Windows 11 (x64, arm64) and
+  Windows 10 release in the background (at most 60 seconds; the window stays usable). A release that is not in
+  the built-in list yet is added, the newest one is marked *[newest]* and selected with its languages, so
+  *Download* can start at once (with aria2 when available). Offline or on an error the current list is kept.
 - **Target OS:** *Auto (detect)* reads the build from the image and shows it, for example
   *Windows 11 24H2 (26100)*. You can force Windows 10 or Windows 11.
 

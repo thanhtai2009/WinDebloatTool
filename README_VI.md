@@ -112,7 +112,10 @@ thư mục công cụ không ghi được. Có thể đổi chế độ bất c�
 
 Cửa sổ Đơn giản chỉ có ba lựa chọn và một nút **BẮT ĐẦU**:
 - **Windows:** Windows 11 (mặc định) hoặc Windows 10. Kiến trúc theo máy đang dùng (x64; arm64 với Windows 11
-  trên máy ARM; x86 với Windows 10 trên Windows 32-bit).
+  trên máy ARM; x86 với Windows 10 trên Windows 32-bit). Nút *Kiểm tra bản mới nhất* bên cạnh hỏi Microsoft
+  bản phát hành mới nhất hiện tại và hiện ra, ví dụ *Mới nhất: Windows 11 26H2 (Build 26300.9457)*.
+  **BẮT ĐẦU** sẽ tải đúng bản đó; nếu không bấm nút, **BẮT ĐẦU** tự hỏi Microsoft và dùng danh sách có sẵn khi
+  không kết nối được Microsoft.
 - **Ngôn ngữ ISO:** *Tự động* theo ngôn ngữ giao diện: tiếng Việt → ISO tiếng Việt nếu Microsoft có (hiện
   Microsoft không có), nếu không thì English International; English → English (Mỹ); 简体中文 → Chinese
   Simplified; tiếng Khmer → English International. Có danh sách ngắn để chọn ngôn ngữ khác.
@@ -147,6 +150,10 @@ Giao diện đầy đủ (chế độ **Nâng cao**):
 - **File ISO có sẵn trên máy:** bấm *Chọn...* để chọn file ISO.
 - **Tải ISO gốc từ Microsoft:** chọn phiên bản và kiến trúc, bấm *Lấy ngôn ngữ*, chọn ngôn ngữ rồi bấm
   *Tải về*. ISO được lưu vào thư mục bạn chọn và tự điền vào ô nguồn.
+- **Lấy ISO mới nhất:** chạy ngầm để hỏi các trang tải chính thức của Microsoft bản Windows 11 (x64, arm64) và
+  Windows 10 mới nhất (tối đa 60 giây, cửa sổ vẫn dùng được). Bản chưa có trong danh sách sẽ được thêm vào, bản
+  mới nhất được đánh dấu *[mới nhất]* và chọn sẵn cùng danh sách ngôn ngữ, chỉ cần bấm *Tải về* (dùng aria2 nếu
+  có). Khi không có mạng hoặc gặp lỗi, danh sách hiện tại được giữ nguyên.
 - **Hệ điều hành:** *Tự nhận diện* đọc số build trong image và hiện ra, ví dụ *Windows 11 24H2 (26100)*.
   Có thể chọn cố định Windows 10 hoặc Windows 11.
 

@@ -34,12 +34,12 @@ function Set-W11ListExtent {
 #region ---------- icons (assets\WinDebloatTool.ico, assets\icons\<name>_<16|20|24|32>.png) ----------
 # every lookup is optional: a missing / unreadable file just means no icon, never an error
 $script:W11ButtonIcons = @{
-    btnIso = 'folder-open'; btnOut = 'save'; btnFetch = 'refresh'; btnDownload = 'download'
+    btnIso = 'folder-open'; btnOut = 'save'; btnFetch = 'refresh'; btnDownload = 'download'; btnLatest = 'sparkle'
     btnAppDef = 'reset'; btnAppAll = 'check-all'; btnAppNone = 'clear-all'; btnEd = 'eye'
     btnCheck = 'shield-check'; btnOsc = 'wrench'; btnStart = 'broom'; btnCancel = 'stop'
     btnPresetApply = 'sliders'; btnPresetLoad = 'folder-open'; btnPresetSave = 'save'; btnUpdBrowse = 'folder-open'; btnUpdScan = 'package'
     picMs = 'globe'; picLog = 'folder'
-    btnGo = 'rocket'; btnSOut = 'folder-open'; btnOpen = 'folder'   # Simple window
+    btnGo = 'rocket'; btnSOut = 'folder-open'; btnOpen = 'folder'; btnSLatest = 'sparkle'   # Simple window
 }
 
 function Get-W11DpiScale {
@@ -161,6 +161,7 @@ function Set-W11Layout {
         $ui.btnIso.SetBounds($r - $w, $y2 - (& $px 2), $w, $bh)
         $ui.tbIso.SetBounds((& $px 32), $y2, $ui.btnIso.Left - $gap - (& $px 32), $rowH)
         $ui.rbDl.SetBounds($in, $y3, (& $chkW $ui.rbDl), $rowH)
+        if ($ui.btnLatest) { $ui.btnLatest.SetBounds($ui.rbDl.Right + $gap, $y3 - (& $px 2), (& $btnW $ui.btnLatest 120), $bh) }
         $w = & $lblW $ui.lnkMs
         $ui.lnkMs.SetBounds($r - $w, $y3 + (& $px 2), $w, $rowH - (& $px 2))
         $pw = & $picW $ui.picMs
@@ -413,10 +414,10 @@ function Start-W11Job {
        runspace does not depend on the execution policy. $sync and $JobArgs are available.
        -Background: does not lock the UI (startup check, OS detection) and is skipped if busy.
        A user action while another job runs is queued and starts right after it (never dropped silently). #>
-    param([string]$Script, [hashtable]$JobArgs = @{}, [scriptblock]$OnDone, [switch]$Background, [string]$Name = 'task')
+    param([string]$Script, [hashtable]$JobArgs = @{}, [scriptblock]$OnDone, [switch]$Background, [string]$Name = 'task', [int]$TimeoutMs = 0)
     if ($script:Job) {
         if ($Background) { return $false }
-        $script:PendingJob = @{ Script = $Script; JobArgs = $JobArgs; OnDone = $OnDone; Name = $Name }
+        $script:PendingJob = @{ Script = $Script; JobArgs = $JobArgs; OnDone = $OnDone; Name = $Name; TimeoutMs = $TimeoutMs }
         Write-W11Log -En "'$Name' will start when the running '$($script:Job.Name)' finishes..." -Vi "'$Name' sẽ chạy ngay sau khi '$($script:Job.Name)' xong..."
         $script:ui.lblStatus.Text = T 'status.waiting' $script:Job.Name
         return $false
@@ -434,7 +435,7 @@ function Start-W11Job {
     $ps = [powershell]::Create()
     $ps.Runspace = $rs
     [void]$ps.AddScript((Get-W11JobText -Script $Script -Root $script:W11Root))
-    $script:Job = @{ PS = $ps; RS = $rs; Handle = $ps.BeginInvoke(); OnDone = $OnDone; Name = $Name; Background = [bool]$Background }
+    $script:Job = @{ PS = $ps; RS = $rs; Handle = $ps.BeginInvoke(); OnDone = $OnDone; Name = $Name; Background = [bool]$Background; TimeoutMs = $TimeoutMs; Clock = [Diagnostics.Stopwatch]::StartNew() }
     if (-not $Background) { Set-W11Busy $true }
     return $true
 }
@@ -529,14 +530,22 @@ function Invoke-W11Tick {
             $script:ui.pb.Value = $p
             if ($script:Sync.Status) { $script:ui.lblStatus.Text = Get-W11LocalText ([string]$script:Sync.Status) $script:UiLang }
         }
-        if ($script:Job -and $script:Job.Handle.IsCompleted) {
+        $late = ($script:Job -and $script:Job.TimeoutMs -gt 0 -and -not $script:Job.Handle.IsCompleted -and $script:Job.Clock.ElapsedMilliseconds -gt $script:Job.TimeoutMs)
+        if ($script:Job -and ($late -or $script:Job.Handle.IsCompleted)) {
             $j = $script:Job
             $script:Job = $null
-            try { [void]$j.PS.EndInvoke($j.Handle) } catch { if (-not $script:Sync.Error) { $script:Sync.Error = $_.Exception.Message } }
+            if ($late) {
+                # over its time limit: stopped and left behind, its result is ignored
+                try { [void]$j.PS.BeginStop($null, $null) } catch { $null = $_ }
+                $script:Sync.Error = 'no answer within the time limit'
+                Write-W11Log -Level WARN -En "'$($j.Name)' stopped after $([int]($j.TimeoutMs / 1000)) s" -Vi "'$($j.Name)' đã dừng vì quá thời gian"
+            } else {
+                try { [void]$j.PS.EndInvoke($j.Handle) } catch { if (-not $script:Sync.Error) { $script:Sync.Error = $_.Exception.Message } }
+            }
             try {
                 foreach ($er in @($j.PS.Streams.Error)) { if ($er) { Write-W11Log -Level WARN -En "[$($j.Name)] $er" } }
             } catch { $null = $_ }
-            try { $j.PS.Dispose(); $j.RS.Close() } catch { $null = $_ }
+            if (-not $late) { try { $j.PS.Dispose(); $j.RS.Close() } catch { $null = $_ } }
             Invoke-W11Tick
             if (-not $j.Background) { Set-W11Busy $false }
             if ($j.OnDone) {
@@ -545,7 +554,7 @@ function Invoke-W11Tick {
             }
             if (-not $script:Job -and $script:PendingJob) {
                 $pj = $script:PendingJob; $script:PendingJob = $null
-                [void](Start-W11Job -Script $pj.Script -JobArgs $pj.JobArgs -OnDone $pj.OnDone -Name $pj.Name)
+                [void](Start-W11Job -Script $pj.Script -JobArgs $pj.JobArgs -OnDone $pj.OnDone -Name $pj.Name -TimeoutMs ([int]$pj.TimeoutMs))
             }
         }
     } catch {
@@ -723,7 +732,57 @@ function Show-W11Msg {
 
 function Get-W11ReleaseItemText($e) {
     if ($e.Available -eq $false) { return (T 'item.notOffered' $e.Release) }
+    if ($e.Latest) { return (T 'item.latest' $e.Release) }
     return $e.Release
+}
+
+$script:W11LatestTimeoutSec = 60   # whole newest-ISO check; the job is stopped 15 s later at the latest
+
+function Start-W11LatestCheck {
+    <# Asks Microsoft for the newest release of each OS in the task slot (UI stays usable); the result comes
+       back through its own box, so a stopped check can never write into a later task. #>
+    param([string[]]$Os = @('Win11', 'Win10'), [scriptblock]$OnDone)
+    $box = [hashtable]::Synchronized(@{ Result = $null })
+    $script:LatestBox = $box
+    $script:Sync.Step = ''
+    $a = @{ Box = $box; Os = $Os; TimeoutSec = $script:W11LatestTimeoutSec }
+    return (Start-W11Job -Name 'Newest ISO' -TimeoutMs (($script:W11LatestTimeoutSec + 15) * 1000) -Script '$JobArgs.Box.Result = Get-MsLatestCatalog -Os $JobArgs.Os -TimeoutSec $JobArgs.TimeoutSec' -JobArgs $a -OnDone $OnDone)
+}
+
+function Get-W11LatestResult {
+    # result of the finished check: Entries (empty when it failed; the current list stays), Why = the errors, Partial
+    $r = $null; if ($script:LatestBox) { $r = $script:LatestBox.Result }
+    $script:LatestBox = $null
+    $why = ''
+    if (-not $r -or @($r.Entries).Count -eq 0) {
+        if ($r -and @($r.Errors).Count -gt 0) { $why = @($r.Errors) -join ' ; ' } elseif ($script:Sync.Error) { $why = [string]$script:Sync.Error } else { $why = 'no answer' }
+        Write-W11Log -Level WARN -En "Newest ISO check failed, the current list is kept: $why" -Vi 'Không kiểm tra được bản ISO mới nhất, giữ danh sách hiện tại'
+        return (New-W11Obj @{ Entries = @(); Why = $why; Partial = $false })
+    }
+    return (New-W11Obj @{ Entries = @($r.Entries); Why = (@($r.Errors) -join ' ; '); Partial = (@($r.Errors).Count -gt 0) })
+}
+
+function Complete-W11LatestCheck {
+    # Advanced window: merge the newest releases into the list and select the newest for the OS / architecture in use
+    $res = Get-W11LatestResult
+    $ui = $script:ui
+    if (@($res.Entries).Count -eq 0) { $ui.lblStatus.Text = T 'status.latestFailed'; return }
+    $script:Catalog = @(Merge-MsLatestCatalog -Catalog $script:Catalog -Latest $res.Entries)
+    # OS: the explicit target choice, else the OS of the release shown; architecture: the one shown, else this PC's
+    $cur = Get-W11SelectedEntry
+    $os = Get-W11EffectiveOs
+    if ($ui.cbOs.SelectedIndex -lt 1 -and $cur) { $os = $cur.Os }
+    $arch = [string]$ui.cbArch.SelectedItem
+    if (-not $arch) { $arch = ((Get-W11HostArch) -replace 'amd64', 'x64') }
+    $e = Select-MsLatestEntry -Catalog $script:Catalog -Os $os -Arch $arch
+    if (-not $e) { $e = @($script:Catalog | Where-Object { $_.Latest })[0] }
+    Update-W11DownloadLists 'release'
+    for ($i = 0; $i -lt @($script:ReleaseItems).Count; $i++) { if ($script:ReleaseItems[$i] -eq $e.Release) { $ui.cbRelease.SelectedIndex = $i; break } }
+    $ai = $ui.cbArch.Items.IndexOf($e.Arch)
+    if ($ai -ge 0 -and $ui.cbArch.SelectedIndex -ne $ai) { $ui.cbArch.SelectedIndex = $ai }
+    $txt = T 'status.latestDone' $e.Release
+    if ($res.Partial) { $txt += ' ' + (T 'status.latestPartial') }
+    $ui.lblStatus.Text = $txt
 }
 
 function Update-W11DownloadLists {
@@ -1266,6 +1325,7 @@ function Set-W11UiTexts {
     Set-W11ComboItems $ui.cbKeyboard (T 'item.kbRegion') $script:W11Keyboards
     if ($script:UpdateScan) { $ui.lblUpdInfo.Text = Format-W11UpdateInfo $script:UpdateScan }
     if ($ui.tip -and $ui.chkRulesUpdate) { $ui.tip.SetToolTip($ui.chkRulesUpdate, (T 'tip.rulesUpdate')) }
+    if ($ui.tip -and $ui.btnLatest) { $ui.tip.SetToolTip($ui.btnLatest, (T 'tip.latest')) }
     Update-W11RulesInfo
     Update-W11PresetList
     Update-W11DetectedLabel
@@ -1519,7 +1579,17 @@ function Set-W11SimpleLayout {
         $lw = [Math]::Max([Math]::Max((& $lblW $ui.lblSOs), (& $lblW $ui.lblSLang)), (& $lblW $ui.lblSOut)) + (& $px 6)
         $x = $M + $lw; $rest = $cw - $M - $x
         $ui.lblSOs.SetBounds($M, $y + (& $px 3), $lw, $rowH - (& $px 3))
-        $ui.cbSOs.SetBounds($x, $y, [Math]::Min((& $px 220), $rest), $rowH); $y += [Math]::Max($rowH, $bh) + (& $px 4)
+        $ui.cbSOs.SetBounds($x, $y, [Math]::Min((& $px 160), $rest), $rowH)
+        $wb = & $btnW $ui.btnSLatest 100
+        $ui.btnSLatest.SetBounds($ui.cbSOs.Right + $gap, $y - (& $px 2), $wb, $bh)
+        $wi = $cw - $M - $ui.btnSLatest.Right - $gap
+        if ($wi -ge (& $px 200)) {
+            $ui.lblSLatest.SetBounds($ui.btnSLatest.Right + $gap, $y + (& $px 3), $wi, $rowH - (& $px 3)); $y += [Math]::Max($rowH, $bh) + (& $px 4)
+        } else {
+            # narrow window / long texts: the newest release goes on its own line under the choice
+            $y += [Math]::Max($rowH, $bh)
+            $ui.lblSLatest.SetBounds($x, $y, $rest, $rowH - (& $px 4)); $y += $rowH
+        }
         $ui.lblSLang.SetBounds($M, $y + (& $px 3), $lw, $rowH - (& $px 3))
         $ui.cbSLang.SetBounds($x, $y, [Math]::Min((& $px 420), $rest), $rowH); $y += [Math]::Max($rowH, $bh) + (& $px 4)
         $w = & $btnW $ui.btnSOut 100
@@ -1600,10 +1670,40 @@ function Set-W11SimpleTexts {
     $ui.cbSLang.SelectedIndex = $i
     $ui.tip.SetToolTip($ui.lblWatermark, (T 'tip.author'))
     $ui.tip.SetToolTip($ui.cbUiLang, (T 'tip.uiLang'))
+    $ui.tip.SetToolTip($ui.btnSLatest, (T 'tip.simpleLatest'))
+    Update-W11SimpleLatestText
     if (-not $script:Job) { $ui.lblStep.Text = T 'simple.ready'; $ui.lblStatus.Text = '' }
     if ($script:SimpleIso) { $ui.lblResult.Text = T 'simple.result' $script:SimpleIso }
     $null = Update-W11SimpleSpace
     Invoke-W11SimpleLayout
+}
+
+function Get-W11SimpleOs {
+    if ($script:ui.cbSOs.SelectedIndex -eq 1) { return 'Win10' }
+    return 'Win11'
+}
+
+function Update-W11SimpleLatestText {
+    # "Newest: <release>" next to the Windows choice once the check found it for that OS
+    $ui = $script:ui
+    $t = ''
+    $l = $script:SimpleLatest
+    if ($l -and $l.Os -eq (Get-W11SimpleOs) -and $l.Entry) { $t = T 'simple.latestFound' $l.Entry.Release }
+    $ui.lblSLatest.Text = $t
+    $ui.tip.SetToolTip($ui.lblSLatest, $t)
+}
+
+function Complete-W11SimpleLatest {
+    $script:ui.lblStep.Text = T 'simple.ready'
+    $res = Get-W11LatestResult
+    $os = $script:SimpleLatestOs
+    if (@($res.Entries).Count -eq 0) { $script:ui.lblStatus.Text = T 'status.latestFailed'; Update-W11SimpleLatestText; return }
+    $cat = @(Merge-MsLatestCatalog -Catalog @(Get-MsReleaseCatalog -Os @($os)) -Latest $res.Entries)
+    $e = Select-MsLatestEntry -Catalog $cat -Os $os -Arch (Get-W11SimpleArch -Os $os)
+    if (-not $e) { $script:ui.lblStatus.Text = T 'status.latestFailed'; return }
+    $script:SimpleLatest = @{ Os = $os; Catalog = $cat; Entry = $e }
+    Update-W11SimpleLatestText
+    $script:ui.lblStatus.Text = T 'status.latestDone' $e.Release
 }
 
 function Start-W11SimpleJob {
@@ -1614,7 +1714,9 @@ function Start-W11SimpleJob {
     $script:ui.btnOpen.Visible = $false; $script:ui.lblResult.Text = ''; $script:SimpleIso = $null
     $script:ui.pb.Value = 0
     $opts = Get-MsAria2Options -Config $script:Cfg
-    $code = '$sync.Result = Invoke-W11SimpleBuild -Plan $JobArgs.Plan -Sync $sync -DownloadOptions $JobArgs.Options -RulesDir $JobArgs.RulesDir'
+    $cat = $null
+    if ($script:SimpleLatest -and $script:SimpleLatest.Os -eq $Plan.Os) { $cat = @($script:SimpleLatest.Catalog) }
+    $code = '$sync.Result = Invoke-W11SimpleBuild -Plan $JobArgs.Plan -Sync $sync -DownloadOptions $JobArgs.Options -RulesDir $JobArgs.RulesDir -Catalog $JobArgs.Catalog'
     if ($Mirror) {
         $script:Sync.Step = 'verify'
         $code = @'
@@ -1623,7 +1725,7 @@ $sync.MirrorCheck = $v
 if ($v.Ok) { $sync.Result = Invoke-W11SimpleBuild -Plan $JobArgs.Plan -IsoPath $v.Path -Sync $sync -RulesDir $JobArgs.RulesDir }
 '@
     }
-    [void](Start-W11Job -Name 'Simple mode' -Script $code -JobArgs @{ Plan = $Plan; Options = $opts; Mirror = $Mirror; Path = $MirrorPath; RulesDir = [string]$script:Cfg.RulesDir } -OnDone { Complete-W11SimpleRun })
+    [void](Start-W11Job -Name 'Simple mode' -Script $code -JobArgs @{ Plan = $Plan; Options = $opts; Mirror = $Mirror; Path = $MirrorPath; RulesDir = [string]$script:Cfg.RulesDir; Catalog = $cat } -OnDone { Complete-W11SimpleRun })
 }
 
 function Complete-W11SimpleRun {
@@ -1673,7 +1775,7 @@ function Show-W11SimpleMirror {
 function Show-W11SimpleGui {
     $script:H = @{}
     $script:PendingJob = $null; $script:TickFailed = $false; $script:LayoutFailed = $false
-    $script:SimpleIso = $null; $script:SimplePlan = $null; $script:SimpleHasDownload = $true
+    $script:SimpleIso = $null; $script:SimplePlan = $null; $script:SimpleHasDownload = $true; $script:SimpleLatest = $null
     $ui = @{}
     $script:ui = $ui
     $sc = Get-W11DpiScale
@@ -1691,6 +1793,10 @@ function Show-W11SimpleGui {
     $ui.lblSOs = New-W11Ctl Label '@simple.os' 0 0 10 10
     $ui.cbSOs = New-W11Ctl ComboBox '' 0 0 10 10
     [void]$ui.cbSOs.Items.Add('Windows 11'); [void]$ui.cbSOs.Items.Add('Windows 10')
+    $ui.btnSLatest = New-W11Ctl Button '@simple.latest' 0 0 10 10
+    $ui.lblSLatest = New-W11Ctl Label '' 0 0 10 10
+    $ui.lblSLatest.AutoEllipsis = $true
+    $ui.lblSLatest.ForeColor = [Drawing.SystemColors]::GrayText
     $ui.lblSLang = New-W11Ctl Label '@simple.lang' 0 0 10 10
     $ui.cbSLang = New-W11Ctl ComboBox '' 0 0 10 10
     foreach ($cb in @($ui.cbSOs, $ui.cbSLang)) { $cb.DropDownStyle = 'DropDownList' }
@@ -1725,10 +1831,10 @@ function Show-W11SimpleGui {
     $ui.cbUiLang.DropDownStyle = 'DropDownList'
     foreach ($lg in $script:W11Langs) { [void]$ui.cbUiLang.Items.Add($lg.Name) }
     $ui.lblWatermark = New-W11Watermark
-    $f.Controls.AddRange(@($ui.lblTitle, $ui.lblIntro, $ui.lblSOs, $ui.cbSOs, $ui.lblSLang, $ui.cbSLang, $ui.lblSOut, $ui.tbSOut, $ui.btnSOut, $ui.lblSpace, $ui.btnGo, $ui.btnCancel,
+    $f.Controls.AddRange(@($ui.lblTitle, $ui.lblIntro, $ui.lblSOs, $ui.cbSOs, $ui.btnSLatest, $ui.lblSLatest, $ui.lblSLang, $ui.cbSLang, $ui.lblSOut, $ui.tbSOut, $ui.btnSOut, $ui.lblSpace, $ui.btnGo, $ui.btnCancel,
             $ui.pb, $ui.lblStep, $ui.lblStatus, $ui.lnkSLog, $ui.lblResult, $ui.btnOpen, $ui.tbLog, $ui.lnkAdvanced, $ui.cbUiLang, $ui.lblWatermark))
     Set-W11ControlIcons
-    $script:BusyControls = @($ui.cbSOs, $ui.cbSLang, $ui.tbSOut, $ui.btnSOut, $ui.btnGo, $ui.lnkAdvanced, $ui.cbUiLang)
+    $script:BusyControls = @($ui.cbSOs, $ui.btnSLatest, $ui.cbSLang, $ui.tbSOut, $ui.btnSOut, $ui.btnGo, $ui.lnkAdvanced, $ui.cbUiLang)
 
     # remembered choices
     $st = $script:Settings
@@ -1756,6 +1862,15 @@ function Show-W11SimpleGui {
         $null = Save-W11Settings $script:Settings
     }
     $ui.cbUiLang.Add_SelectedIndexChanged({ Invoke-W11Handler 'cbUiLang.SelectedIndexChanged' })
+    $script:H['cbSOs.SelectedIndexChanged'] = { Update-W11SimpleLatestText }
+    $ui.cbSOs.Add_SelectedIndexChanged({ Invoke-W11Handler 'cbSOs.SelectedIndexChanged' })
+    $script:H['btnSLatest.Click'] = {
+        $script:SimpleLatestOs = Get-W11SimpleOs
+        $script:ui.lblStatus.Text = T 'status.checkingLatest'
+        $script:ui.lblSLatest.Text = ''
+        [void](Start-W11LatestCheck -Os @($script:SimpleLatestOs) -OnDone { Complete-W11SimpleLatest })
+    }
+    $ui.btnSLatest.Add_Click({ Invoke-W11Handler 'btnSLatest.Click' })
     $script:H['tbSOut.Leave'] = { $null = Update-W11SimpleSpace }
     $ui.tbSOut.Add_Leave({ Invoke-W11Handler 'tbSOut.Leave' })
     $script:H['btnSOut.Click'] = {
@@ -1909,6 +2024,7 @@ function Show-W11AdvancedGui {
     $ui.cbLang.DropDownWidth = 240
     foreach ($cb in @($ui.cbRelease, $ui.cbArch, $ui.cbLang)) { $cb.DropDownStyle = 'DropDownList' }
     $ui.btnFetch = New-W11Ctl Button '@btn.languages' 788 102 160 27
+    $ui.btnLatest = New-W11Ctl Button '@btn.latest' 300 72 160 27
     $ui.btnDownload = New-W11Ctl Button '@btn.download' 834 134 114 27
     $ui.chkAria2 = New-W11Ctl CheckBox '@chk.aria2' 32 136 360 22
     $ui.lblAria2 = New-W11Ctl Label '' 396 139 432 20
@@ -1923,7 +2039,7 @@ function Show-W11AdvancedGui {
     $ui.lnkMs = New-W11Ctl LinkLabel '@lnk.ms' 560 76 390 20
     $ui.lnkMs.TextAlign = 'MiddleRight'
     $ui.picMs = New-Object Windows.Forms.PictureBox
-    $g1.Controls.AddRange(@($ui.picMs, $lo, $ui.cbOs, $ui.lblOs, $ui.rbLocal, $ui.tbIso, $ui.btnIso, $ui.rbDl, $ui.btnFetch, $lr, $ui.cbRelease, $la, $ui.cbArch, $ll, $ui.cbLang, $ui.btnDownload, $ui.lnkMs, $ui.chkAria2, $ui.lblAria2))
+    $g1.Controls.AddRange(@($ui.picMs, $lo, $ui.cbOs, $ui.lblOs, $ui.rbLocal, $ui.tbIso, $ui.btnIso, $ui.rbDl, $ui.btnLatest, $ui.btnFetch, $lr, $ui.cbRelease, $la, $ui.cbArch, $ll, $ui.cbLang, $ui.btnDownload, $ui.lnkMs, $ui.chkAria2, $ui.lblAria2))
 
     # ---------- 2. apps ----------
     $g2 = New-W11Ctl GroupBox '' 10 180 560 330
@@ -2104,7 +2220,7 @@ function Show-W11AdvancedGui {
     $script:H['lnkSimple.LinkClicked'] = { Switch-W11Mode 'Simple' }
     $ui.lnkSimple.Add_LinkClicked({ Invoke-W11Handler 'lnkSimple.LinkClicked' })
 
-    $script:BusyControls = @($ui.lnkSimple, $ui.cbOs, $ui.btnIso, $ui.btnFetch, $ui.btnDownload, $ui.cbRelease, $ui.cbArch, $ui.chkAria2, $ui.btnEd, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnOut, $ui.clbApps, $ui.clbTweaks,
+    $script:BusyControls = @($ui.lnkSimple, $ui.cbOs, $ui.btnIso, $ui.btnLatest, $ui.btnFetch, $ui.btnDownload, $ui.cbRelease, $ui.cbArch, $ui.chkAria2, $ui.btnEd, $ui.btnCheck, $ui.btnOsc, $ui.btnStart, $ui.btnOut, $ui.clbApps, $ui.clbTweaks,
         $ui.cbPreset, $ui.btnPresetApply, $ui.btnPresetLoad, $ui.btnPresetSave, $ui.btnUpdBrowse, $ui.btnUpdScan)
 
     # ---------- events ----------
@@ -2182,6 +2298,13 @@ function Show-W11AdvancedGui {
                 })
         }
     $ui.btnFetch.Add_Click({ Invoke-W11Handler 'btnFetch.Click' })
+    $script:H['btnLatest.Click'] = {
+            $script:ui.rbDl.Checked = $true
+            $script:AutoDownload = $false
+            $script:ui.lblStatus.Text = T 'status.checkingLatest'
+            [void](Start-W11LatestCheck -OnDone { Complete-W11LatestCheck })
+        }
+    $ui.btnLatest.Add_Click({ Invoke-W11Handler 'btnLatest.Click' })
     $script:H['cbRelease.SelectedIndexChanged'] = { Update-W11DownloadLists 'arch' }
     $ui.cbRelease.Add_SelectedIndexChanged({ Invoke-W11Handler 'cbRelease.SelectedIndexChanged' })
     $script:H['cbArch.SelectedIndexChanged'] = { Update-W11DownloadLists 'lang' }

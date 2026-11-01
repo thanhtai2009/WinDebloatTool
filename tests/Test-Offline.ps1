@@ -664,7 +664,7 @@ function Get-W11TextWidth { param([string]$Text, $Font) if (-not $Text) { return
 function Get-W11TextHeight { param([string]$Text, $Font, [int]$Width) $l = [Math]::Max(1, [Math]::Ceiling((7.0 * ([string]$Text).Length) / [Math]::Max(20, $Width))); return [int](16 * $l) }
 $gSrcKeys = @{
     picMs = ''; picLog = ''; grpSource = 'grp.source'; rbLocal = 'rb.local'; lblTargetOs = 'lbl.targetOs'; cbOs = 'os.auto'; lblOs = 'lbl.detectedNone'; tbIso = ''; btnIso = 'btn.browse'
-    rbDl = 'rb.download'; lnkMs = 'lnk.ms'; btnFetch = 'btn.languages'; lblVersion = 'lbl.version'; cbRelease = ''; lblArch = 'lbl.arch'; cbArch = ''; lblLang = 'lbl.lang'; cbLang = 'lang.pressLoad'
+    rbDl = 'rb.download'; btnLatest = 'btn.latest'; lnkMs = 'lnk.ms'; btnFetch = 'btn.languages'; lblVersion = 'lbl.version'; cbRelease = ''; lblArch = 'lbl.arch'; cbArch = ''; lblLang = 'lbl.lang'; cbLang = 'lang.pressLoad'
     btnDownload = 'btn.download'; chkAria2 = 'chk.aria2'; lblAria2 = 'lbl.aria2Missing'
     grpApps = 'grp.apps'; clbApps = ''; btnAppDef = 'btn.appDef'; btnAppAll = 'btn.appAll'; btnAppNone = 'btn.appNone'; note = 'lbl.keptNote'
     grpOptions = 'grp.options'; lblEditions = 'lbl.editions'; rbEdAll = 'rb.edAll'; rbEdHP = ''; rbEdCustom = 'rb.edIdx'; tbIdx = ''; btnEd = 'btn.listEditions'; lblTweaks = 'lbl.tweaks'
@@ -679,7 +679,7 @@ $gSrcKeys = @{
     btnCheck = 'btn.check'; btnOsc = 'btn.osc'; btnStart = 'btn.start'; btnCancel = 'btn.cancel'; pb = ''; lblStatus = 'status.ready'; cbUiLang = ''; lnkSimple = 'lnk.simple'; lnkLog = 'lnk.log'; tbLog = ''; lblWatermark = ''
 }
 $inner = @{
-    grpSource = @('picMs', 'rbLocal', 'lblTargetOs', 'cbOs', 'lblOs', 'tbIso', 'btnIso', 'rbDl', 'lnkMs', 'btnFetch', 'lblVersion', 'cbRelease', 'lblArch', 'cbArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'lblAria2')
+    grpSource = @('picMs', 'rbLocal', 'lblTargetOs', 'cbOs', 'lblOs', 'tbIso', 'btnIso', 'rbDl', 'btnLatest', 'lnkMs', 'btnFetch', 'lblVersion', 'cbRelease', 'lblArch', 'cbArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'lblAria2')
     grpApps = @('clbApps', 'btnAppDef', 'btnAppAll', 'btnAppNone', 'note')
     grpOptions = @('tabOpts')
     grpPreset = @('cbPreset', 'btnPresetApply', 'btnPresetLoad', 'btnPresetSave', 'lblPresetDesc')
@@ -692,7 +692,7 @@ $pages = @{
     tpUpdates = @('chkUpdates', 'lblUpdFolder', 'tbUpd', 'btnUpdBrowse', 'btnUpdScan', 'lblUpdInfo', 'chkUpdBoot', 'chkUpdWinre', 'chkResetBase', 'lblUpdNote', 'chkRulesUpdate', 'lblRulesInfo')
 }
 $top = @('grpSource', 'grpApps', 'grpOptions', 'grpPreset', 'grpOutput', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'pb', 'lblStatus', 'cbUiLang', 'lnkSimple', 'picLog', 'lnkLog', 'tbLog')
-$oneLine = @('rbLocal', 'lblTargetOs', 'btnIso', 'rbDl', 'lnkMs', 'btnFetch', 'lblVersion', 'lblArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'btnAppDef', 'btnAppAll', 'btnAppNone', 'rbEdAll', 'rbEdCustom', 'btnEd', 'btnOut', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'lnkLog', 'lnkSimple',
+$oneLine = @('rbLocal', 'lblTargetOs', 'btnIso', 'rbDl', 'btnLatest', 'lnkMs', 'btnFetch', 'lblVersion', 'lblArch', 'lblLang', 'cbLang', 'btnDownload', 'chkAria2', 'btnAppDef', 'btnAppAll', 'btnAppNone', 'rbEdAll', 'rbEdCustom', 'btnEd', 'btnOut', 'btnCheck', 'btnOsc', 'btnStart', 'btnCancel', 'lnkLog', 'lnkSimple',
     'btnPresetApply', 'btnPresetLoad', 'btnPresetSave', 'lblUser', 'lblPass', 'lblRegion', 'lblKeyboard', 'lblUpdFolder', 'btnUpdBrowse', 'btnUpdScan')
 $saveUi = $script:ui; $layBad = @()
 foreach ($c in $codes) {
@@ -1409,10 +1409,10 @@ $stepMiss = @()
 foreach ($l in $codes16) { $lt16 = Import-W11Lang $l; foreach ($sk in @('check', 'oscdimg', 'download', 'verify', 'build', 'done', 'cancelling', 'cancelled', 'failed')) { if (-not $lt16.ContainsKey("simple.step.$sk")) { $stepMiss += "$l/$sk" } } }
 Assert ($stepMiss.Count -eq 0) "Simple step texts in vi, en, zh-CN, km ($($stepMiss -join ','))"
 
-$sKeys = @{ lblTitle = 'simple.title'; lblIntro = 'simple.intro'; lblSOs = 'simple.os'; cbSOs = ''; lblSLang = 'simple.lang'; cbSLang = 'simple.langAuto'; lblSOut = 'simple.out'; tbSOut = ''; btnSOut = 'btn.browse'; lblSpace = 'simple.freeLow'
+$sKeys = @{ lblTitle = 'simple.title'; lblIntro = 'simple.intro'; lblSOs = 'simple.os'; cbSOs = ''; btnSLatest = 'simple.latest'; lblSLatest = 'simple.latestFound'; lblSLang = 'simple.lang'; cbSLang = 'simple.langAuto'; lblSOut = 'simple.out'; tbSOut = ''; btnSOut = 'btn.browse'; lblSpace = 'simple.freeLow'
     btnGo = 'simple.start'; btnCancel = 'btn.cancel'; pb = ''; lblStep = 'simple.step.oscdimg'; lblStatus = ''; lnkSLog = 'simple.showLog'; lblResult = 'simple.result'; btnOpen = 'simple.openFolder'; tbLog = ''; lnkAdvanced = 'simple.toAdvanced'; cbUiLang = ''; lblWatermark = '' }
-$sTop = @('lblTitle', 'lblIntro', 'lblSOs', 'cbSOs', 'lblSLang', 'cbSLang', 'lblSOut', 'tbSOut', 'btnSOut', 'lblSpace', 'btnGo', 'btnCancel', 'pb', 'lblStep', 'lblStatus', 'lnkSLog', 'lblResult', 'btnOpen', 'tbLog', 'lnkAdvanced', 'cbUiLang')
-$sOne = @('lblSOs', 'lblSLang', 'lblSOut', 'btnSOut', 'btnGo', 'btnCancel', 'lnkSLog', 'btnOpen', 'lnkAdvanced')
+$sTop = @('lblTitle', 'lblIntro', 'lblSOs', 'cbSOs', 'btnSLatest', 'lblSLatest', 'lblSLang', 'cbSLang', 'lblSOut', 'tbSOut', 'btnSOut', 'lblSpace', 'btnGo', 'btnCancel', 'pb', 'lblStep', 'lblStatus', 'lnkSLog', 'lblResult', 'btnOpen', 'tbLog', 'lnkAdvanced', 'cbUiLang')
+$sOne = @('lblSOs', 'btnSLatest', 'lblSLang', 'lblSOut', 'btnSOut', 'btnGo', 'btnCancel', 'lnkSLog', 'btnOpen', 'lnkAdvanced')
 $saveUi = $script:ui; $sBad = @()
 foreach ($c in $codes16) {
     Set-W11Language $c
@@ -1420,7 +1420,7 @@ foreach ($c in $codes16) {
         $mf = New-Object W11MockForm; $mf.ClientSize.Width = $sz[0]; $mf.ClientSize.Height = $sz[1]
         $mu = @{ form = $mf }
         foreach ($k in $sKeys.Keys) { $o = New-Object W11MockCtl; $o.Name = $k; if ($sKeys[$k]) { $o.Text = T $sKeys[$k] '15' '25' }; $mu[$k] = $o }
-        foreach ($k in @('btnGo', 'btnSOut', 'btnCancel', 'btnOpen')) { $mu[$k].Image = New-Object W11MockImg }
+        foreach ($k in @('btnGo', 'btnSOut', 'btnCancel', 'btnOpen', 'btnSLatest')) { $mu[$k].Image = New-Object W11MockImg }
         $mu.lblWatermark.Text = $script:W11Watermark; $mu.lblWatermark.Height = 19
         $mu.btnGo.Font.Height = 21; $mu.lblTitle.Font.Height = 23
         if ($c -eq 'km') { $mf.Font.Height = 22; foreach ($k in $sKeys.Keys) { $mu[$k].Font.Height = [Math]::Max(22, $mu[$k].Font.Height) } }
@@ -1430,6 +1430,7 @@ foreach ($c in $codes16) {
         $tag = "simple $c $($sz[0])x$($sz[1])"
         foreach ($k in $sOne) { $need = Get-W11TextWidth $mu[$k].Text $null; if ($mu[$k].Image) { $need += 22 }; if ($need -gt $mu[$k].Width) { $sBad += "$tag ${k}: text wider than control" } }
         foreach ($k in @('lblTitle', 'lblIntro')) { if ($mu[$k].Height -lt (Get-W11TextHeight $mu[$k].Text $null $mu[$k].Width)) { $sBad += "$tag ${k}: cut" } }
+        if ($mu.lblSLatest.Width -lt 150) { $sBad += "$tag lblSLatest: too narrow for the newest release ($($mu.lblSLatest.Width))" }
         for ($i = 0; $i -lt $sTop.Count; $i++) {
             $a = $mu[$sTop[$i]]
             if ($a.Width -le 0 -or $a.Height -le 0) { $sBad += "$tag $($a.Name): empty" }

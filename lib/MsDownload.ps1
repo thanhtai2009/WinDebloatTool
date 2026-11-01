@@ -203,20 +203,23 @@ function Get-MsBlockedHint {
 }
 
 function Get-MsDlPageInfo {
-    # Edition ids + published SHA256 table from the official page.
+    # Edition ids, published SHA256 table and current version ("Current release: ... Version 26H2") from the official page.
     param([string]$Url, [string]$Fallback, [string]$Label = 'Windows')
-    $editions = @(); $hashes = @{}
+    $editions = @(); $hashes = @{}; $version = ''; $read = $false
     try {
         $html = Invoke-MsDlRequest -Uri $Url
+        $read = $true
         foreach ($m in [regex]::Matches($html, '<option value="(\d{3,6})"[^>]*>([^<]+)</option>')) {
             $editions += (New-Object PSObject -Property @{ Id = $m.Groups[1].Value; Name = $m.Groups[2].Value.Trim() })
         }
         foreach ($m in [regex]::Matches($html, '<td>([^<]{2,60})</td>\s*<td>([0-9A-Fa-f]{64})</td>')) {
             $hashes[$m.Groups[1].Value.Trim()] = $m.Groups[2].Value.ToUpper()
         }
+        if ($html -match '(?i)Current release:[^<]{0,80}?\bVersion\s+(\d{2}H\d|\d{4})\b') { $version = $Matches[1].ToUpper() }
+        elseif ($html -match '(?i)Windows 1[01] \d{4} Update\s*[|l]\s*Version\s+(\d{2}H\d|\d{4})\b') { $version = $Matches[1].ToUpper() }
     } catch { Write-W11Log -Level WARN -En "Could not read $Url ($($_.Exception.Message)); using known edition id $Fallback" -Vi 'Không đọc được trang Microsoft, dùng mã phiên bản có sẵn' }
     if ($editions.Count -eq 0 -and $Fallback) { $editions = @(New-Object PSObject -Property @{ Id = $Fallback; Name = $Label }) }
-    return (New-Object PSObject -Property @{ Editions = $editions; Hashes = $hashes })
+    return (New-Object PSObject -Property @{ Editions = $editions; Hashes = $hashes; Version = $version; PageRead = $read })
 }
 
 function Get-MsSkuList {
@@ -269,7 +272,7 @@ function Get-MsReleaseCatalog {
             $out += (New-Object PSObject -Property @{
                     Os = $r.Os; Arch = $a; DownloadType = $script:MsDl.DownloadTypes[$a]; EditionId = $r.Ids[$a]; EditionName = $label
                     Release = $label; ReleaseName = $r.Name; Build = [int]($r.Build.Split('.')[0]); BuildFull = $r.Build
-                    SessionId = $null; SessionState = $null; PageUrl = $pg; Hashes = @{}; Skus = @(); Static = $true
+                    SessionId = $null; SessionState = $null; PageUrl = $pg; Hashes = @{}; Skus = @(); Static = $true; Latest = $false
                     Available = [bool]$r.Offered; Note = $(if ($r.Offered) { '' } else { "Microsoft no longer offers this - use a local ISO / Microsoft không còn cung cấp bản này, hãy dùng file ISO có sẵn ($($r.Why))" })
                 })
         }
@@ -387,6 +390,104 @@ function Get-MsCatalogForGui {
         if ($have.Count -eq 0) { $all += $s }
     }
     return (New-Object PSObject -Property @{ Entries = $all; Live = $live.Count; Error = $err })
+}
+
+function Get-MsLatestCatalog {
+    <# Newest release on each official page, asked live: edition id from the page, version from its
+       "Current release" line, build and languages from Microsoft's SKU list. Never throws.
+       -TimeoutSec bounds the whole check. Returns Entries (catalog entries, Latest = $true), Errors, TimedOut. #>
+    param([string[]]$Os = @('Win11', 'Win10'), [int]$TimeoutSec = 45)
+    $res = New-Object PSObject -Property @{ Entries = @(); Errors = @(); TimedOut = $false }
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $saved = @{ T = $script:MsDl.TimeoutMs; S = $script:MsDl.SessionTimeoutMs; R = $script:MsDl.RetryDelaySec }
+    try {
+        Initialize-MsDl
+        $script:MsDl.RetryDelaySec = [Math]::Min($saved.R, 1)
+        $prods = @($script:MsDl.Products | Where-Object { $Os -contains $_.Os })
+        $n = 0
+        foreach ($prod in $prods) {
+            $n++
+            $osName = 'Windows 11'; if ($prod.Os -eq 'Win10') { $osName = 'Windows 10' }
+            $what = "$osName $($prod.Archs -join '/')"
+            $left = $TimeoutSec * 1000 - [int]$clock.ElapsedMilliseconds
+            if ($left -lt 1500) { $res.TimedOut = $true; $res.Errors += "${what}: time limit reached"; continue }
+            $script:MsDl.TimeoutMs = [Math]::Min($saved.T, $left)
+            $script:MsDl.SessionTimeoutMs = [Math]::Min($saved.S, $left)
+            Set-W11Progress -Percent ([int](100 * ($n - 1) / $prods.Count)) -Status "Microsoft: $what ($n/$($prods.Count))..."
+            Write-W11Log -En "Checking the newest $what release on $($prod.Page)" -Vi "Đang kiểm tra bản $what mới nhất"
+            try {
+                $info = Get-MsDlPageInfo -Url $prod.Page -Fallback $prod.Fallback -Label $osName
+                $ed = @($info.Editions | Sort-Object { [int]$_.Id } -Descending)[0]
+                $sk = Get-MsSkuList -EditionId $ed.Id -Referer $prod.Page
+                $build = ''; if ($sk.Display -match '\b(\d{5}\.\d+)\b') { $build = $Matches[1] }
+                $name = [string]$info.Version
+                if (-not $name -and $build) { $name = [string]$script:MsDl.Releases[$build.Split('.')[0]] }
+                $label = $osName; if ($name) { $label += " $name" }
+                if ($build) { $label += " (Build $build)" } elseif (-not $name) { $label = Get-MsReleaseLabel -Display $sk.Display -OsName $osName }
+                $hashes = @{}; if ($info.PageRead) { $hashes = $info.Hashes }
+                foreach ($a in $prod.Archs) {
+                    $b = 0; if ($build) { $b = [int]$build.Split('.')[0] }
+                    $res.Entries += (New-Object PSObject -Property @{
+                            Os = $prod.Os; Arch = $a; DownloadType = $script:MsDl.DownloadTypes[$a]; EditionId = $ed.Id; EditionName = $ed.Name
+                            Release = $label; ReleaseName = $name; Name = $name; Build = $b; BuildFull = $build
+                            SessionId = $sk.SessionId; SessionState = $sk.SessionState; PageUrl = $prod.Page; Hashes = $hashes; Skus = @($sk.Skus)
+                            Static = $false; Available = $true; Note = ''; Latest = $true
+                        })
+                }
+                Write-W11Log -Level OK -En "${what}: newest is $label (edition $($ed.Id), $(@($sk.Skus).Count) languages)" -Vi "${what}: bản mới nhất là $label"
+            } catch {
+                $res.Errors += "${what}: $($_.Exception.Message)"
+                Write-W11Log -Level WARN -En "${what}: newest release not available ($($_.Exception.Message))" -Vi "Không kiểm tra được bản $what mới nhất"
+            }
+        }
+    } catch {
+        $res.Errors += $_.Exception.Message
+    } finally {
+        $script:MsDl.TimeoutMs = $saved.T; $script:MsDl.SessionTimeoutMs = $saved.S; $script:MsDl.RetryDelaySec = $saved.R
+    }
+    if ($res.Errors.Count -gt 0 -and $clock.ElapsedMilliseconds -ge $TimeoutSec * 1000) { $res.TimedOut = $true }
+    Set-W11Progress -Percent 100 -Status ''
+    return $res
+}
+
+function Merge-MsLatestCatalog {
+    <# Puts live newest entries into the catalog: the entry with the same OS, architecture and edition id gets
+       the languages (and the new build name when it changed), an unknown edition is added at the top of its OS.
+       Every other entry loses the Latest mark. Returns the new catalog (input entries are updated in place). #>
+    param([object[]]$Catalog, [object[]]$Latest)
+    $cat = @($Catalog | Where-Object { $_ })
+    foreach ($e in $cat) { if ($e.PSObject.Properties['Latest']) { $e.Latest = $false } else { $e | Add-Member -MemberType NoteProperty -Name Latest -Value $false } }
+    $add = @()
+    foreach ($l in @($Latest | Where-Object { $_ })) {
+        $same = @($cat | Where-Object { $_.Os -eq $l.Os -and $_.Arch -eq $l.Arch -and $_.EditionId -eq $l.EditionId })
+        if ($same.Count -eq 0) { $l.Latest = $true; $add += $l; continue }
+        foreach ($e in $same) {
+            $e.Skus = $l.Skus; $e.SessionId = $l.SessionId; $e.SessionState = $l.SessionState; $e.Hashes = $l.Hashes
+            $e.Static = $false; $e.Available = $true; $e.Note = ''; $e.Latest = $true
+            if ($l.BuildFull -and [string]$e.BuildFull -ne [string]$l.BuildFull) { $e.Release = $l.Release; $e.EditionName = $l.Release; $e.Build = $l.Build; $e.BuildFull = $l.BuildFull; $e.ReleaseName = $l.ReleaseName }
+        }
+    }
+    if ($add.Count -eq 0) { return $cat }
+    $out = @(); $done = @{}
+    foreach ($e in $cat) {
+        if (-not $done.ContainsKey($e.Os)) {
+            $done[$e.Os] = $true
+            $out += @($add | Where-Object { $_.Os -eq $e.Os })
+        }
+        $out += $e
+    }
+    $out += @($add | Where-Object { -not $done.ContainsKey($_.Os) })
+    return $out
+}
+
+function Select-MsLatestEntry {
+    # newest live entry for the OS, preferring the architecture asked for
+    param([object[]]$Catalog, [string]$Os, [string]$Arch)
+    $l = @($Catalog | Where-Object { $_ -and $_.Latest -and $_.Os -eq $Os })
+    $pick = @($l | Where-Object { $_.Arch -eq $Arch })
+    if ($pick.Count -gt 0) { return $pick[0] }
+    if ($l.Count -gt 0) { return $l[0] }
+    return $null
 }
 
 function Get-MsWin11Catalog { return (Get-MsWinCatalog -Os @('Win11')) }   # backwards compatibility

@@ -2641,8 +2641,10 @@ function Invoke-W11SimpleBuild {
        official ISO from Microsoft (aria2 when available, SHA256 checked against Microsoft's table), then the build
        with Home + Pro and the Safe preset. A Microsoft download failure does not throw: the result has
        DownloadFailed = $true so the caller can offer the verified mirror and call again with -IsoPath.
+       -Catalog: release list already checked against Microsoft (newest-ISO button); without it the newest
+       release is asked live (fallback: the built-in list).
        Returns @{ Stage; IsoPath; Build; DownloadFailed; Error; Entry; Sku; DryRun }. #>
-    param([Parameter(Mandatory = $true)]$Plan, [string]$IsoPath, [hashtable]$Sync, [switch]$DryRun, [double]$MinFreeGB = -1, [hashtable]$DownloadOptions = @{}, [string]$RulesDir)
+    param([Parameter(Mandatory = $true)]$Plan, [string]$IsoPath, [hashtable]$Sync, [switch]$DryRun, [double]$MinFreeGB = -1, [hashtable]$DownloadOptions = @{}, [string]$RulesDir, [object[]]$Catalog)
     if ($Sync) { $script:W11D.Sync = $Sync }
     if ($MinFreeGB -lt 0 -and $null -ne $Plan.BuildMinFreeGB) { $MinFreeGB = [double]$Plan.BuildMinFreeGB }
     $res = @{ Stage = 'check'; IsoPath = $IsoPath; Build = $null; DownloadFailed = $false; Error = $null; Entry = $null; Sku = $null; DryRun = [bool]$DryRun }
@@ -2661,7 +2663,17 @@ function Invoke-W11SimpleBuild {
     if (-not $IsoPath) {
         $res.Stage = 'download'; Set-W11SimpleStep 'download'
         try {
-            $entry = Get-W11SimpleEntry -Catalog @(Get-MsReleaseCatalog -Os @($Plan.Os)) -Os $Plan.Os -Arch $Plan.Arch
+            $cat = @($Catalog | Where-Object { $_ })
+            if ($cat.Count -eq 0) {
+                $cat = @(Get-MsReleaseCatalog -Os @($Plan.Os))
+                if (-not $DryRun) {
+                    $lc = Get-MsLatestCatalog -Os @($Plan.Os)
+                    if (@($lc.Entries).Count -gt 0) { $cat = @(Merge-MsLatestCatalog -Catalog $cat -Latest $lc.Entries) }
+                    else { Write-W11Log -Level WARN -En "Newest release check failed ($(@($lc.Errors) -join ' ; ')); using the built-in list" -Vi 'Không kiểm tra được bản mới nhất, dùng danh sách có sẵn' }
+                }
+            }
+            $entry = Select-MsLatestEntry -Catalog $cat -Os $Plan.Os -Arch $Plan.Arch
+            if (-not $entry) { $entry = Get-W11SimpleEntry -Catalog $cat -Os $Plan.Os -Arch $Plan.Arch }
             if (-not $entry) { throw "No $($Plan.Os) $($Plan.Arch) release is offered by Microsoft" }
             $res.Entry = $entry
             if ($DryRun) {

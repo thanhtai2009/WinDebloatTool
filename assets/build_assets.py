@@ -147,6 +147,8 @@ def glyph(name, sw):
                 '<path d="M8 4.8v3.4h6V4.8" %s/><circle cx="12" cy="14.5" r="2.3" %s/>' % (st, st, fl),
         'download': '<path d="M12 4.5v10M7.8 10.5 12 14.7l4.2-4.2M5 19.5h14" %s/>' % st,
         'refresh': '<path d="M19.3 12.6A7.3 7.3 0 1 1 17.2 7" %s/><path d="M19.5 4v4.5H15" %s/>' % (st, st),
+        'sparkle': '<path d="M10 3.5c.6 3.7 2.3 5.4 6 6-3.7.6-5.4 2.3-6 6-.6-3.7-2.3-5.4-6-6 3.7-.6 5.4-2.3 6-6z" %s/>'
+                   '<path d="M17.2 13.6c.3 1.8 1.1 2.6 2.9 2.9-1.8.3-2.6 1.1-2.9 2.9-.3-1.8-1.1-2.6-2.9-2.9 1.8-.3 2.6-1.1 2.9-2.9z" %s/>' % (fl, fl),
         'reset': '<path d="M4.7 12.6A7.3 7.3 0 1 0 6.8 7" %s/><path d="M4.5 4v4.5H9" %s/>' % (st, st),
         'globe': '<circle cx="12" cy="12" r="8.5" %s/><ellipse cx="12" cy="12" rx="3.6" ry="8.5" %s/><path d="M3.5 12h17" %s/>' % (st, st, st),
         'eye': '<path d="M2.8 12C4.8 8 8.1 6 12 6s7.2 2 9.2 6c-2 4-5.3 6-9.2 6s-7.2-2-9.2-6z" %s/><circle cx="12" cy="12" r="3" %s/>' % (st, fl),
@@ -169,7 +171,7 @@ def glyph(name, sw):
 
 
 NAMES = ['broom', 'check-all', 'clear-all', 'download', 'eye', 'folder', 'folder-open', 'globe', 'package', 'refresh',
-         'reset', 'rocket', 'save', 'shield-check', 'sliders', 'stop', 'wrench']
+         'reset', 'sparkle', 'rocket', 'save', 'shield-check', 'sliders', 'stop', 'wrench']
 
 
 def icon_svg(name, size=24):
