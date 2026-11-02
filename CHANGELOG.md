@@ -7,128 +7,67 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## Unreleased
 
 ### Added
-- Simple mode: choose the ISO source - *Download the newest from Microsoft* or *Use an ISO file on this PC*
-  (*Browse...*, `*.iso`). The chosen file is checked (exists, ISO 9660 / UDF image, size, Windows image inside)
-  and its name, size and Windows version are shown; Windows is selected to match. **START** then builds from
-  that file without any download or online check. Texts in vi, en, zh-CN, km; tests/Test-SimpleLocalIso.ps1.
+- Simple mode: build from a local ISO file as an alternative to downloading from Microsoft.
+- Local ISOs are validated before use; the detected Windows version is shown and selected.
 
 ### Changed
-- Simple window: minimum size raised for the new ISO source row.
+- Simple window: larger minimum size to fit the ISO source option.
 
 ## 1.2.0 — 2026-11-01
 
-### Removed
-- README / README_VI: the author section.
-
 ### Added
-- **Newest ISO button**: *Load newest ISO* (Advanced window) and *Check newest* (Simple window) ask Microsoft's
-  official download pages for the newest Windows 11 (x64, arm64) and Windows 10 release in the background
-  (version from the page, build and languages from Microsoft, 60 s limit). A release missing from the built-in
-  list is added, the newest is marked [newest] and selected so *Download* (aria2) can start; offline or on an
-  error the current list is kept. Simple mode START uses the newest release (checked live, built-in list as
-  fallback). Background tasks can now have a time limit. Texts in vi, en, zh-CN, km; tests/Test-LatestIso.ps1.
-- **Rules auto-update**: at GUI start the app and tweak lists are checked in the background against
-  `data/rules-manifest.json` on GitHub (`main`, HTTPS, 10 s limit). Files are accepted only with a matching
-  SHA256, a valid format and the download policy (no autostart / execution registry locations), installed
-  atomically with the previous set kept as backup, and used from the next build. Offline, timeout or errors
-  keep the current rules. Option on the *Updates* tab (default on), `-UpdateRules` in the console,
-  `tools/New-RulesManifest.ps1` for maintainers, `tests/Test-RulesUpdate.ps1`.
+- Newest ISO check in both windows: finds the latest Windows 10 / 11 release on Microsoft's download pages.
+- Simple mode always builds from the newest release, with the built-in list as offline fallback.
+- Automatic background update of the app and tweak lists, verified by SHA256 (can be turned off).
 
 ### Changed
-- New icon set in a restrained Material 3 Expressive style. App icon: one indigo tonal family on a soft
-  squircle, three light panes and a minimal broom sweeping the fourth (warm accent), with a simplified variant
-  for 16-32 px. A second direction ("Paper", light arch) is kept in `assets/alt/` (`build_assets.py B`
-  switches the default). Button icons: monochrome rounded glyphs, one stroke weight per size (16/20/24/32 px),
-  no coloured tiles; only START / START (Simple) use the brand indigo and Cancel a muted red. Same file names
-  and sizes; all drawn for this project.
+- New app and button icon set.
+
+### Removed
+- Author section from the README.
 
 ## 1.1.0 — 2026-10-26
 
 ### Added
-- **App and tweak lists in JSON** (`data/apps.json`, `data/tweaks.json`): names and descriptions in all four
-  UI languages, `level` (safe / aggressive / unsafe), `default`, `os`, build range, registry operations with
-  undo information. The GUI builds its checklists from them and shows the description as a tooltip. Entries
-  with mistakes are skipped with a warning. A small built-in JSON reader keeps PowerShell 2.0 working
-  (ConvertFrom-Json → JavaScriptSerializer → own parser). The 1.0 defaults are unchanged (checked by a test).
-- New optional tweaks (off by default): minimum telemetry, advertising ID, tailored experiences, web search,
-  Recall, Widgets, Reserved Storage, OneDrive setup, and a Windows 11 setup-check bypass (`LabConfig`) that is
-  also written into `boot.wim`. Tweaks can now use the `SYSTEM` and `DEFAULT` hives.
-- **Generated autounattend.xml** (new *Unattended setup* tab and console parameters): local administrator
-  account with an optional password (plain text, with a warning), BypassNRO, skip the TPM / Secure Boot /
-  RAM checks, region and keyboard, skip the privacy questions, and a first-logon script that removes the
-  selected apps again if Setup brought them back. Windows 10 and 11, amd64 and arm64. No disk configuration.
-  Without options the file is identical to the 1.0 template.
-- **Offline updates** (new *Updates* tab, `-UpdatesPath`): integrates `.msu` / `.cab` files from a folder in
-  the order SSU → LCU → .NET; optional `boot.wim` (SSU + LCU) and WinRE (SSU + Safe OS) servicing and
-  `StartComponentCleanup /ResetBase` (with a warning). A package that fails or does not apply is logged and
-  skipped. Nothing is downloaded.
-- **Presets**: built-in *An toàn / Safe* and *Gọn tối đa / Aggressive*, save and load your own `.json`
-  (never with a password); `-Preset` on the console.
-- **Simple mode**: at start the tool asks *Simple* or *Advanced* (*Remember my choice* stores it in
-  `settings.psd1`; switch links in both windows; `-Mode Simple|Advanced`). The Simple window has Windows 11/10,
-  ISO language (follows the UI language; Vietnamese falls back to English International because Microsoft
-  has no Vietnamese ISO) and an output folder with a free-space check. One **START** button installs oscdimg
-  if needed, downloads the newest official ISO from Microsoft (SHA256 checked; mirror offer if Microsoft
-  refuses), keeps Home + Pro and applies the Safe preset, with progress, step text, log, Cancel and
-  *Open folder*. Console: `-Simple` (with `-OutputFolder`, `-IsoLanguage`, `-IsoPath`, `-DryRun`).
-- **Automatic oscdimg**: the official ADK installer is checked for a Microsoft signature (where
-  `Get-AuthenticodeSignature` exists), exit codes 0 / 3010 are accepted, missing administrator rights and no
-  internet give clear messages; Windows 7 SP1 / 8.x hosts try the official ADK for Windows 10, version 1607
-  (best effort), otherwise a "copy oscdimg into tools" message.
-- New button icons (`sliders`, `package`, `rocket`); new tests for the JSON reader, data files, answer file, presets,
-  update ordering / failure handling and a mocked pipeline with updates, WinRE, `boot.wim` and a preset.
+- Simple mode: one-click build (download, Home + Pro, Safe preset) with progress and cancel.
+- Mode chooser at startup, with an option to remember the choice.
+- Presets: built-in Safe and Aggressive, plus saving and loading custom presets.
+- Unattended setup tab: generates `autounattend.xml` (local account, hardware-check bypass, region, privacy).
+- Updates tab: integrates offline `.msu` / `.cab` updates into the image, boot image and WinRE.
+- New optional privacy tweaks (telemetry, advertising ID, web search, Recall, Widgets and more).
+- Optional Windows 11 hardware-requirement bypass, also applied to Windows Setup.
+- App and tweak descriptions as tooltips in all four languages.
+- Automatic oscdimg installation with signature check and clear error messages.
 
 ### Changed
-- The options area is now a tab control (Options / Unattended setup / Updates) with a preset row below the
-  lists; pages scroll instead of clipping text at large fonts.
-- `boot.wim` is serviced on a copy outside the ISO tree; on any failure the original is kept.
-- *Home + Pro* is chosen by edition ID `Core` / `Professional` (edition IDs from the WIM XML when DISM
-  prints translated labels; localized names as a fallback), so N / Single Language editions are never kept.
-- README: "About the author" section; the watermark shows a tooltip about the author (4 languages).
-- License and README copyright line: "Copyright (c) 2026 TaiNT13@PNC STG & WinDebloat Tool contributors".
+- App and tweak lists moved to editable data files.
+- Options are now organized in tabs and scroll at large font sizes.
+- Home + Pro selection now works on all languages and never keeps N or Single Language editions.
+- The boot image is modified on a copy; the original is kept if anything fails.
+- Updated copyright notice.
 
 ### Credits
-- [ChrisTitusTech/winutil](https://github.com/ChrisTitusTech/winutil) (MIT) and
-  [farag2/Sophia-Script-for-Windows](https://github.com/farag2/Sophia-Script-for-Windows) (MIT): reference
-  for the new privacy tweaks and the preset idea.
-- [Raphire/Win11Debloat](https://github.com/Raphire/Win11Debloat) (MIT): app list and ratings (as in 1.0).
-- [ntdevlabs/tiny11builder](https://github.com/ntdevlabs/tiny11builder): ideas only (it has no license; no
-  code was copied).
+- [ChrisTitusTech/winutil](https://github.com/ChrisTitusTech/winutil) and
+  [farag2/Sophia-Script-for-Windows](https://github.com/farag2/Sophia-Script-for-Windows) (MIT): privacy tweaks
+  and presets.
+- [Raphire/Win11Debloat](https://github.com/Raphire/Win11Debloat) (MIT): app list and ratings.
+- [ntdevlabs/tiny11builder](https://github.com/ntdevlabs/tiny11builder): ideas only, no code copied.
 
 ## 1.0.0 — 2026-10-26
 Initial release.
 
 ### Added
-- Builds a debloated, bootable (BIOS + UEFI) installation ISO from an official Windows 10 or Windows 11 ISO,
-  using only Microsoft tools (DISM, reg.exe, oscdimg).
-- Graphical interface (WinForms) with a resizable layout, plus a console mode (`-NoGui`) and a dry run
-  (`-DryRun` / `-WhatIf`).
-- Detects the target OS and release from the image build (Windows 11 21H2 – 26H2, Windows 10 1507 – 22H2),
-  with a build-aware app and tweak profile; it can also be chosen by hand.
-- Built-in download of official ISOs from Microsoft for every release, language and architecture
-  Microsoft still serves. Uses aria2 multi-connection downloads (bundled) with resume, falls back to the
-  built-in downloader, and checks the SHA256 when Microsoft publishes it.
-- Optional mirror fallback for original Microsoft files listed on massgrave.dev. It is only offered when
-  Microsoft cannot deliver, needs confirmation, and a mandatory SHA256 check deletes any file that does not
-  match.
-- App removal with safe defaults, optional extras and opt-in *unsafe* packages; core components (Store,
-  Windows Security, Edge, WebView2, runtimes, codecs, App Installer) are protected.
-- Offline Registry tweaks: consumer features, Copilot, Widgets feed, Teams/Chat auto-install, new-user
-  suggestions, OOBE auto-install tasks; on Windows 10 also Cortana and web search, minimum telemetry,
-  News and Interests, Meet Now and optional OneDrive setup.
-- Edition selection: all, Home + Pro, or index list.
-- Optional `autounattend.xml` for a local account without the Microsoft account screens (BypassNRO on
-  Windows 11).
-- Image options: LZX (`install.wim`) or ESD (`install.esd`) compression, optional WinSxS component cleanup,
-  and an optional split of a > 4 GB `install.wim` into `install*.swm` for FAT32 USB sticks.
-- Every kept edition is exported into a fresh image. Temporary files are kept out of the ISO tree, and the
-  log records sizes for each step with a warning when the output ISO is much larger than the source.
-- Safe work folder handling: leftovers of an earlier run are detected and cleaned (offline hives unloaded,
-  mounted images discarded), folders with foreign files are never deleted, and the work folder is cleaned
-  after a finished, failed or cancelled run.
-- **Install oscdimg** button that installs only the Windows ADK Deployment Tools (signature checked, or via
-  winget), and a **System check** report.
-- Interface in Vietnamese, English, Simplified Chinese and Khmer; dialogs and status show the selected
-  language, and the log file is bilingual (English / Vietnamese).
-- App icon and button icons that scale with the display DPI.
-- Runs on Windows 7 SP1 to Windows 11 with Windows PowerShell 2.0 or newer.
+- Builds a debloated, bootable (BIOS + UEFI) ISO from an official Windows 10 or 11 ISO using Microsoft tools only.
+- Graphical interface, console mode and dry run.
+- Automatic detection of the Windows version and release in the image.
+- Official ISO download from Microsoft with fast resumable downloads and SHA256 verification.
+- Optional verified mirror when Microsoft cannot deliver.
+- App removal with safe defaults; core components are protected.
+- Offline registry tweaks for ads, suggestions, Copilot, Widgets, Teams and more.
+- Edition selection: all, Home + Pro, or custom.
+- Optional unattended setup with a local account.
+- Image options: compression, component cleanup, split for FAT32 USB drives.
+- Safe work-folder handling and automatic cleanup after every run.
+- One-click oscdimg installation and a system check report.
+- Interface in Vietnamese, English, Simplified Chinese and Khmer.
+- Runs on Windows 7 SP1 to Windows 11 with PowerShell 2.0 or newer.
