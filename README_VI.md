@@ -58,7 +58,7 @@ Mỗi lần tạo thường mất 30–90 phút. Thay đổi của từng phiên
 - File tải về được đối chiếu SHA256 của Microsoft; file không khớp sẽ bị xoá.
 - Thay đổi chỉ áp dụng cho máy cài từ ISO mới. Ứng dụng đã gỡ có thể cài lại từ Microsoft Store.
 
-## Ghi công
+## Credits
 - [Raphire/Win11Debloat](https://github.com/Raphire/Win11Debloat) (MIT): danh sách ứng dụng và mức độ an toàn.
 - [ChrisTitusTech/winutil](https://github.com/ChrisTitusTech/winutil) và
   [farag2/Sophia-Script-for-Windows](https://github.com/farag2/Sophia-Script-for-Windows) (MIT): tinh chỉnh quyền riêng tư và mẫu cấu hình.
