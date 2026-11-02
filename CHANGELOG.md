@@ -12,7 +12,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 - Simple window: larger minimum size to fit the ISO source option.
-- README and changelog rewritten to be shorter and clearer.
 
 ## 1.2.0 — 2026-11-01
 
@@ -23,9 +22,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 - New app and button icon set.
-
-### Removed
-- Author section from the README.
 
 ## 1.1.0 — 2026-10-26
 
