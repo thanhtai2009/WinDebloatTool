@@ -37,7 +37,7 @@ lên với PowerShell 2.0 trở lên.
 - Có sẵn mẫu cấu hình và lưu được mẫu riêng; danh sách ứng dụng, tinh chỉnh nằm trong [`data/`](data), dễ xem và chỉnh sửa.
 
 ## Bắt đầu nhanh
-1. Tải `WinDebloatTool_v1.2.0.zip` tại mục [Releases](https://github.com/thanhtai2009/WinDebloatTool/releases/latest).
+1. Tải `WinDebloatTool_v1.2.1.zip` tại mục [Releases](https://github.com/thanhtai2009/WinDebloatTool/releases/latest).
 2. Nhấp chuột phải vào file zip → **Properties** → chọn **Unblock**, rồi giải nén.
 3. Nhấp đúp **`run.bat`** và đồng ý cấp quyền quản trị.
 4. Chọn **Đơn giản** để tạo ISO bằng một nút bấm, hoặc **Nâng cao** để tuỳ chỉnh đầy đủ, rồi bấm **BẮT ĐẦU**.

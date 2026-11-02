@@ -37,7 +37,7 @@ on Windows 7 SP1 or later with PowerShell 2.0 or newer.
 - Built-in and custom presets; app and tweak lists in [`data/`](data) are easy to review and edit.
 
 ## Quick start
-1. Download `WinDebloatTool_v1.2.0.zip` from [Releases](https://github.com/thanhtai2009/WinDebloatTool/releases/latest).
+1. Download `WinDebloatTool_v1.2.1.zip` from [Releases](https://github.com/thanhtai2009/WinDebloatTool/releases/latest).
 2. Right-click the zip → **Properties** → tick **Unblock**, then extract it.
 3. Double-click **`run.bat`** and accept the administrator prompt.
 4. Choose **Simple** for a one-click build, or **Advanced** for full control, then press **START**.
