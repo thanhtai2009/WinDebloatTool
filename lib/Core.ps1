@@ -13,7 +13,7 @@ if ($MyInvocation.MyCommand.Path) {
     $script:W11Root = Split-Path -Parent $script:W11LibDir
 }
 $script:W11D = @{
-    Version      = '1.2.1'
+    Version      = '1.2.2'
     LogPath      = $null
     Sync         = $null
     HiveSoftware = 'HKLM\W11D_SOFTWARE'
