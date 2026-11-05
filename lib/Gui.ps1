@@ -241,7 +241,7 @@ function Set-W11Layout {
         # -- page 1: editions, tweaks, image options; the tweak list takes the free height. When even a short
         #    list does not fit (small window, tall font), the page scrolls instead --
         $hEdRow = [Math]::Max($rowH, $bh)
-        $need = $pi + ($rowH - (& $px 3)) + $hEdRow + (& $px 2) + $bh + (& $px 5) + ($rowH - (& $px 4)) + (& $px 1) + (& $px 50) + (& $px 4) + (& $px 2)
+        $need = $pi + ($rowH - (& $px 3)) + $hEdRow + (& $px 2) + $rowH + (& $px 4) + $bh + (& $px 5) + ($rowH - (& $px 4)) + (& $px 1) + (& $px 50) + (& $px 4) + (& $px 2)
         $hDry = & $chkH $ui.chkDry $iw; $hCl = & $chkH $ui.chkCleanup $iw; $hEsd = & $chkH $ui.chkEsd $iw
         $need += $hDry + $hCl + $hEsd
         $scroll1 = ($need -gt $ph)
@@ -257,7 +257,9 @@ function Set-W11Layout {
         $x = $pi
         foreach ($rb in @($ui.rbEdAll, $ui.rbEdHP, $ui.rbEdCustom)) { $w = & $chkW $rb; $rb.SetBounds($x, $ye, $w, $rowH); $x += $w + (& $px 4) }
         $ui.tbIdx.SetBounds($x, $ye, [Math]::Max((& $px 50), $pi + $w1 - $x), $rowH)
-        $ui.btnEd.SetBounds($pi, $ye + $hEdRow + (& $px 2), $w1, $bh)
+        $ui.cbEd.SetBounds($pi, $ye + $hEdRow + (& $px 2), $w1, $rowH)
+        $ui.cbEd.DropDownWidth = [Math]::Max($ui.cbEd.Width, (& $px 360))
+        $ui.btnEd.SetBounds($pi, $ui.cbEd.Bottom + (& $px 4), $w1, $bh)
         $ui.lblTweaks.SetBounds($pi, $ui.btnEd.Bottom + (& $px 5), $w1, $rowH - (& $px 4))
         $ty = $ui.lblTweaks.Bottom + (& $px 1)
         if ($scroll1) {
@@ -1280,6 +1282,58 @@ function Set-W11Detected {
     Set-W11ProfileLists
 }
 
+function Get-W11TypedIndexes {
+    $r = @(); foreach ($p in ($script:ui.tbIdx.Text -split '[,; ]+')) { if ($p -match '^\d+$') { $r += [int]$p } }
+    return $r
+}
+
+function Update-W11EditionPlaceholder {
+    # item 0 = state text: no ISO / loading / not readable / pick one / several typed
+    $cb = $script:ui.cbEd; if (-not $cb) { return }
+    $n = @(Get-W11TypedIndexes).Count
+    switch ($script:EditionState) {
+        'loading' { $t = T 'ed.loading' }
+        'manual' { $t = T 'ed.manual' }
+        'ready' { if ($n -gt 1) { $t = T 'ed.multi' $n } else { $t = T 'ed.pick' } }
+        default { $t = T 'ed.noIso' }
+    }
+    $script:EdSyncing = $true
+    try {
+        if ($cb.Items.Count -eq 0) { [void]$cb.Items.Add($t) } elseif ([string]$cb.Items[0] -ne $t) { $cb.Items[0] = $t }
+        $cb.Enabled = ($script:EditionState -eq 'ready')
+    } finally { $script:EdSyncing = $false }
+}
+
+function Set-W11EditionList {
+    # fills the edition dropdown ("6 - Windows 11 Pro (x64)") from Get-W11IsoOsInfo / Get-W11IsoEditions images
+    param([object[]]$Editions, [string]$State = 'ready')
+    $cb = $script:ui.cbEd; if (-not $cb) { return }
+    $script:EditionIdx = @()
+    $script:EdSyncing = $true
+    try {
+        $cb.BeginUpdate(); $cb.Items.Clear(); [void]$cb.Items.Add('')
+        foreach ($e in @($Editions | Where-Object { $_ } | Sort-Object { [int]$_.Index })) {
+            $t = '{0} - {1}' -f $e.Index, $e.Name
+            if ($e.Architecture) { $t += ' (' + $e.Architecture + ')' }
+            [void]$cb.Items.Add($t); $script:EditionIdx += [int]$e.Index
+        }
+        $cb.EndUpdate()
+    } finally { $script:EdSyncing = $false }
+    if ($State -eq 'ready' -and $script:EditionIdx.Count -eq 0) { $State = 'manual' }
+    $script:EditionState = $State
+    Sync-W11EditionCombo
+}
+
+function Sync-W11EditionCombo {
+    # typed index -> dropdown item; several or unknown indexes leave the placeholder selected
+    $cb = $script:ui.cbEd; if (-not $cb) { return }
+    Update-W11EditionPlaceholder
+    $sel = 0; $typed = @(Get-W11TypedIndexes)
+    if ($typed.Count -eq 1) { $k = [Array]::IndexOf([int[]]@($script:EditionIdx), $typed[0]); if ($k -ge 0) { $sel = $k + 1 } }
+    $script:EdSyncing = $true
+    try { if ($cb.SelectedIndex -ne $sel) { $cb.SelectedIndex = $sel } } finally { $script:EdSyncing = $false }
+}
+
 function Start-W11Detect {
     # quick guess from the file name, then (Win8+) read the WIM header inside the ISO in the background
     param([string]$Iso)
@@ -1287,9 +1341,11 @@ function Start-W11Detect {
     $g = Get-W11OsFromName $Iso
     $gb = 0; if ([IO.Path]::GetFileName($Iso) -match '(?<!\d)(1\d{4}|2\d{4})(?!\d)') { $gb = [int]$Matches[1]; if ((Resolve-W11OsFromBuild $gb) -ne $g) { $gb = 0 } }
     Set-W11Detected -Os $g -Source 'filename' -Build $gb
-    if (-not (Get-Command Mount-DiskImage -ErrorAction SilentlyContinue)) { return }
+    if (-not (Get-Command Mount-DiskImage -ErrorAction SilentlyContinue)) { Set-W11EditionList -State 'manual'; return }
+    Set-W11EditionList -State 'loading'
     [void](Start-W11Job -Background -Name 'OS detection' -Script '$sync.Result = Get-W11IsoOsInfo -IsoPath $JobArgs.Iso' -JobArgs @{ Iso = $Iso } -OnDone {
         $r = $script:Sync.Result
+        if ($r -and @($r.Editions).Count -gt 0) { Set-W11EditionList -Editions @($r.Editions) } else { Set-W11EditionList -State 'manual' }
         if ($r -and $r.Os) {
             Set-W11Detected -Os $r.Os -Source $r.Source -Build $r.Build
             Write-W11Log -Level OK -En "Target OS detected: $(Get-W11ReleaseLabel -Build $r.Build -Os $r.Os) (from $($r.Source))" -Vi 'Đã nhận diện hệ điều hành'
@@ -1330,6 +1386,7 @@ function Set-W11UiTexts {
     Update-W11RulesInfo
     Update-W11PresetList
     Update-W11DetectedLabel
+    Update-W11EditionPlaceholder
     $script:KeepLangIndex = $true
     try { if ($ui.cbRelease.Items.Count -gt 0) { Update-W11DownloadLists 'release' } } finally { $script:KeepLangIndex = $false }
     Set-W11ProfileLists -Force -KeepChecks
@@ -2197,6 +2254,9 @@ function Show-W11AdvancedGui {
     $ui.rbEdCustom = New-W11Ctl RadioButton '@rb.edIdx' 212 26 92 22
     $ui.rbEdAll.Checked = $true
     $ui.tbIdx = New-W11Ctl TextBox '' 306 26 60 23
+    $ui.cbEd = New-W11Ctl ComboBox '' 6 50 360 23
+    $ui.cbEd.DropDownStyle = 'DropDownList'; $ui.cbEd.MaxDropDownItems = 16
+    Set-W11EditionList -State 'none'
     $ui.btnEd = New-W11Ctl Button '@btn.listEditions' 6 50 360 25
     $lt = New-W11Ctl Label '@lbl.tweaks' 6 80 300 18
     $ui.lblTweaks = $lt
@@ -2208,7 +2268,7 @@ function Show-W11AdvancedGui {
     $ui.chkCleanup = New-W11Ctl CheckBox '@chk.cleanup' 6 204 360 22
     $ui.chkEsd = New-W11Ctl CheckBox '@chk.esd' 6 226 360 22
     $ui.chkDry = New-W11Ctl CheckBox '@chk.dry' 6 248 360 22
-    $ui.tpOptions.Controls.AddRange(@($le, $ui.rbEdAll, $ui.rbEdHP, $ui.rbEdCustom, $ui.tbIdx, $ui.btnEd, $lt, $ui.clbTweaks, $ui.chkCleanup, $ui.chkEsd, $ui.chkDry))
+    $ui.tpOptions.Controls.AddRange(@($le, $ui.rbEdAll, $ui.rbEdHP, $ui.rbEdCustom, $ui.tbIdx, $ui.cbEd, $ui.btnEd, $lt, $ui.clbTweaks, $ui.chkCleanup, $ui.chkEsd, $ui.chkDry))
     # -- answer file page --
     $ui.chkUnattend = New-W11Ctl CheckBox '@chk.unattend' 6 6 340 34
     $ui.chkUnattend.Checked = $true
@@ -2381,8 +2441,15 @@ function Show-W11AdvancedGui {
     $ui.btnAppAll.Add_Click({ Invoke-W11Handler 'btnAppAll.Click' })
     $script:H['btnAppNone.Click'] = { for ($i = 0; $i -lt $script:ui.clbApps.Items.Count; $i++) { $script:ui.clbApps.SetItemChecked($i, $false) } }
     $ui.btnAppNone.Add_Click({ Invoke-W11Handler 'btnAppNone.Click' })
-    $script:H['tbIdx.TextChanged'] = { if ($script:ui.tbIdx.Text) { $script:ui.rbEdCustom.Checked = $true } }
+    $script:H['tbIdx.TextChanged'] = { if ($script:ui.tbIdx.Text) { $script:ui.rbEdCustom.Checked = $true }; Sync-W11EditionCombo }
     $ui.tbIdx.Add_TextChanged({ Invoke-W11Handler 'tbIdx.TextChanged' })
+    $script:H['cbEd.SelectedIndexChanged'] = {
+        $i = $script:ui.cbEd.SelectedIndex
+        if ($script:EdSyncing -or $i -lt 1) { return }
+        $script:ui.tbIdx.Text = [string]$script:EditionIdx[$i - 1]
+        $script:ui.rbEdCustom.Checked = $true
+    }
+    $ui.cbEd.Add_SelectedIndexChanged({ Invoke-W11Handler 'cbEd.SelectedIndexChanged' })
 
     $script:H['lnkMs.LinkClicked'] = {
             $e = Get-W11SelectedEntry
@@ -2479,7 +2546,7 @@ function Show-W11AdvancedGui {
             $iso = $script:ui.tbIso.Text.Trim().Trim('"')
             if (-not $iso) { Show-W11Msg (T 'msg.chooseIsoFirst') 'Warning' | Out-Null; return }
             if (-not (Test-W11PathText $iso -Leaf)) { Show-W11Msg (T 'msg.isoNotFound' $iso) 'Warning' | Out-Null; return }
-            [void](Start-W11Job -Name 'List editions' -Script '$sync.Result = @(Get-W11IsoEditions -IsoPath $JobArgs.Iso)' -JobArgs @{ Iso = $iso } -OnDone { if (-not $script:Sync.Error) { $script:ui.lblStatus.Text = T 'status.editionsListed' } })
+            [void](Start-W11Job -Name 'List editions' -Script '$sync.Result = @(Get-W11IsoEditions -IsoPath $JobArgs.Iso)' -JobArgs @{ Iso = $iso } -OnDone { if (-not $script:Sync.Error) { $script:ui.lblStatus.Text = T 'status.editionsListed'; if ($script:Sync.Result) { Set-W11EditionList -Editions @($script:Sync.Result) } } })
         }
     $ui.btnEd.Add_Click({ Invoke-W11Handler 'btnEd.Click' })
 

@@ -667,7 +667,7 @@ $gSrcKeys = @{
     rbDl = 'rb.download'; btnLatest = 'btn.latest'; lnkMs = 'lnk.ms'; btnFetch = 'btn.languages'; lblVersion = 'lbl.version'; cbRelease = ''; lblArch = 'lbl.arch'; cbArch = ''; lblLang = 'lbl.lang'; cbLang = 'lang.pressLoad'
     btnDownload = 'btn.download'; chkAria2 = 'chk.aria2'; lblAria2 = 'lbl.aria2Missing'
     grpApps = 'grp.apps'; clbApps = ''; btnAppDef = 'btn.appDef'; btnAppAll = 'btn.appAll'; btnAppNone = 'btn.appNone'; note = 'lbl.keptNote'
-    grpOptions = 'grp.options'; lblEditions = 'lbl.editions'; rbEdAll = 'rb.edAll'; rbEdHP = ''; rbEdCustom = 'rb.edIdx'; tbIdx = ''; btnEd = 'btn.listEditions'; lblTweaks = 'lbl.tweaks'
+    grpOptions = 'grp.options'; lblEditions = 'lbl.editions'; rbEdAll = 'rb.edAll'; rbEdHP = ''; rbEdCustom = 'rb.edIdx'; tbIdx = ''; cbEd = ''; btnEd = 'btn.listEditions'; lblTweaks = 'lbl.tweaks'
     clbTweaks = ''; chkUnattend = 'chk.unattend'; chkCleanup = 'chk.cleanup'; chkEsd = 'chk.esd'; chkDry = 'chk.dry'
     tabOpts = ''; tpOptions = 'tab.options'; tpUnattend = 'tab.unattend'; tpUpdates = 'tab.updates'
     chkLocalAcc = 'chk.localAcc'; lblUser = 'lbl.user'; tbUser = ''; lblPass = 'lbl.pass'; tbPass = ''; lblPassWarn = 'lbl.passWarn'; chkBypassNro = 'chk.bypassNro'
@@ -687,7 +687,7 @@ $inner = @{
 }
 # tab pages of section 3 (the answer-file and update pages scroll vertically: only the width must fit)
 $pages = @{
-    tpOptions = @('lblEditions', 'rbEdAll', 'rbEdHP', 'rbEdCustom', 'tbIdx', 'btnEd', 'lblTweaks', 'clbTweaks', 'chkCleanup', 'chkEsd', 'chkDry')
+    tpOptions = @('lblEditions', 'rbEdAll', 'rbEdHP', 'rbEdCustom', 'tbIdx', 'cbEd', 'btnEd', 'lblTweaks', 'clbTweaks', 'chkCleanup', 'chkEsd', 'chkDry')
     tpUnattend = @('chkUnattend', 'chkLocalAcc', 'lblUser', 'tbUser', 'lblPass', 'tbPass', 'lblPassWarn', 'chkBypassNro', 'chkBypassChecks', 'chkSkipPrivacy', 'chkFirstLogon', 'lblRegion', 'cbRegion', 'lblKeyboard', 'cbKeyboard')
     tpUpdates = @('chkUpdates', 'lblUpdFolder', 'tbUpd', 'btnUpdBrowse', 'btnUpdScan', 'lblUpdInfo', 'chkUpdBoot', 'chkUpdWinre', 'chkResetBase', 'lblUpdNote', 'chkRulesUpdate', 'lblRulesInfo')
 }
