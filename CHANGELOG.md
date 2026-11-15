@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 1.2.3 — 2026-11-15
+
+### Fixed
+- Work-folder cleanup now requires a valid ownership marker; output ISOs inside the work folder are rejected.
+- Microsoft ISO downloads with a published SHA256 mismatch are deleted; missing published hashes are reported as unverified.
+- Local-account passwords use Windows answer-file encoding, with a warning that it is reversible.
+- Existing output ISO and SHA256 files are preserved until a replacement ISO has been built successfully.
+
 ## 1.2.2 — 2026-11-05
 
 ### Added
