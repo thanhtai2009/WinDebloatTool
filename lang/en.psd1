@@ -125,7 +125,7 @@
     'chk.localAcc' = 'Create a local account (administrator)'
     'lbl.user' = 'User name:'
     'lbl.pass' = 'Password:'
-    'lbl.passWarn' = 'The password is stored as plain text in autounattend.xml on the ISO and is never saved in a preset. Leave it empty for no password.'
+    'lbl.passWarn' = 'The password uses reversible Windows answer-file encoding in autounattend.xml on the ISO; anyone with the ISO can decode it. It is never saved in a preset. Leave it empty for no password.'
     'chk.bypassNro' = 'Set up without internet, local account (BypassNRO, Windows 11)'
     'chk.bypassChecks' = 'Skip the TPM, Secure Boot and RAM checks in setup (Windows 11)'
     'chk.skipPrivacy' = 'Skip the privacy questions'

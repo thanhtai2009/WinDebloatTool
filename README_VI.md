@@ -29,7 +29,7 @@ Giao diện có tiếng Việt, tiếng Anh, tiếng Trung giản thể và ti�
 lên với PowerShell 2.0 trở lên.
 
 ## Điểm nổi bật
-- Tải ISO chính thức từ Microsoft, kiểm tra SHA256, hoặc dùng file ISO có sẵn.
+- Tải ISO chính thức từ Microsoft, đối chiếu SHA256 khi Microsoft công bố, hoặc dùng file ISO có sẵn.
 - Gỡ ứng dụng cài sẵn với lựa chọn mặc định an toàn; các thành phần cốt lõi như Store, Windows Security được giữ nguyên.
 - Tinh chỉnh Registry offline: tắt quảng cáo, gợi ý, Copilot, Widgets, telemetry và nhiều mục khác.
 - Chọn phiên bản cần giữ (ví dụ Home + Pro), tuỳ chọn cài đặt tự động với tài khoản local và tích hợp bản cập nhật offline.
@@ -55,7 +55,8 @@ Mỗi lần tạo thường mất 30–90 phút. Thay đổi của từng phiên
 ## An toàn
 - Chỉ dùng công cụ của Microsoft để chỉnh sửa image (DISM, reg.exe, oscdimg); aria2 đi kèm chỉ dùng để tải file.
 - ISO gốc không bao giờ bị thay đổi; công cụ tạo ISO mới và tự dọn thư mục làm việc.
-- File tải về được đối chiếu SHA256 của Microsoft; file không khớp sẽ bị xoá.
+- File tải về được đối chiếu với SHA256 Microsoft công bố khi có. Một số bản cũ không có hash công bố; công cụ ghi hash để người dùng tự đối chiếu. File tải sai hash sẽ bị xoá.
+- Mật khẩu tài khoản cục bộ được ẩn bằng định dạng answer file của Windows trong ISO. Mã này giải ngược được, vì vậy hãy coi ISO là dữ liệu nhạy cảm và đừng chia sẻ.
 - Thay đổi chỉ áp dụng cho máy cài từ ISO mới. Ứng dụng đã gỡ có thể cài lại từ Microsoft Store.
 
 ## Credits

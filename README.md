@@ -29,7 +29,7 @@ options. The interface is available in Vietnamese, English, Simplified Chinese a
 on Windows 7 SP1 or later with PowerShell 2.0 or newer.
 
 ## Highlights
-- Official ISO download from Microsoft, verified by SHA256, or use of an existing local ISO.
+- Official ISO download from Microsoft, checked against its published SHA256 when available, or use of an existing local ISO.
 - Removal of preinstalled apps with safe defaults; core components such as Store and Windows Security are protected.
 - Offline Registry tweaks for ads, suggestions, Copilot, Widgets, telemetry and more.
 - Choice of editions (for example Home + Pro), optional unattended setup with a local account, and offline updates.
@@ -56,7 +56,8 @@ A build usually takes 30–90 minutes. See [CHANGELOG.md](CHANGELOG.md) for what
 ## Safety
 - Only Microsoft tools are used to modify the image (DISM, reg.exe, oscdimg); the bundled aria2 is used for downloads only.
 - The source ISO is never modified; the tool writes a new ISO and cleans up its work folder.
-- Downloads are checked against Microsoft's SHA256; files that do not match are deleted.
+- Downloads are checked against Microsoft's published SHA256 when available; older releases may not publish one, so the tool logs a hash for manual checking. A mismatched download is deleted.
+- A local account password is hidden with Windows answer-file encoding in the ISO. The encoding is reversible, so treat the ISO as sensitive and do not share it.
 - Changes apply to installations made from the new ISO. Removed apps can be reinstalled from the Microsoft Store.
 
 ## Credits

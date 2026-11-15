@@ -899,9 +899,18 @@ function Invoke-MsIsoDownload {
     $expected = Find-MsPublishedHash -Hashes $Entry.Hashes -Language $Sku.Language -LocalizedLanguage $Sku.LocalizedLanguage -Arch $Entry.Arch
     if ($expected) {
         if ($expected -eq $hash) { Write-W11Log -Level OK -En "SHA256 matches Microsoft's published hash: $hash" -Vi 'SHA256 khớp với Microsoft' }
-        else { throw "SHA256 MISMATCH! got $hash, Microsoft published $expected. Delete the file and retry / SHA256 KHÔNG KHỚP (nhận được $hash, Microsoft công bố $expected), hãy xoá file và tải lại" }
+        else {
+            try {
+                Remove-Item -LiteralPath $dest -Force -ErrorAction Stop
+                if (Test-Path -LiteralPath "$dest.partial") { Remove-Item -LiteralPath "$dest.partial" -Force -ErrorAction Stop }
+                Clear-MsAria2Files $dest
+            } catch {
+                throw "SHA256 MISMATCH! got $hash, Microsoft published $expected. Could not delete the downloaded file: $($_.Exception.Message)"
+            }
+            throw "SHA256 MISMATCH! got $hash, Microsoft published $expected. The downloaded file was deleted; retry the download."
+        }
     } else {
-        Write-W11Log -Level WARN -En "No published hash found for this language; SHA256 = $hash (compare manually on the Microsoft page)" -Vi 'Không tìm thấy hash công bố cho ngôn ngữ này, hãy so thủ công'
+        Write-W11Log -Level WARN -En "Microsoft has no published SHA256 for this language; computed SHA256 = $hash (not independently verified; compare manually if a trusted hash is available)" -Vi 'Microsoft không công bố SHA256 cho ngôn ngữ này; SHA256 đã tính = $hash (chưa được đối chiếu độc lập, hãy tự so nếu có hash đáng tin cậy)'
     }
     return $dest
 }

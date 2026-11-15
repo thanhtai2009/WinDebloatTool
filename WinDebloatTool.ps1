@@ -222,7 +222,7 @@ if (@($uKeys | Where-Object { $bp.ContainsKey($_) }).Count -gt 0) {
         $uo.LocalAccount = $true; $uo.UserName = $LocalUser
         if ($bp.ContainsKey('LocalPassword')) { $uo.Password = $LocalPassword }
         else {
-            $sec = Read-Host -AsSecureString "Password for $LocalUser (empty = none, stored as plain text in autounattend.xml) / Mật khẩu (để trống = không đặt)"
+            $sec = Read-Host -AsSecureString "Password for $LocalUser (empty = none; encoded reversibly in the ISO, do not share it) / Mật khẩu (để trống = không đặt; có thể giải ngược từ ISO, đừng chia sẻ)"
             $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec)
             try { $uo.Password = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr) }
         }

@@ -125,7 +125,7 @@
     'chk.localAcc' = '创建本地帐户（管理员）'
     'lbl.user' = '用户名：'
     'lbl.pass' = '密码：'
-    'lbl.passWarn' = '密码以明文形式保存在 ISO 的 autounattend.xml 中，且不会保存到预设。留空表示不设密码。'
+    'lbl.passWarn' = 'ISO 中的 autounattend.xml 使用 Windows 可逆的应答文件编码隐藏密码；任何持有 ISO 的人都可以解码。密码不会保存到预设。留空表示不设密码。'
     'chk.bypassNro' = '无需联网、使用本地帐户安装（BypassNRO，Windows 11）'
     'chk.bypassChecks' = '安装时跳过 TPM、安全启动和内存检查（Windows 11）'
     'chk.skipPrivacy' = '跳过隐私设置问题'

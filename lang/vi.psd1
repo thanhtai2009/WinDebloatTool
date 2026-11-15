@@ -125,7 +125,7 @@
     'chk.localAcc' = 'Tạo sẵn tài khoản cục bộ (quyền quản trị)'
     'lbl.user' = 'Tên đăng nhập:'
     'lbl.pass' = 'Mật khẩu:'
-    'lbl.passWarn' = 'Mật khẩu được ghi dạng chữ thường trong autounattend.xml trên ISO và không bao giờ được lưu vào mẫu cấu hình. Để trống nếu không cần mật khẩu.'
+    'lbl.passWarn' = 'Mật khẩu dùng định dạng ẩn có thể giải ngược của Windows trong autounattend.xml trên ISO; ai có ISO cũng giải được. Mật khẩu không được lưu vào mẫu cấu hình. Để trống nếu không cần mật khẩu.'
     'chk.bypassNro' = 'Cài không cần mạng, dùng tài khoản cục bộ (BypassNRO, Windows 11)'
     'chk.bypassChecks' = 'Bỏ kiểm tra TPM, Secure Boot, RAM khi cài (Windows 11)'
     'chk.skipPrivacy' = 'Bỏ qua các câu hỏi về quyền riêng tư'

@@ -1,4 +1,4 @@
-﻿<#
+<#
     WinDebloat Tool (Windows 10 / 11) - core engine (no GUI).
     Compatible with Windows PowerShell 2.0+ (Windows 7 SP1) up to 5.1 / 7.x.
     All image servicing goes through dism.exe (ADK, system or the ISO's own copy),
@@ -2170,7 +2170,7 @@ function Update-W11BootWim {
 #region ---------- answer file (autounattend.xml) ----------
 <# Generated answer file. Never contains DiskConfiguration: disk / partition selection always stays interactive,
    nothing is wiped automatically. Options (hashtable, all optional):
-     LocalAccount (bool), UserName, Password (plain text, may be empty), BypassNro (default $true, Windows 11),
+     LocalAccount (bool), UserName, Password (plain text option; reversibly encoded in the generated answer file), BypassNro (default $true, Windows 11),
      BypassChecks (TPM / Secure Boot / RAM / CPU / storage, Windows 11), SkipPrivacy, FirstLogonCleanup
      (+ FirstLogonApps = app patterns removed again at first logon), Locale (e.g. vi-VN), Keyboard (e.g. 0409:00000409
      or en-US). Without options the result matches the default template. #>
@@ -2201,6 +2201,11 @@ function Test-W11KeyboardName([string]$Name) { return ($Name -match '^[0-9A-Fa-f
 
 function ConvertTo-W11XmlText([string]$Text) {
     return [Security.SecurityElement]::Escape([string]$Text)
+}
+
+function ConvertTo-W11HiddenPassword([string]$Password) {
+    # Windows answer-file encoding: UTF-16LE + Base64 + the required Password suffix. Reversible, not encryption.
+    return [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes(([string]$Password + 'Password')))
 }
 
 function Get-W11SafePatterns {
@@ -2258,7 +2263,7 @@ function New-W11UnattendXml {
     $x = New-Object Text.StringBuilder
     $w = { param([string]$s) [void]$x.Append($s + "`r`n") }
     $notes = @()
-    if ($o.LocalAccount) { $notes += "- Creates the local administrator account '$([string]$o.UserName -replace '--', '- -')' (password stored in this file as plain text)." }
+    if ($o.LocalAccount) { $notes += "- Creates the local administrator account '$([string]$o.UserName -replace '--', '- -')' (password encoded reversibly in this file; do not share the ISO)." }
     else { $notes += '- Local account name/password stay INTERACTIVE.' }
     if ($o.Locale -or $o.Keyboard) { $notes += '- Region / keyboard preset.' } else { $notes += '- Region and keyboard stay INTERACTIVE.' }
     if ($o.SkipPrivacy) { $notes += '- Privacy questions skipped (Microsoft recommended answers turned off where possible).' } else { $notes += '- Privacy questions stay INTERACTIVE.' }
@@ -2356,8 +2361,8 @@ function New-W11UnattendXml {
         & $w "            <DisplayName>$u</DisplayName>"
         & $w '            <Group>Administrators</Group>'
         & $w '            <Password>'
-        & $w "              <Value>$(ConvertTo-W11XmlText ([string]$o.Password))</Value>"
-        & $w '              <PlainText>true</PlainText>'
+        & $w "              <Value>$(ConvertTo-W11HiddenPassword ([string]$o.Password))</Value>"
+        & $w '              <PlainText>false</PlainText>'
         & $w '            </Password>'
         & $w '          </LocalAccount>'
         & $w '        </LocalAccounts>'
@@ -2381,7 +2386,7 @@ function Write-W11UnattendFiles {
     [IO.File]::WriteAllText((Join-W11Path $Tree 'autounattend.xml'), $xml, $utf8)
     $o = Get-W11UnattendDefaults; if ($Options) { foreach ($k in @($Options.Keys)) { $o[$k] = $Options[$k] } }
     $desc = @()
-    if ($o.LocalAccount) { $desc += "local account '$($o.UserName)'"; if ([string]$o.Password) { $desc += 'password set (plain text in autounattend.xml)' } else { $desc += 'no password' } }
+    if ($o.LocalAccount) { $desc += "local account '$($o.UserName)'"; if ([string]$o.Password) { $desc += 'password set (reversibly encoded in autounattend.xml)' } else { $desc += 'no password' } }
     if ($Os -eq 'Win11' -and $o.BypassNro) { $desc += 'BypassNRO' }
     if ($Os -eq 'Win11' -and $o.BypassChecks) { $desc += 'TPM/Secure Boot/RAM check bypass' }
     if ($o.SkipPrivacy) { $desc += 'skip privacy' }
@@ -2394,7 +2399,7 @@ function Write-W11UnattendFiles {
         $desc += ('first-logon clean-up ({0} app patterns)' -f @(Get-W11SafePatterns @($o.FirstLogonApps)).Count)
     }
     if ($desc.Count) { Write-W11Log -En ('  autounattend.xml: ' + ($desc -join ', ')) -Vi '  autounattend.xml đã tạo' }
-    if ($o.LocalAccount -and [string]$o.Password) { Write-W11Log -Level WARN -En '  The account password is stored as PLAIN TEXT in autounattend.xml on the ISO - do not share this ISO.' -Vi '  Mật khẩu tài khoản nằm dạng chữ thường trong autounattend.xml trên ISO - đừng chia sẻ ISO này.' }
+    if ($o.LocalAccount -and [string]$o.Password) { Write-W11Log -Level WARN -En '  The account password is encoded, not encrypted, in autounattend.xml; anyone with the ISO can decode it - do not share this ISO.' -Vi '  Mật khẩu được ẩn bằng mã answer file có thể giải ngược, không phải mã hoá bảo mật, trong autounattend.xml; ai có ISO cũng giải được - đừng chia sẻ ISO này.' }
 }
 #endregion
 
@@ -2767,6 +2772,7 @@ function Get-W11WorkLayout {
     param([Parameter(Mandatory = $true)][string]$WorkDir, [ValidateSet('Max', 'Recovery')][string]$Compression = 'Max')
     $ext = 'wim'; if ($Compression -eq 'Recovery') { $ext = 'esd' }
     return (New-W11Obj @{
+        Root = $WorkDir
         Tree = (Join-W11Path $WorkDir 'iso'); Mount = (Join-W11Path $WorkDir 'mount'); Scratch = (Join-W11Path $WorkDir 'scratch')
         WorkWim = (Join-W11Path $WorkDir 'install.work.wim'); NewImage = (Join-W11Path $WorkDir ('install.new.' + $ext))
         Marker = (Join-W11Path $WorkDir '.w11debloat-work'); Ext = $ext
@@ -2785,7 +2791,8 @@ function Assert-W11WorkLayout {
         $p = $Layout.$n
         if ((Test-W11PathInside $p $t) -or (Test-W11PathInside $t $p)) { $bad += "$n=$p" }
     }
-    if ($OutputIso -and (Test-W11PathInside $OutputIso $t)) { $bad += "OutputIso=$OutputIso" }
+    if ($OutputIso -and (Test-W11PathInside $OutputIso $t)) { $bad += "OutputIso=$OutputIso is inside the ISO tree" }
+    if ($OutputIso -and $Layout.Root -and (Test-W11PathInside $OutputIso $Layout.Root)) { $bad += "OutputIso=$OutputIso is inside WorkDir=$($Layout.Root)" }
     if ((Test-W11PathInside $t $Layout.Mount)) { $bad += "Tree=$t" }
     if ($bad.Count -gt 0) { throw ('Unsafe work folder layout (temporary files inside the ISO tree) / Thư mục tạm nằm trong cây ISO: ' + ($bad -join '; ')) }
 }
@@ -2810,6 +2817,43 @@ function Get-W11FileLength {
     param([string]$Path)
     if ($Path -and (Test-Path -LiteralPath $Path -PathType Leaf)) { return [int64](Get-Item -LiteralPath $Path -Force).Length }
     return [int64]0
+}
+
+function Commit-W11OutputPair {
+    # Stage both outputs first; keep the previous ISO and hash until both new files are in place.
+    param([Parameter(Mandatory = $true)][string]$StagedIso, [Parameter(Mandatory = $true)][string]$StagedHash,
+        [Parameter(Mandatory = $true)][string]$OutputIso)
+    $hashPath = "$OutputIso.sha256"
+    $token = [guid]::NewGuid().ToString('N')
+    $isoBackup = "$OutputIso.w11bak-$token"
+    $hashBackup = "$hashPath.w11bak-$token"
+    $hadIso = Test-Path -LiteralPath $OutputIso -PathType Leaf
+    $hadHash = Test-Path -LiteralPath $hashPath -PathType Leaf
+    $newIso = $false; $newHash = $false
+    try {
+        if ($hadIso) { [IO.File]::Move($OutputIso, $isoBackup) }
+        if ($hadHash) { [IO.File]::Move($hashPath, $hashBackup) }
+        [IO.File]::Move($StagedIso, $OutputIso); $newIso = $true
+        [IO.File]::Move($StagedHash, $hashPath); $newHash = $true
+    } catch {
+        $cause = $_.Exception.Message
+        if ($newHash) { try { [IO.File]::Delete($hashPath) } catch { $null = $_ } }
+        if ($newIso) { try { [IO.File]::Delete($OutputIso) } catch { $null = $_ } }
+        $recovery = @()
+        if ($hadIso -and (Test-Path -LiteralPath $isoBackup -PathType Leaf)) {
+            try { [IO.File]::Move($isoBackup, $OutputIso) } catch { $recovery += $isoBackup }
+        }
+        if ($hadHash -and (Test-Path -LiteralPath $hashBackup -PathType Leaf)) {
+            try { [IO.File]::Move($hashBackup, $hashPath) } catch { $recovery += $hashBackup }
+        }
+        if ($recovery.Count) { throw "Could not install the new ISO. Previous output is preserved at $($recovery -join ', '): $cause" }
+        throw "Could not install the new ISO; previous output was restored: $cause"
+    }
+    foreach ($backup in @($isoBackup, $hashBackup)) {
+        if (Test-Path -LiteralPath $backup -PathType Leaf) {
+            try { [IO.File]::Delete($backup) } catch { Write-W11Log -Level WARN -En "Could not remove output backup $backup" }
+        }
+    }
 }
 
 function Format-W11Size {
@@ -2855,12 +2899,6 @@ function Clear-W11TreeTemp {
 #endregion
 
 #region ---------- work folder ownership / cleanup ----------
-$script:W11WorkFiles = @('.w11debloat-work', 'install.work.wim', 'install.new.wim', 'install.new.esd', 'install.wim', 'install.esd',
-    'boot.work.wim', 'boot.new.wim', 'winre.work.wim', 'winre.new.wim')
-$script:W11IsoRootNames = @('boot', 'efi', 'sources', 'support', 'setup.exe', 'autorun.inf', 'bootmgr', 'bootmgr.efi', 'autounattend.xml', '[boot]')
-$script:W11ImageRootNames = @('windows', 'program files', 'program files (x86)', 'programdata', 'users', 'perflogs', 'recovery', '$recycle.bin', '$windows.~bt', '$windows.~ws', 'system volume information', 'documents and settings', 'config.msi', 'msocache', 'inetpub', 'program files (arm)')
-# boot.wim (Windows Setup) and WinRE images also have sources\ and setup.exe at their root
-$script:W11BootRootNames = @('windows', 'program files', 'program files (x86)', 'programdata', 'users', 'sources', 'setup.exe', 'recovery', 'program files (arm)', '$recycle.bin', 'system volume information')
 
 function Get-W11LocalText {
     <# Engine texts are bilingual 'English / Tiếng Việt' (the log keeps both). The GUI shows one language:
@@ -2887,40 +2925,19 @@ function Get-W11LocalText {
     return ($out -join "`n")
 }
 
-function Test-W11KnownWorkItem {
-    # one top-level entry of a work folder: does it look like something this tool (any version) creates?
-    param([Parameter(Mandatory = $true)]$Item)
-    $n = $Item.Name.ToLower()
-    if ($Item.PSIsContainer) {
-        if ($n -eq 'scratch') { return $true }
-        $names = $null
-        if ($n -eq 'iso') { $names = $script:W11IsoRootNames }
-        elseif ($n -eq 'mount') { $names = $script:W11ImageRootNames }
-        elseif ($n -eq 'mountboot' -or $n -eq 'mountre') { $names = $script:W11BootRootNames }
-        elseif ($n -eq 'winrecache') {
-            foreach ($c in @(Get-ChildItem -LiteralPath $Item.FullName -Force -ErrorAction SilentlyContinue)) { if ($c.PSIsContainer -or $c.Name -notlike '*.wim') { return $false } }
-            return $true
-        }
-        else { return $false }
-        foreach ($c in @(Get-ChildItem -LiteralPath $Item.FullName -Force -ErrorAction SilentlyContinue)) {
-            if ($names -notcontains $c.Name.ToLower()) { return $false }
-        }
-        return $true
-    }
-    if ($script:W11WorkFiles -contains $n) { return $true }
-    return ($n -like '*.log' -or $n -like '*.tmp' -or $n -like 'kept_index*.txt' -or $n -like 'install*.swm')
-}
 
 function Get-W11WorkDirState {
-    # Missing | Empty | Ours (marker, or only things this tool creates: leftover of an earlier run) | Foreign
+    # Missing | Empty | Ours (valid tool marker) | Foreign
     param([Parameter(Mandatory = $true)][string]$WorkDir)
     if (-not (Test-Path -LiteralPath $WorkDir)) { return 'Missing' }
     if (Test-Path -LiteralPath $WorkDir -PathType Leaf) { return 'Foreign' }
     $items = @(Get-ChildItem -LiteralPath $WorkDir -Force -ErrorAction SilentlyContinue)
     if ($items.Count -eq 0) { return 'Empty' }
-    if (Test-Path -LiteralPath (Join-W11Path $WorkDir '.w11debloat-work')) { return 'Ours' }
-    foreach ($i in $items) { if (-not (Test-W11KnownWorkItem $i)) { return 'Foreign' } }
-    return 'Ours'
+    $marker = Join-W11Path $WorkDir '.w11debloat-work'
+    if (Test-Path -LiteralPath $marker -PathType Leaf) {
+        try { if (([IO.File]::ReadAllText($marker)).Trim() -eq 'w11debloat') { return 'Ours' } } catch { $null = $_ }
+    }
+    return 'Foreign'
 }
 
 function Get-W11UniqueWorkDir {
@@ -3136,6 +3153,9 @@ function Invoke-Win11Debloat {
     $scratch = $lay.Scratch; $newImage = $lay.NewImage
     $srcIsoLen = Get-W11FileLength $IsoPath
     $iso = $null; $imageMounted = $false; $success = $false; $workDirOwned = $false
+    $outputToken = [guid]::NewGuid().ToString('N')
+    $stagedOutput = Join-W11Path $outDir ('.w11debloat-' + $outputToken + '.iso')
+    $stagedHash = "$stagedOutput.sha256"
     $result = New-W11Obj @{ OutputIso = $OutputIso; Sha256 = $null; LogPath = $LogPath; DryRun = $DryRun; TargetOs = $null; Build = 0; Release = $null }
 
     Write-W11Log -Level STEP -En "===== WinDebloat Tool $($script:W11D.Version) (Windows 10/11) =====" -Vi '===== Công cụ debloat Windows 10/11 ====='
@@ -3195,7 +3215,7 @@ function Invoke-Win11Debloat {
 
         # ---- prepare work dir ----
         if ((Get-W11WorkDirState $WorkDir) -eq 'Ours') {
-            $how = 'marker'; if (-not (Test-Path -LiteralPath $marker)) { $how = 'no marker, only files this tool creates' }
+            $how = 'valid ownership marker'
             Write-W11Log -Level WARN -En "Leftover work folder of an earlier run ($how): cleaning it" -Vi 'Thư mục tạm còn sót từ lần chạy trước: đang dọn'
             Clear-W11WorkDir -WorkDir $WorkDir -MountDir $mountDir -Quiet
         }
@@ -3419,7 +3439,6 @@ function Invoke-Win11Debloat {
         # ---- build ISO ----
         Assert-W11NotCancelled
         Write-W11Log -Level STEP -En 'Building bootable ISO with oscdimg...' -Vi 'Đang tạo ISO khởi động bằng oscdimg...'
-        if (Test-Path -LiteralPath $OutputIso) { Remove-Item -LiteralPath $OutputIso -Force }
         Assert-W11WorkLayout -Layout $lay -OutputIso $OutputIso
         foreach ($r in @(Clear-W11TreeTemp -Tree $tree -KeepImage $finalImage)) { Write-W11Log -En "  Removed temp file from the ISO tree: $r" -Vi '  Đã xoá file tạm khỏi cây ISO' }
         $treeLen = [int64]0; foreach ($f in (Get-W11TreeFiles $tree)) { $treeLen += $f.Length }
@@ -3436,17 +3455,18 @@ function Invoke-Win11Debloat {
             Write-W11Log -Level WARN -En 'No etfsboot.com (ARM64 media?) - building UEFI-only ISO.' -Vi 'Không có etfsboot.com - chỉ tạo ISO UEFI.'
             $boot = '-bootdata:1#pEF,e,b"{0}"' -f $efisys
         }
-        $argLine = '-m -o -u2 -udfver102 -l{0} {1} {2} {3}' -f $label, $boot, (ConvertTo-W11Arg $tree), (ConvertTo-W11Arg $OutputIso)
+        $argLine = '-m -o -u2 -udfver102 -l{0} {1} {2} {3}' -f $label, $boot, (ConvertTo-W11Arg $tree), (ConvertTo-W11Arg $stagedOutput)
         Write-W11Log -En "oscdimg $argLine"
         $res = Invoke-W11Process -FilePath $oscdimg -Arguments $argLine -Quiet -MergeStdErr -ProgressBase 88 -ProgressSpan 8 -ProgressText 'Building ISO / Đang tạo ISO'
         foreach ($l in ($res.Lines | Select-Object -Last 10)) { Write-W11Log -En "    $l" }
-        if ($res.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $OutputIso)) { throw "oscdimg failed (exit $($res.ExitCode))" }
+        if ($res.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $stagedOutput -PathType Leaf)) { throw "oscdimg failed (exit $($res.ExitCode))" }
 
-        # ---- hash ----
+        # ---- hash and promote only after a complete ISO has been built ----
         Set-W11Progress 96 'SHA256...'
         Write-W11Log -Level STEP -En 'Computing SHA256...' -Vi 'Đang tính SHA256...'
-        $hash = Get-W11Sha256 -Path $OutputIso
-        ('{0} *{1}' -f $hash.ToLower(), (Split-Path -Leaf $OutputIso)) | Set-Content -LiteralPath "$OutputIso.sha256" -Encoding ASCII
+        $hash = Get-W11Sha256 -Path $stagedOutput
+        ('{0} *{1}' -f $hash.ToLower(), (Split-Path -Leaf $OutputIso)) | Set-Content -LiteralPath $stagedHash -Encoding ASCII
+        Commit-W11OutputPair -StagedIso $stagedOutput -StagedHash $stagedHash -OutputIso $OutputIso
         $result.Sha256 = $hash
         $outLen = Get-W11FileLength $OutputIso
         Write-W11Log -En ('SIZE output ISO: {0} ({1} bytes), source ISO: {2} ({3} bytes)' -f (Format-W11Size $outLen), $outLen, (Format-W11Size $srcIsoLen), $srcIsoLen) -Vi 'Dung lượng ISO'
@@ -3473,6 +3493,9 @@ function Invoke-Win11Debloat {
             if ($r.ExitCode -ne 0) { Write-W11Log -Level WARN -En 'Unmount failed - run: dism /Cleanup-Mountpoints' -Vi 'Không unmount được, hãy chạy dism /Cleanup-Mountpoints' }
         }
         Close-W11Iso -Iso $iso -IsoPath $IsoPath
+        foreach ($stage in @($stagedOutput, $stagedHash)) {
+            if (Test-Path -LiteralPath $stage -PathType Leaf) { Remove-Item -LiteralPath $stage -Force -ErrorAction SilentlyContinue }
+        }
         # finished, failed or cancelled: the work folder is always cleaned (unless -KeepWorkDir)
         if ($workDirOwned -and -not $KeepWorkDir) {
             if (-not $success) { Write-W11Log -Level WARN -En 'Run did not finish: cleaning up the work folder (mounted image discarded, nothing kept)' -Vi 'Chưa chạy xong: đang dọn thư mục tạm (huỷ image đang mount, không giữ lại gì)' }

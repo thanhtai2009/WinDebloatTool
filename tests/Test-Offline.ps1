@@ -1,4 +1,4 @@
-﻿# Offline unit tests for parsing / planning logic. External tools (dism, reg, web) are mocked,
+# Offline unit tests for parsing / planning logic. External tools (dism, reg, web) are mocked,
 # so this runs on pwsh anywhere (also Linux). It does NOT prove behaviour on real Windows.
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $fx = Join-Path $root 'tests\fixtures'
@@ -883,15 +883,16 @@ Assert ($guiSrc -match "TextImageRelation = 'ImageBeforeText'" -and $guiSrc -mat
 # 12) ISO much bigger than the source -> layout, export command lines, size log, sanity warning
 Assert ((Test-W11PathInside 'D:\W\iso\sources' 'D:\W\iso') -and (Test-W11PathInside 'd:\w\ISO' 'D:\W\iso\') -and -not (Test-W11PathInside 'D:\W\iso2' 'D:\W\iso') -and -not (Test-W11PathInside 'D:\W\mount' 'D:\W\iso') -and (Test-W11PathInside '/t/w/iso/a' '/t/w/iso')) 'Test-W11PathInside: same/child yes, sibling or prefix-only no'
 $ly = Get-W11WorkLayout -WorkDir 'D:\WinDebloat_work'
-Assert ($ly.Tree -eq 'D:\WinDebloat_work\iso' -and $ly.Mount -eq 'D:\WinDebloat_work\mount' -and $ly.Scratch -eq 'D:\WinDebloat_work\scratch' -and $ly.WorkWim -eq 'D:\WinDebloat_work\install.work.wim' -and $ly.NewImage -eq 'D:\WinDebloat_work\install.new.wim') 'work layout: tree, mount, scratch, work WIM and new image are siblings under the work dir'
+Assert ($ly.Root -eq 'D:\WinDebloat_work' -and $ly.Tree -eq 'D:\WinDebloat_work\iso' -and $ly.Mount -eq 'D:\WinDebloat_work\mount' -and $ly.Scratch -eq 'D:\WinDebloat_work\scratch' -and $ly.WorkWim -eq 'D:\WinDebloat_work\install.work.wim' -and $ly.NewImage -eq 'D:\WinDebloat_work\install.new.wim') 'work layout: tree, mount, scratch, work WIM and new image are siblings under the work dir'
 $le = $null; try { Assert-W11WorkLayout -Layout $ly -OutputIso 'D:\Windows11_debloated.iso' } catch { $le = $_.Exception.Message }
 Assert (-not $le) "default layout passes the check ($le)"
 Assert ((Get-W11WorkLayout -WorkDir 'D:\W' -Compression Recovery).NewImage -eq 'D:\W\install.new.esd') 'Recovery compression -> new image is install.new.esd'
 $badLy = New-W11Obj @{ Tree = 'D:\W\iso'; Mount = 'D:\W\iso\mount'; Scratch = 'D:\W\scratch'; WorkWim = 'D:\W\iso\sources\install.work.wim'; NewImage = 'D:\W\n.wim' }
 $le = $null; try { Assert-W11WorkLayout -Layout $badLy } catch { $le = $_.Exception.Message }
 Assert ($le -match 'Mount=D:\\W\\iso\\mount' -and $le -match 'WorkWim=') "mount dir / work WIM inside the ISO tree -> refused ($le)"
-$le = $null; try { Assert-W11WorkLayout -Layout $ly -OutputIso 'D:\WinDebloat_work\iso\out.iso' } catch { $le = $_.Exception.Message }
-Assert ($le -match 'OutputIso') 'output ISO inside the ISO tree -> refused'
+$le = $null; try { Assert-W11WorkLayout -Layout $ly -OutputIso 'D:\WinDebloat_work\output.iso' } catch { $le = $_.Exception.Message }
+$leTree = $null; try { Assert-W11WorkLayout -Layout $ly -OutputIso 'D:\WinDebloat_work\iso\out.iso' } catch { $leTree = $_.Exception.Message }
+Assert ($le -match 'OutputIso' -and $leTree -match 'OutputIso') 'output ISO inside the work dir or ISO tree -> refused'
 $ea = Get-W11ExportArgs -Source 'D:\W\install.work.wim' -Index 6 -Destination 'D:\W\install.new.wim' -ScratchDir 'D:\W\scratch'
 Assert ($ea -eq '/Export-Image /SourceImageFile:"D:\W\install.work.wim" /SourceIndex:6 /DestinationImageFile:"D:\W\install.new.wim" /Compress:max /ScratchDir:"D:\W\scratch"') "export command line (max): $ea"
 $ea = Get-W11ExportArgs -Source 'E:\sources\install.esd' -Index 1 -Destination 'D:\My W\install.new.esd' -Compression Recovery -CheckIntegrity
@@ -933,7 +934,7 @@ function Invoke-W11Process { param([string]$FilePath, [string]$Arguments, [switc
         Copy-Item -LiteralPath $script:pSrcRoot -Destination $dst -Recurse   # robocopy creates the target folder
         [IO.File]::WriteAllBytes((Join-Path $dst 'sources/junk.tmp'), (New-Object byte[] 7))
     }
-    if ($FilePath -eq 'oscdimg.exe') { $fs = [IO.File]::Create($script:pOut); $fs.SetLength($script:pIsoLen); $fs.Close() }
+    if ($FilePath -eq 'oscdimg.exe') { $dst = $script:pOut; if ($Arguments -match '"([^"]+)"\s*$') { $dst = $Matches[1] }; $fs = [IO.File]::Create($dst); $fs.SetLength($script:pIsoLen); $fs.Close() }
     return (New-W11Obj @{ ExitCode = 0; Lines = (New-Object Collections.ArrayList) })
 }
 function Invoke-W11Dism { param([string]$Arguments, [switch]$Quiet, $ProgressBase, $ProgressSpan, $ProgressText, [switch]$NoThrow)
@@ -1011,11 +1012,12 @@ function New-T13Dir { param([string]$Name, [string[]]$Files, [string[]]$Dirs) $d
 $dOld = New-T13Dir 'old' @('install.work.wim', 'iso/sources/boot.wim', 'iso/setup.exe', 'mount/Windows/System32/x.dll', 'WinDebloat_20261025.log') @('scratch', 'mount/Users')
 $dOld2 = New-T13Dir 'old2' @('iso/boot/etfsboot.com') @('mount')
 $dMark = New-T13Dir 'marked' @('.w11debloat-work', 'whatever.bin') @()
+foreach ($markedDir in @($dOld, $dOld2, $dMark)) { [IO.File]::WriteAllText((Join-Path $markedDir '.w11debloat-work'), 'w11debloat') }
 $dFor = New-T13Dir 'foreign' @('photo.jpg', 'install.work.wim') @('iso')
 $dFor2 = New-T13Dir 'foreign2' @('iso/MyMovies/a.mkv') @()
 $dFor3 = New-T13Dir 'foreign3' @('mount/Documents/cv.docx') @()
 $dEmpty = New-T13Dir 'empty' @() @()
-Assert ((Get-W11WorkDirState $dOld) -eq 'Ours' -and (Get-W11WorkDirState $dOld2) -eq 'Ours' -and (Get-W11WorkDirState $dMark) -eq 'Ours') 'work dir state: leftover without marker (old version: iso, mount with an image, scratch, install.work.wim, log) -> ours'
+Assert ((Get-W11WorkDirState $dOld) -eq 'Ours' -and (Get-W11WorkDirState $dOld2) -eq 'Ours' -and (Get-W11WorkDirState $dMark) -eq 'Ours') 'work dir state: valid ownership marker -> ours'
 Assert ((Get-W11WorkDirState $dFor) -eq 'Foreign' -and (Get-W11WorkDirState $dFor2) -eq 'Foreign' -and (Get-W11WorkDirState $dFor3) -eq 'Foreign') 'work dir state: any foreign file (also inside iso\ or mount\) -> foreign'
 Assert ((Get-W11WorkDirState $dEmpty) -eq 'Empty' -and (Get-W11WorkDirState (Join-Path $wr 'none')) -eq 'Missing') 'work dir state: empty / missing'
 $null = New-T13Dir 'foreign_2' @('x.txt') @()
@@ -1041,12 +1043,13 @@ for ($q = 0; $q -lt $r13.Calls.Count; $q++) {
     if ($iC -lt 0 -and $cl -eq 'dism /Cleanup-Mountpoints') { $iC = $q }
     if ($iM -lt 0 -and $cl -like 'dism /Mount-Image*') { $iM = $q }
 }
-Assert (-not $r13.Err -and $r13.Log -match 'Work dir state: Ours' -and $r13.Log -match 'Leftover work folder of an earlier run \(no marker') "leftover of an older version (no marker) accepted and cleaned ($($r13.Err))"
+Assert (-not $r13.Err -and $r13.Log -match 'Work dir state: Ours' -and $r13.Log -match 'Leftover work folder of an earlier run \(valid ownership marker') "leftover with a valid ownership marker is cleaned ($($r13.Err))"
 Assert ($iU -ge 0 -and $iC -gt $iU -and $iM -gt $iC -and $script:hiveUnloads -ge 2 -and $r13.Log -match 'Image still mounted at ') "mounted leftover: hives unloaded, dism /Unmount-Image /Discard then /Cleanup-Mountpoints, before the new mount (unmount $iU, cleanup $iC, mount $iM, hive unloads $script:hiveUnloads)"
 Assert (-not (Test-Path -LiteralPath $dOld) -and (Test-Path -LiteralPath $script:pOut)) 'normal finish: ISO built, work folder deleted'
 $r13b = Invoke-T13Run $dOld2 'leftover2'
 Assert (-not $r13b.Err -and -not (Test-Path -LiteralPath $dOld2)) "leftover with an empty mount folder: cleaned, no error ($($r13b.Err))"
 $dOld3 = New-T13Dir 'old3' @('mount/Windows/explorer.exe') @()
+[IO.File]::WriteAllText((Join-Path $dOld3 '.w11debloat-work'), 'w11debloat')
 $r13c = Invoke-T13Run $dOld3 'leftover3'
 Assert (-not $r13c.Err -and $r13c.Calls -contains ('dism /Unmount-Image /MountDir:"' + (Join-Path $dOld3 'mount') + '" /Discard')) 'non-empty mount folder not listed by DISM -> unmount /Discard anyway'
 # foreign folder: console picks the next free name, the foreign files stay
@@ -1187,7 +1190,7 @@ foreach ($os in @('Win11', 'Win10')) { foreach ($arch in @('amd64', 'arm64')) { 
     if ($x -match 'DiskConfiguration|<Disk |InstallTo') { $why += 'disk config' }
     if (@($d.SelectNodes('//u:component', $ns) | Where-Object { $_.GetAttribute('processorArchitecture') -ne $arch }).Count) { $why += 'arch' }
     if ($la -and @($d.SelectNodes('//u:LocalAccount/u:Name', $ns) | Where-Object { $_.InnerText -eq 'Tài & Co' }).Count -ne 1) { $why += 'user name' }
-    if ($la -and @($d.SelectNodes('//u:LocalAccount/u:Password/u:Value', $ns) | Where-Object { $_.InnerText -eq 'p"w<&>''' }).Count -ne 1) { $why += 'password' }
+    if ($la -and (@($d.SelectNodes('//u:LocalAccount/u:Password/u:Value', $ns) | Where-Object { $_.InnerText -eq (ConvertTo-W11HiddenPassword 'p"w<&>''') }).Count -ne 1 -or $x -notmatch '<PlainText>false</PlainText>' -or $x -match [regex]::Escape($o.Password))) { $why += 'encoded password / PlainText=false' }
     if (-not $la -and $x -match 'LocalAccount') { $why += 'account without option' }
     if ($os -eq 'Win10' -and $x -match 'BypassNRO|LabConfig') { $why += 'Win11-only setting on Win10' }
     if ($os -eq 'Win11' -and $bc -and ($x -notmatch 'BypassTPMCheck' -or $x -notmatch 'BypassSecureBootCheck' -or $x -notmatch 'BypassRAMCheck')) { $why += 'checks' }
@@ -1218,7 +1221,7 @@ Write-W11UnattendFiles -Tree $tree14 -Options $o -Os Win11 -Arch amd64 -Language
 Set-Item function:Write-W11Log $saveLog14
 $scr14 = Join-W11Path (Join-W11Path $tree14 'sources\$OEM$\$$\Setup\Scripts') 'W11D-FirstLogon.ps1'
 Assert ((Test-Path -LiteralPath (Join-Path $tree14 'autounattend.xml')) -and [IO.File]::Exists($scr14) -and ([IO.File]::ReadAllText($scr14) -match 'Microsoft\.BingNews')) 'Write-W11UnattendFiles: autounattend.xml at the ISO root, first-logon script in sources\$OEM$\$$\Setup\Scripts'
-Assert ((($wlog -join "`n") -notmatch 'Sup3r-Secret') -and (($wlog -join "`n") -match '\[WARN\].*PLAIN TEXT')) 'Write-W11UnattendFiles: password never logged, plain-text warning'
+Assert ((($wlog -join "`n") -notmatch 'Sup3r-Secret') -and (($wlog -join "`n") -match '\[WARN\].*encoded, not encrypted')) 'Write-W11UnattendFiles: password never logged, reversible-encoding warning'
 
 # presets
 $bp = @(Get-W11BuiltinPresets)
@@ -1286,7 +1289,7 @@ Assert (@($vc | Where-Object { $_ -match 'mountre" /Add-Package' }).Count -eq 2 
 Assert (@($vc | Where-Object { $_ -match 'mount" .*/Cleanup-Image /StartComponentCleanup /ResetBase' }).Count -eq 2 -and @($vc | Where-Object { $_ -match '^hives .*mountboot SYSTEM boot=True' }).Count -eq 1 -and @($vc | Where-Object { $_ -match '^tweaks LabConfigBypass boot=True' }).Count -eq 1 -and @($vc | Where-Object { $_ -match '^hives .*mount DEFAULT,NTUSER,SOFTWARE,SYSTEM boot=False' }).Count -eq 2) 'pipeline: ResetBase per edition, LabConfig into boot.wim index 2 via the SYSTEM hive, install image loads the hives its tweaks need'
 $vt = Join-Path $v.Work 'iso'
 $vx = [IO.File]::ReadAllText((Join-Path $vt 'autounattend.xml'))
-Assert ($vx -match '<Name>Tai</Name>' -and $vx -match 'S3cret&amp;&lt;pw&gt;' -and $vx -match 'BypassTPMCheck' -and $vx -match '<UserLocale>vi-VN</UserLocale>' -and [IO.File]::Exists((Join-W11Path (Join-W11Path $vt 'sources\$OEM$\$$\Setup\Scripts') 'W11D-FirstLogon.ps1')) -and $v.Log -notmatch 'S3cret' -and (Test-Path -LiteralPath (Join-Path $vt 'sources/boot.wim')) -and -not (Test-Path -LiteralPath (Join-Path $v.Work 'boot.work.wim'))) 'pipeline: generated autounattend.xml + first-logon script in the tree, password not in the log, boot.wim replaced by the serviced copy'
+Assert ($vx -match '<Name>Tai</Name>' -and $vx -match ('<Value>' + [regex]::Escape((ConvertTo-W11HiddenPassword 'S3cret&<pw>')) + '</Value>') -and $vx -match '<PlainText>false</PlainText>' -and $vx -match 'BypassTPMCheck' -and $vx -match '<UserLocale>vi-VN</UserLocale>' -and [IO.File]::Exists((Join-W11Path (Join-W11Path $vt 'sources\$OEM$\$$\Setup\Scripts') 'W11D-FirstLogon.ps1')) -and $v.Log -notmatch 'S3cret' -and (Test-Path -LiteralPath (Join-Path $vt 'sources/boot.wim')) -and -not (Test-Path -LiteralPath (Join-Path $v.Work 'boot.work.wim'))) 'pipeline: generated autounattend.xml + first-logon script in the tree, password not in the log, boot.wim replaced by the serviced copy'
 $ps = $pRes['preset']; $psc = @($ps.Calls)
 Assert (-not $ps.Err -and @($psc | Where-Object { $_ -match '/Mount-Image .*install\.work\.wim' }).Count -eq 2 -and @($psc | Where-Object { $_ -match '/Export-Image .*/Compress:recovery' }).Count -eq 2 -and @($psc | Where-Object { $_ -match '/StartComponentCleanup' -and $_ -notmatch 'ResetBase' }).Count -eq 2 -and @($psc | Where-Object { $_ -match '^tweaks .*TelemetryMinimum' -and $_ -notmatch 'LabConfigBypass' }).Count -eq 2) "pipeline -Preset aggressive: Home+Pro, ESD, component clean-up, aggressive tweaks without LabConfig ($($ps.Err))"
 
